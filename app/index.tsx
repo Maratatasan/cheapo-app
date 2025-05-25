@@ -1,6 +1,9 @@
 import { Text, View, Button } from "react-native";
+import { useRouter } from "expo-router";
 
 export default function Index() {
+  const router = useRouter();
+
   return (
     <View
       style={{
@@ -9,8 +12,12 @@ export default function Index() {
         alignItems: "center",
       }}
     >
-      <Text>Edit app/index.tsx to edit this screen. it works. I phone.</Text>
-      <Button title="Scan price" color="black" />
+      <Text>Edit app/index.tsx to edit this screen. it works. iPhone.</Text>
+      <Button
+        title="Scan price"
+        color="black"
+        onPress={() => router.push("/scan")}
+      />
     </View>
   );
 }
