@@ -49,3 +49,8 @@ Upgrade one Expo SDK at a time. For each SDK, follow the Expo upgrade guide, ins
 - `__tests__/` — mocked component tests
 
 Repository: [Maratatasan/cheapo-app](https://github.com/Maratatasan/cheapo-app)
+
+## AI development tools
+
+See [AI toolkit setup and verification](docs/ai-toolkit.md) for the installed Codex
+plugins, personal skills in `~/.codex/skills`, native-device checks, and update instructions.

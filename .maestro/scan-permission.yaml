@@ -1,0 +1,26 @@
+appId: host.exp.exponent
+---
+- openLink: exp://10.0.2.2:8081
+- runFlow:
+    when:
+      visible: "Take Picture of Price"
+    commands:
+      - back
+- runFlow:
+    when:
+      visible: "Grant Permission"
+    commands:
+      - back
+- assertVisible: "Edit app/index.tsx to edit this screen. it works. iPhone."
+- tapOn: "Scan price"
+- assertVisible: "Grant Permission|Take Picture of Price"
+- runFlow:
+    when:
+      visible: "Grant Permission"
+    commands:
+      - assertVisible: "We need your permission to show the camera"
+- runFlow:
+    when:
+      visible: "Take Picture of Price"
+    commands:
+      - assertVisible: "Flip Camera"
