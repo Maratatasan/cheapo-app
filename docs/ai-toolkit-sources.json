@@ -1,0 +1,35 @@
+{
+  "verifiedOn": "2026-11-09",
+  "codexCli": "0.167.0",
+  "plugins": [
+    {
+      "selector": "expo@expo-plugins",
+      "version": "1.14.3",
+      "repository": "https://github.com/expo/skills",
+      "revision": "a9e5bd3fa00b4e61f632e43f85da73aee1942582"
+    },
+    {
+      "selector": "building-react-native-apps@openai-curated-remote",
+      "version": "0.2.0"
+    },
+    {
+      "selector": "testing-react-native-apps@openai-curated-remote",
+      "version": "0.1.0"
+    }
+  ],
+  "standaloneTools": {
+    "agent-device": "0.21.36",
+    "maestro": "2.12.1"
+  },
+  "personalSkills": {
+    "repository": "https://github.com/mattpocock/skills",
+    "revision": "4ae2317ddb22b046e26455e4f9c9b3aaaf62212d",
+    "paths": [
+      "skills/engineering/tdd",
+      "skills/engineering/diagnosing-bugs",
+      "skills/engineering/codebase-design"
+    ],
+    "installationDirectory": "~/.codex/skills",
+    "licensePath": "~/.codex/skills/MATT-POCOCK-LICENSE"
+  }
+}
