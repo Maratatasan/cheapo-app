@@ -1,7 +1,7 @@
 import { createServer } from 'node:http';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
-import { beginAuth, opaque, equal, guard, validateIdToken, imageRequest, readCompleted, TOKEN, RESOURCE } from './core.mjs';
+import { beginAuth, opaque, equal, guard, validateIdToken, imageRequest, readCompleted, safeProviderFailure, TOKEN, RESOURCE } from './core.mjs';
 
 const port = Number(process.env.PORT || 8766);
 if (!Number.isInteger(port) || port < 1024 || port > 65535) throw Error('PORT must be 1024–65535');
@@ -104,15 +104,22 @@ const server = createServer(async (req, res) => {
         const request = imageRequest(await json(req), models);
         requireSession();
         const response = await remote(`${RESOURCE}/responses`, { method: 'POST', headers: { Authorization: `Bearer ${session.accessToken}`, 'Content-Type': 'application/json', Accept: 'text/event-stream' }, body: JSON.stringify(request) });
-        if (!response.ok || !response.headers.get('content-type')?.includes('text/event-stream')) throw Error('Draft request failed; account or model may not support this operation');
+        if (!response.ok) {
+          let payload;
+          try { payload = await response.json(); } catch { /* Some admission failures are not JSON. */ }
+          const error = Error('The provider rejected the draft request.');
+          error.diagnostics = safeProviderFailure(response.status, response.headers.get('x-request-id') || response.headers.get('openai-request-id'), payload);
+          throw error;
+        }
+        if (!response.headers.get('content-type')?.includes('text/event-stream')) throw Error('The provider did not start a response stream.');
         return reply(res, 200, { draft: await readCompleted(response.body) });
       } finally { busy = false; }
     }
     return reply(res, 404, { error: 'Not found' });
   } catch (error) {
     // Never forward provider bodies, callback URLs, tokens, or exception dumps.
-    const safe = new Set(['Sign in again to continue', 'ChatGPT plan usage was not authorized for this session', 'Choose a listed model', 'Image is too large', 'Use PNG, JPEG, or WebP', 'Image contents do not match image type', 'Request too large', 'A draft is already running', 'Model catalog unavailable for this account', 'Draft request failed; account or model may not support this operation', 'The model did not complete a draft', 'Stream ended without response.completed']);
-    reply(res, 400, { error: safe.has(error.message) ? error.message : 'Request failed. Return home and retry or sign in again.' });
+    const safe = new Set(['Sign in again to continue', 'ChatGPT plan usage was not authorized for this session', 'Choose a listed model', 'Image is too large', 'Use PNG, JPEG, or WebP', 'Image contents do not match image type', 'Request too large', 'A draft is already running', 'Model catalog unavailable for this account', 'The provider did not start a response stream.', 'The model did not complete a draft', 'Stream ended without response.completed']);
+    reply(res, 400, { error: error.diagnostics ? error.message : safe.has(error.message) ? error.message : 'Request failed. Return home and retry or sign in again.', ...(error.diagnostics ? { diagnostics: error.diagnostics } : {}) });
   }
 });
 server.requestTimeout = 130_000;

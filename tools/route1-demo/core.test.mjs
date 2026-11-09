@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { generateKeyPairSync, sign, createHash } from 'node:crypto';
-import { beginAuth, guard, imageRequest, readCompleted, validateIdToken } from './core.mjs';
+import { beginAuth, guard, imageRequest, readCompleted, safeProviderFailure, validateIdToken } from './core.mjs';
 
 test('fresh OAuth state, nonce, PKCE and exact callback with dynamic registration', () => {
   const hostId = 'urn:uuid:821e1a44-0f2d-4d0a-9354-52cbd8e1f937';
@@ -52,6 +52,12 @@ test('image request uses explicit model, schema, no storage and streaming', () =
   assert.throws(() => imageRequest({ model: 'unlisted', image }, ['model']));
   assert.throws(() => imageRequest({ model: 'model', image: 'data:image/png;base64,YmFk' }, ['model']));
   assert.throws(() => imageRequest({ model: 'model', image: 'x'.repeat(8_000_001) }, ['model']));
+});
+test('provider diagnostics retain safe status, code, field and request ID only', () => {
+  const diagnostic = safeProviderFailure(400, 'req_abc123', { error: { code: 'subscription_sharing_unsupported_capability', param: 'text.format' }, detail: 'must not be surfaced' });
+  assert.deepEqual(diagnostic, { status: 400, code: 'subscription_sharing_unsupported_capability', param: 'text.format', requestId: 'req_abc123' });
+  assert.deepEqual(safeProviderFailure(403, 'Bearer-secret', { error: { code: 'policy blocked (private)', param: 'image_url?secret' }, detail: 'private text' }), { status: 403 });
+  assert.deepEqual(safeProviderFailure(503, undefined, { detail: 'admission detail is not echoed' }), { status: 503 });
 });
 const draft = { product: 'Milk', price: 1.5, currency: 'GBP', uncertainty: '' };
 function response(content = [{ type: 'output_text', text: JSON.stringify(draft) }], status = 'completed') { return { type: 'response.completed', response: { status: 'completed', output: [{ type: 'message', role: 'assistant', status, content }] } }; }
