@@ -14,8 +14,11 @@ import { SafeAreaView } from "react-native-safe-area-context";
 export const CameraComponent = () => {
   const [facing, setFacing] = useState<CameraType>("back");
   const [permission, requestPermission] = useCameraPermissions();
-  const cameraRef = useRef<any>(null);
+  const cameraRef = useRef<CameraView>(null);
   const [photoUri, setPhotoUri] = useState<string | null>(null);
+  const [cameraReady, setCameraReady] = useState(false);
+  const [isTakingPhoto, setIsTakingPhoto] = useState(false);
+  const isTakingPhotoRef = useRef(false);
 
   if (!permission) return <View style={styles.container} />;
 
@@ -36,9 +39,20 @@ export const CameraComponent = () => {
   }
 
   const takePhoto = async () => {
-    if (cameraRef.current) {
+    if (!cameraReady || isTakingPhotoRef.current || !cameraRef.current) return;
+
+    isTakingPhotoRef.current = true;
+    setIsTakingPhoto(true);
+
+    try {
       const photo = await cameraRef.current.takePictureAsync();
+      setCameraReady(false);
       setPhotoUri(photo.uri);
+    } catch {
+      Alert.alert("Unable to take photo", "Please try again.");
+    } finally {
+      isTakingPhotoRef.current = false;
+      setIsTakingPhoto(false);
     }
   };
 
@@ -79,15 +93,28 @@ export const CameraComponent = () => {
             style={StyleSheet.absoluteFill}
             facing={facing}
             ref={cameraRef}
+            onCameraReady={() => setCameraReady(true)}
           />
           <SafeAreaView style={styles.overlay}>
-            <TouchableOpacity style={styles.button} onPress={takePhoto}>
-              <Text style={styles.buttonText}>Take Picture of Price</Text>
+            <TouchableOpacity
+              style={styles.button}
+              onPress={takePhoto}
+              disabled={!cameraReady || isTakingPhoto}
+            >
+              <Text style={styles.buttonText}>
+                {!cameraReady
+                  ? "Preparing camera…"
+                  : isTakingPhoto
+                    ? "Taking picture…"
+                    : "Take Picture of Price"}
+              </Text>
             </TouchableOpacity>
 
             <TouchableOpacity
               style={[styles.button, { marginTop: 12 }]}
+              disabled={isTakingPhoto}
               onPress={() => {
+                setCameraReady(false);
                 setFacing((current) => (current === "back" ? "front" : "back"));
               }}
             >
