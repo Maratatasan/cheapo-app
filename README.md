@@ -1,50 +1,51 @@
-# Welcome to your Expo app 👋
+# Cheapo
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Cheapo is a small Expo app for capturing a price photo. The home screen links to the scan screen, which requests camera permission, opens the camera, and lets you capture a photo, preview it, or retake it.
 
-## Get started
+## Runtime
 
-1. Install dependencies
+The project targets Expo SDK 58, React Native 0.88.1, React 19.3, and TypeScript 6.0.3. Use Node.js 24.22.2 (recorded in `.nvmrc`) and pnpm 10.11.0.
 
-   ```bash
-   npm install
-   ```
+## Set up and run
 
-2. Start the app
-
-   ```bash
-    npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
-
-```bash
-npm run reset-project
+```sh
+nvm use
+pnpm install --frozen-lockfile
+pnpm start
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+Open the Expo development server and choose a platform, or run a platform command directly:
 
-## Learn more
+```sh
+pnpm ios
+pnpm android
+pnpm web
+```
 
-To learn more about developing your project with Expo, look at the following resources:
+## Checks
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+```sh
+pnpm typecheck
+pnpm lint
+pnpm test
+pnpm test:watch
+```
 
-## Join the community
+The camera tests mock the native camera and permission APIs; they cover app behavior, not device camera hardware. Real photo capture should be checked on a physical device. iOS Simulator does not provide a working camera for this flow.
 
-Join our community of developers creating universal apps.
+## Camera behavior
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+The scan screen asks for camera permission when needed. Once granted, it shows the camera preview and capture control. A captured photo is shown with **Retake** and **Upload Photo** actions. **Upload Photo** is currently a stub: it logs the local photo URI, shows a confirmation alert, and returns to the camera. It does not send a photo to a server.
+
+## Expo upgrades
+
+Upgrade one Expo SDK at a time. For each SDK, follow the Expo upgrade guide, install the matching package versions with `npx expo install --fix`, then run `npx expo-doctor` and the project checks above. Review the SDK release notes for breaking changes before moving to the next SDK. Rebuild native development clients after changes to native modules or app configuration.
+
+## Project layout
+
+- `app/index.tsx` — home screen and link to scanning
+- `app/scan.tsx` — scan route
+- `component/camera.tsx` — permissions, camera, photo preview, and upload stub
+- `__tests__/` — mocked component tests
+
+Repository: [Maratatasan/cheapo-app](https://github.com/Maratatasan/cheapo-app)
