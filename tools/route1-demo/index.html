@@ -1,0 +1,11 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta name="csrf" content="__CSRF__"><title>Cheapo local route demo</title>
+<style>body{font:17px system-ui;max-width:680px;margin:40px auto;padding:0 20px;background:#faf8f1;color:#25251f}button,select,input{font:inherit;margin:10px 0;padding:10px}button{cursor:pointer}pre{white-space:pre-wrap;background:#fff;padding:20px;border:1px solid #ccc}img{max-width:100%;max-height:280px}label{display:block}small{display:block;line-height:1.6}</style>
+<h1>Cheapo local route demo</h1><p>Experimental desktop checkpoint. Product route undecided.</p>
+<p>Sign in with ChatGPT to inspect your account’s model catalog and explicitly request one price draft. Access and plan usage depend on your account; this demo does not guarantee eligibility or quota.</p>
+<small>Tokens stay in this process’s memory. Restart or expiry requires sign-in again. A draft sends your selected image to OpenAI and may consume plan usage. This tool creates no database records. The result needs human review.</small>
+<button id="signin">Sign in with ChatGPT</button> <button id="logout">Forget local session</button>
+<p id="status" role="status">Checking local session…</p>
+<button id="models" disabled>Load model catalog</button>
+<form id="draft"><label>Model <select id="model" required><option value="">Load catalog first</option></select></label><small>Catalog visibility does not guarantee image or structured-output support.</small>
+<label>Test price-label image <input id="image" type="file" accept="image/png,image/jpeg,image/webp" required></label><img id="preview" hidden alt="Selected test image"><p><button id="submit" disabled>Send image and draft price</button></p></form>
+<h2>Draft for review</h2><pre id="result">No draft requested.</pre><script src="/app.js"></script></html>
