@@ -2,6 +2,19 @@
 const el = id => document.getElementById(id);
 const csrf = document.querySelector('meta[name="csrf"]').content;
 const show = message => { el('status').textContent = message; };
+function diagnosticText(d) {
+  if (!d) return '';
+  const fields = [Number.isInteger(d.status) ? `HTTP ${d.status}` : '', d.contentType ? `type ${d.contentType}` : '', d.responseStatus ? `response ${d.responseStatus}` : '', d.code ? `code ${d.code}` : '', d.param ? `field ${d.param}` : '', d.requestId ? `request ${d.requestId}` : '', typeof d.redirected === 'boolean' ? `redirected ${d.redirected}` : '', d.finalOrigin ? `origin ${d.finalOrigin}` : ''].filter(Boolean).join(' · ');
+  if (d.kind === 'responses_object' && d.responseStatus === 'completed') return `The provider returned a completed JSON response instead of the documented event stream. The demo failed closed and did not accept its output.${fields ? ` (${fields})` : ''}`;
+  if (d.kind === 'html') return `The provider returned an HTML page instead of an event stream.${fields ? ` (${fields})` : ''}`;
+  if (d.kind === 'empty') return `The provider returned an empty body instead of an event stream.${fields ? ` (${fields})` : ''}`;
+  if (d.code === 'subscription_sharing_unsupported_capability') return `The plan route rejected a model or request capability. Do not retry unchanged.${fields ? ` (${fields})` : ''}`;
+  if (d.code === 'subscription_sharing_user_not_eligible') return `This account, workspace, or policy is not eligible for ChatGPT plan usage. Do not retry the same request.${fields ? ` (${fields})` : ''}`;
+  if (d.code === 'subscription_sharing_usage_limit_exceeded') return `A ChatGPT plan usage limit was reached. Check ChatGPT settings → Usage before trying again.${fields ? ` (${fields})` : ''}`;
+  if (d.code === 'subscription_sharing_usage_unavailable') return `ChatGPT plan usage is temporarily unavailable. Wait before trying again.${fields ? ` (${fields})` : ''}`;
+  if (d.kind?.startsWith('response.')) return `The response stream ended without an accepted completed draft.${fields ? ` (${fields})` : ''}`;
+  return `Provider response could not be accepted as a streamed draft.${fields ? ` (${fields})` : ''}`;
+}
 let image;
 async function post(path, data = {}) {
   const response = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf }, body: JSON.stringify(data) });
@@ -28,6 +41,7 @@ async function refresh() {
     el('signin').textContent = 'Retry ChatGPT sign-in';
     show('Identity: verified · ChatGPT plan permission: unavailable. Enable plan usage in ChatGPT settings, then retry sign-in. Identity alone does not authorize AI requests.');
   }
+  if (status.lastDiagnostic) show(`${el('status').textContent} Last request: ${diagnosticText(status.lastDiagnostic)}`);
 }
 el('signin').onclick = async () => { try { const result = await post('/auth/start'); location.assign(result.url); } catch (error) { show(error.message); } };
 el('logout').onclick = async () => { try { await post('/logout'); el('model').replaceChildren(new Option('Load catalog first', '')); el('result').textContent = 'Local session forgotten.'; await refresh(); } catch (error) { show(error.message); } };
@@ -50,20 +64,7 @@ el('draft').onsubmit = async event => {
     el('result').textContent = 'No completed draft available.';
     const d = error.diagnostics;
     if (!d) show(error.message);
-    else {
-      const known = {
-        subscription_sharing_user_not_eligible: 'This account, workspace, or policy is not eligible for ChatGPT plan usage. Do not retry the same request.',
-        subscription_sharing_usage_limit_exceeded: 'A ChatGPT plan usage limit was reached. Check ChatGPT settings → Usage before trying again.',
-        subscription_sharing_usage_unavailable: 'ChatGPT plan usage is temporarily unavailable. Wait before trying again.',
-        subscription_sharing_unsupported_capability: 'The request contains a model or feature the plan route does not support. The field below can help identify it; do not retry unchanged.',
-        subscription_sharing_route_not_supported: 'This route is not enabled for this integration.',
-        chatpass_v2_scope_not_authorized: 'The current authorization does not permit this operation. Sign-in permissions may need review.',
-        chatpass_v2_invalid_authorization_context: 'The current authorization context does not permit this operation. Sign-in permissions may need review.'
-      };
-      const details = [Number.isInteger(d.status) ? `HTTP ${d.status}` : '', d.code ? `code ${d.code}` : '', d.param ? `field ${d.param}` : '', d.requestId ? `request ${d.requestId}` : ''].filter(Boolean).join(' · ');
-      const reason = known[d.code] || 'The provider rejected the request before streaming. The status and safe error identifiers below can distinguish a request-format issue from account or route availability.';
-      show(`${reason}${details ? ` (${details})` : ''}`);
-    }
+    else show(diagnosticText(d));
   }
   finally { el('submit').disabled = false; }
 };

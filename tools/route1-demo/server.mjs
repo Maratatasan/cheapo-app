@@ -21,7 +21,7 @@ try {
 } catch (error) { if (error.code !== 'ENOENT') throw Error('Local registration metadata is unreadable; remove tools/route1-demo/.state/registration.json and restart'); }
 const origin = `http://127.0.0.1:${port}`;
 const sessionId = opaque(), csrf = opaque();
-let flow, session, models = [], busy = false;
+let flow, session, models = [], busy = false, lastDiagnostic;
 const html = (await readFile(new URL('./index.html', import.meta.url), 'utf8')).replace('__CSRF__', csrf);
 function reply(res, status, data, type = 'application/json') {
   res.writeHead(status, { 'Content-Type': `${type}; charset=utf-8`, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer', 'X-Frame-Options': 'DENY', 'Content-Security-Policy': "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; form-action 'self'; base-uri 'none'" });
@@ -34,6 +34,29 @@ async function json(req) {
 }
 async function remote(url, options = {}) {
   return fetch(url, { ...options, redirect: 'error', signal: AbortSignal.timeout(120_000) });
+}
+async function safeJsonBody(response) {
+  const type = response.headers.get('content-type')?.split(';', 1)[0].trim().toLowerCase() || '';
+  if (!(type === 'application/json' || type.endsWith('+json'))) return { payload: undefined, kind: type === 'text/html' ? 'html' : Number(response.headers.get('content-length')) === 0 ? 'empty' : 'unknown' };
+  const reader = response.body?.getReader();
+  if (!reader) return { payload: undefined, kind: 'empty' };
+  const chunks = []; let size = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read(); if (done) break;
+      size += value.byteLength;
+      if (size > 128_000) { await reader.cancel(); return { payload: undefined, kind: 'json_too_large' }; }
+      chunks.push(value);
+    }
+  } finally { reader.releaseLock(); }
+  if (!size) return { payload: undefined, kind: 'empty' };
+  try { return { payload: JSON.parse(Buffer.concat(chunks).toString('utf8')) }; }
+  catch { return { payload: undefined, kind: 'invalid_json' }; }
+}
+function providerDiagnostics(response, body) {
+  return safeProviderFailure(response.status, response.headers.get('x-request-id') || response.headers.get('openai-request-id'), body.payload, response.headers.get('content-type'), {
+    kind: body.kind, redirected: response.redirected, finalOrigin: response.url
+  });
 }
 function requireSession() {
   if (!session || session.expires <= Date.now()) { session = undefined; models = []; throw Error('Sign in again to continue'); }
@@ -81,7 +104,7 @@ const server = createServer(async (req, res) => {
       models = [];
       res.writeHead(303, { Location: '/', 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' }); return res.end();
     }
-    if (req.method === 'GET' && url.pathname === '/status') return reply(res, 200, { signedIn: Boolean(session && session.expires > Date.now()), inferenceAllowed: Boolean(session?.accessToken && session.expires > Date.now() && session.scopes.has('resource.invoke') && session.scopes.has('chatgpt.tokens.use.direct')) });
+    if (req.method === 'GET' && url.pathname === '/status') return reply(res, 200, { signedIn: Boolean(session && session.expires > Date.now()), inferenceAllowed: Boolean(session?.accessToken && session.expires > Date.now() && session.scopes.has('resource.invoke') && session.scopes.has('chatgpt.tokens.use.direct')), lastDiagnostic });
     if (req.method === 'POST' && url.pathname === '/auth/start') {
       await json(req);
       const started = beginAuth({ port, hostId, clientId: registeredClientId }); flow = started.flow;
@@ -105,20 +128,27 @@ const server = createServer(async (req, res) => {
         requireSession();
         const response = await remote(`${RESOURCE}/responses`, { method: 'POST', headers: { Authorization: `Bearer ${session.accessToken}`, 'Content-Type': 'application/json', Accept: 'text/event-stream' }, body: JSON.stringify(request) });
         if (!response.ok) {
-          let payload;
-          try { payload = await response.json(); } catch { /* Some admission failures are not JSON. */ }
+          const body = await safeJsonBody(response);
           const error = Error('The provider rejected the draft request.');
-          error.diagnostics = safeProviderFailure(response.status, response.headers.get('x-request-id') || response.headers.get('openai-request-id'), payload);
+          error.diagnostics = providerDiagnostics(response, body);
           throw error;
         }
-        if (!response.headers.get('content-type')?.includes('text/event-stream')) throw Error('The provider did not start a response stream.');
-        return reply(res, 200, { draft: await readCompleted(response.body) });
+        const contentType = response.headers.get('content-type') || '';
+        if (!contentType.toLowerCase().startsWith('text/event-stream')) {
+          const body = await safeJsonBody(response);
+          const error = Error('The provider returned a non-stream response; no draft was accepted.');
+          error.diagnostics = providerDiagnostics(response, body);
+          throw error;
+        }
+        lastDiagnostic = undefined;
+        return reply(res, 200, { draft: await readCompleted(response.body, { status: response.status, contentType, requestId: response.headers.get('x-request-id') || response.headers.get('openai-request-id') }) });
       } finally { busy = false; }
     }
     return reply(res, 404, { error: 'Not found' });
   } catch (error) {
     // Never forward provider bodies, callback URLs, tokens, or exception dumps.
-    const safe = new Set(['Sign in again to continue', 'ChatGPT plan usage was not authorized for this session', 'Choose a listed model', 'Image is too large', 'Use PNG, JPEG, or WebP', 'Image contents do not match image type', 'Request too large', 'A draft is already running', 'Model catalog unavailable for this account', 'The provider did not start a response stream.', 'The model did not complete a draft', 'Stream ended without response.completed']);
+    if (error.diagnostics) lastDiagnostic = error.diagnostics;
+    const safe = new Set(['Sign in again to continue', 'ChatGPT plan usage was not authorized for this session', 'Choose a listed model', 'Image is too large', 'Use PNG, JPEG, or WebP', 'Image contents do not match image type', 'Request too large', 'A draft is already running', 'Model catalog unavailable for this account', 'The provider returned a non-stream response; no draft was accepted.', 'The model did not complete a draft', 'Stream ended without response.completed']);
     reply(res, 400, { error: error.diagnostics ? error.message : safe.has(error.message) ? error.message : 'Request failed. Return home and retry or sign in again.', ...(error.diagnostics ? { diagnostics: error.diagnostics } : {}) });
   }
 });

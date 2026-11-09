@@ -55,9 +55,14 @@ test('image request uses explicit model, schema, no storage and streaming', () =
 });
 test('provider diagnostics retain safe status, code, field and request ID only', () => {
   const diagnostic = safeProviderFailure(400, 'req_abc123', { error: { code: 'subscription_sharing_unsupported_capability', param: 'text.format' }, detail: 'must not be surfaced' });
-  assert.deepEqual(diagnostic, { status: 400, code: 'subscription_sharing_unsupported_capability', param: 'text.format', requestId: 'req_abc123' });
-  assert.deepEqual(safeProviderFailure(403, 'Bearer-secret', { error: { code: 'policy blocked (private)', param: 'image_url?secret' }, detail: 'private text' }), { status: 403 });
-  assert.deepEqual(safeProviderFailure(503, undefined, { detail: 'admission detail is not echoed' }), { status: 503 });
+  assert.deepEqual(diagnostic, { status: 400, kind: 'error_object', code: 'subscription_sharing_unsupported_capability', param: 'text.format', requestId: 'req_abc123' });
+  assert.deepEqual(safeProviderFailure(403, 'Bearer-secret', { error: { code: 'policy blocked (private)', param: 'image_url?secret' }, detail: 'private text' }), { status: 403, kind: 'error_object' });
+  assert.deepEqual(safeProviderFailure(503, undefined, { detail: 'admission detail is not echoed' }), { status: 503, kind: 'other_json' });
+  const completed = safeProviderFailure(200, 'req_z1234', { object: 'response', status: 'completed', output: [{ type: 'message', content: [{ text: 'private output' }] }] }, 'application/json; charset=utf-8', { redirected: false, finalOrigin: 'https://api.openai.com/v1/responses?secret=hidden' });
+  assert.deepEqual(completed, { status: 200, contentType: 'application/json', kind: 'responses_object', responseStatus: 'completed', requestId: 'req_z1234', redirected: false, finalOrigin: 'https://api.openai.com' });
+  assert.deepEqual(safeProviderFailure(200, undefined, undefined, 'text/html; charset=utf-8', { kind: 'html', redirected: false }), { status: 200, contentType: 'text/html', kind: 'html', redirected: false });
+  assert.deepEqual(safeProviderFailure(200, undefined, undefined, '', { kind: 'empty' }), { status: 200, kind: 'empty' });
+  assert.deepEqual(safeProviderFailure(200, undefined, undefined, 'application/octet-stream', { kind: 'unknown' }), { status: 200, contentType: 'application/octet-stream', kind: 'unknown' });
 });
 const draft = { product: 'Milk', price: 1.5, currency: 'GBP', uncertainty: '' };
 function response(content = [{ type: 'output_text', text: JSON.stringify(draft) }], status = 'completed') { return { type: 'response.completed', response: { status: 'completed', output: [{ type: 'message', role: 'assistant', status, content }] } }; }
@@ -65,4 +70,19 @@ async function* stream(events) { const bytes = Buffer.from(events.map(event => `
 test('stream yields only a completed assistant price draft', async () => {
   assert.deepEqual(await readCompleted(stream([{ type: 'response.output_text.delta', delta: 'partial' }, response()])), draft);
   for (const events of [[{ type: 'response.output_text.done', text: JSON.stringify(draft) }], [{ type: 'error' }], [{ type: 'response.failed' }], [{ type: 'response.incomplete' }], [{ type: 'response.refusal.delta', delta: 'No' }, response()], [{ type: 'response.refusal.done' }, response()], [response([{ type: 'refusal', refusal: 'No' }])], [response(undefined, 'in_progress')], [response([{ type: 'output_text', text: JSON.stringify({ ...draft, price: -1 }) }])]]) await assert.rejects(readCompleted(stream(events)));
+});
+test('stream failure keeps only safe code/param and HTTP metadata', async () => {
+  const failed = { type: 'response.failed', response: { status: 'failed', error: { code: 'subscription_sharing_usage_unavailable', param: null, message: 'private provider detail' } } };
+  await assert.rejects(readCompleted(stream([failed]), { status: 200, contentType: 'text/event-stream', requestId: 'req_stream123' }), error => {
+    assert.deepEqual(error.diagnostics, { status: 200, contentType: 'text/event-stream', kind: 'response.failed', responseStatus: 'failed', code: 'subscription_sharing_usage_unavailable', requestId: 'req_stream123' });
+    return true;
+  });
+  await assert.rejects(readCompleted(stream([{ type: 'response.completed', response: { status: 'incomplete', error: { code: 'subscription_sharing_usage_unavailable' } } }]), { status: 200, contentType: 'text/event-stream', requestId: 'req_stream123' }), error => {
+    assert.deepEqual(error.diagnostics, { status: 200, contentType: 'text/event-stream', kind: 'response_not_completed', responseStatus: 'incomplete', code: 'subscription_sharing_usage_unavailable', requestId: 'req_stream123' });
+    return true;
+  });
+  await assert.rejects(readCompleted(stream([]), { status: 200, contentType: 'text/event-stream' }), error => {
+    assert.deepEqual(error.diagnostics, { status: 200, contentType: 'text/event-stream', kind: 'stream_ended' });
+    return true;
+  });
 });
