@@ -14,7 +14,8 @@
   },
   "jest": {
     "preset": "jest-expo",
-    "watchman": false
+    "watchman": false,
+    "testPathIgnorePatterns": ["/node_modules/", "<rootDir>/tools/route1-demo/"]
   },
   "dependencies": {
     "@expo/dom-webview": "~58.0.2",

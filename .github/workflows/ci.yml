@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [main]
   push:
-    branches: [main]
+    branches: [main, codex/route1-feasibility]
   workflow_dispatch:
 
 permissions:
@@ -45,6 +45,9 @@ jobs:
 
       - name: Run tests
         run: pnpm test
+
+      - name: Run Route 1 demo tests
+        run: node --test tools/route1-demo/*.test.mjs
 
       - name: Check Expo dependency compatibility
         run: pnpm exec expo install --check

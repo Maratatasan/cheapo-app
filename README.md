@@ -50,6 +50,9 @@ Upgrade one Expo SDK at a time. For each SDK, follow the Expo upgrade guide, ins
 
 Repository: [Maratatasan/cheapo-app](https://github.com/Maratatasan/cheapo-app)
 
+Route 1 Sign in with ChatGPT plan-usage feasibility is tracked in
+[docs/route1-feasibility.md](docs/route1-feasibility.md).
+
 ## AI development tools
 
 See [AI toolkit setup and verification](docs/ai-toolkit.md) for the installed Codex
