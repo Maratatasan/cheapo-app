@@ -53,6 +53,14 @@ describe("CameraComponent", () => {
     expect(mockRequestPermission).toHaveBeenCalledTimes(1);
   });
 
+  it("shows no camera controls while the permission response is loading", async () => {
+    mockPermission = null;
+    await render(<CameraComponent />);
+
+    expect(screen.queryByText("Grant Permission")).toBeNull();
+    expect(screen.queryByTestId("camera-preview")).toBeNull();
+  });
+
   it("captures a photo and returns to the camera when Retake is pressed", async () => {
     mockPermission = { granted: true };
     mockTakePictureAsync.mockResolvedValue({ uri: "file:///test-photo.jpg" });
@@ -94,5 +102,26 @@ describe("CameraComponent", () => {
       );
     });
     expect(screen.getByText("Take Picture of Price")).toBeTruthy();
+  });
+
+  it("returns to the camera after the upload stub confirms the photo", async () => {
+    mockPermission = { granted: true };
+    mockTakePictureAsync.mockResolvedValue({ uri: "file:///test-photo.jpg" });
+    const alertSpy = jest.spyOn(Alert, "alert").mockImplementation(() => {});
+    const logSpy = jest.spyOn(console, "log").mockImplementation(() => {});
+    await render(<CameraComponent />);
+
+    await fireEvent(screen.getByTestId("camera-preview"), "cameraReady");
+    await fireEvent.press(screen.getByText("Take Picture of Price"));
+    await screen.findByText("Upload Photo");
+    await fireEvent.press(screen.getByText("Upload Photo"));
+
+    expect(logSpy).toHaveBeenCalledWith("Uploading photo:", "file:///test-photo.jpg");
+    expect(alertSpy).toHaveBeenCalledWith(
+      "✅ Photo uploaded!",
+      "file:///test-photo.jpg",
+    );
+    expect(screen.getByTestId("camera-preview")).toBeTruthy();
+    expect(screen.queryByText("Upload Photo")).toBeNull();
   });
 });
