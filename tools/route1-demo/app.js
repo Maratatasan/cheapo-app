@@ -12,6 +12,12 @@ function diagnosticText(d) {
   if (d.kind === 'responses_object' && d.responseStatus === 'completed') return `The provider returned a completed JSON response instead of the documented event stream. The demo failed closed and did not accept its output.${fields ? ` (${fields})` : ''}`;
   if (d.kind === 'html') return `The provider returned an HTML page instead of an event stream.${fields ? ` (${fields})` : ''}`;
   if (d.kind === 'empty') return `The provider returned an empty body instead of an event stream.${fields ? ` (${fields})` : ''}`;
+  if (d.kind === 'event_stream_body') return `The body contained event-stream framing, but the HTTP Content-Type was missing or not text/event-stream. The demo did not accept it.${d.eventTypes?.length ? ` Events: ${d.eventTypes.join(', ')}.` : ''}${fields ? ` (${fields})` : ''}`;
+  if (d.kind === 'stream_empty') return `The provider opened an event-stream response but sent zero event bytes.${fields ? ` (${fields})` : ''}`;
+  if (d.kind === 'stream_ended') return `The event stream ended without a response.completed event.${fields ? ` (${fields})` : ''}`;
+  if (d.kind === 'unclassified_body') return `The provider returned a non-JSON body that was not an event stream. Its contents are intentionally hidden.${fields ? ` (${fields})` : ''}`;
+  if (d.kind === 'invalid_json') return `The provider labeled its response as JSON, but the bounded body was not valid JSON.${fields ? ` (${fields})` : ''}`;
+  if (d.kind === 'body_too_large') return `The provider response exceeded the local diagnostic size limit and was not inspected.${fields ? ` (${fields})` : ''}`;
   if (d.code === 'subscription_sharing_unsupported_capability') return `The plan route rejected a model or request capability. Do not retry unchanged.${fields ? ` (${fields})` : ''}`;
   if (d.code === 'subscription_sharing_user_not_eligible') return `This account, workspace, or policy is not eligible for ChatGPT plan usage. Do not retry the same request.${fields ? ` (${fields})` : ''}`;
   if (d.code === 'subscription_sharing_usage_limit_exceeded') return `A ChatGPT plan usage limit was reached. Check ChatGPT settings → Usage before trying again.${fields ? ` (${fields})` : ''}`;

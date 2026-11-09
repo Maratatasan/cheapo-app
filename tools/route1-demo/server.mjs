@@ -1,7 +1,7 @@
 import { createServer } from 'node:http';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
-import { beginAuth, opaque, equal, guard, validateIdToken, imageRequest, readCompleted, safeProviderFailure, TOKEN, RESOURCE } from './core.mjs';
+import { beginAuth, opaque, equal, guard, validateIdToken, imageRequest, readCompleted, inspectProviderResponse, TOKEN, RESOURCE } from './core.mjs';
 
 const port = Number(process.env.PORT || 8766);
 if (!Number.isInteger(port) || port < 1024 || port > 65535) throw Error('PORT must be 1024–65535');
@@ -35,29 +35,6 @@ async function json(req) {
 }
 async function remote(url, options = {}) {
   return fetch(url, { ...options, redirect: 'error', signal: AbortSignal.timeout(120_000) });
-}
-async function safeJsonBody(response) {
-  const type = response.headers.get('content-type')?.split(';', 1)[0].trim().toLowerCase() || '';
-  if (!(type === 'application/json' || type.endsWith('+json'))) return { payload: undefined, kind: type === 'text/html' ? 'html' : Number(response.headers.get('content-length')) === 0 ? 'empty' : 'unknown' };
-  const reader = response.body?.getReader();
-  if (!reader) return { payload: undefined, kind: 'empty' };
-  const chunks = []; let size = 0;
-  try {
-    while (true) {
-      const { done, value } = await reader.read(); if (done) break;
-      size += value.byteLength;
-      if (size > 128_000) { await reader.cancel(); return { payload: undefined, kind: 'json_too_large' }; }
-      chunks.push(value);
-    }
-  } finally { reader.releaseLock(); }
-  if (!size) return { payload: undefined, kind: 'empty' };
-  try { return { payload: JSON.parse(Buffer.concat(chunks).toString('utf8')) }; }
-  catch { return { payload: undefined, kind: 'invalid_json' }; }
-}
-function providerDiagnostics(response, body) {
-  return safeProviderFailure(response.status, response.headers.get('x-request-id') || response.headers.get('openai-request-id'), body.payload, response.headers.get('content-type'), {
-    kind: body.kind, redirected: response.redirected, finalOrigin: response.url
-  });
 }
 function requireSession() {
   if (!session || session.expires <= Date.now()) { session = undefined; models = []; throw Error('Sign in again to continue'); }
@@ -136,19 +113,13 @@ const server = createServer(async (req, res) => {
         const request = imageRequest(await json(req), models);
         requireSession();
         const response = await remote(`${RESOURCE}/responses`, { method: 'POST', headers: { Authorization: `Bearer ${session.accessToken}`, 'Content-Type': 'application/json', Accept: 'text/event-stream' }, body: JSON.stringify(request) });
-        if (!response.ok) {
-          const body = await safeJsonBody(response);
-          const error = Error('The provider rejected the draft request.');
-          error.diagnostics = providerDiagnostics(response, body);
+        const inspected = await inspectProviderResponse(response);
+        if (!inspected.isStream) {
+          const error = Error(response.ok ? 'The provider returned a non-stream response; no draft was accepted.' : 'The provider rejected the draft request.');
+          error.diagnostics = inspected.diagnostics;
           throw error;
         }
         const contentType = response.headers.get('content-type') || '';
-        if (!contentType.toLowerCase().startsWith('text/event-stream')) {
-          const body = await safeJsonBody(response);
-          const error = Error('The provider returned a non-stream response; no draft was accepted.');
-          error.diagnostics = providerDiagnostics(response, body);
-          throw error;
-        }
         lastDiagnostic = undefined;
         return reply(res, 200, { draft: await readCompleted(response.body, { status: response.status, contentType, requestId: response.headers.get('x-request-id') || response.headers.get('openai-request-id') }) });
       } finally { busy = false; }

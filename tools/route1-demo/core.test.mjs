@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { generateKeyPairSync, sign, createHash } from 'node:crypto';
-import { beginAuth, guard, imageRequest, readCompleted, safeProviderFailure, validateIdToken } from './core.mjs';
+import { beginAuth, guard, imageRequest, inspectProviderResponse, readCompleted, readSafeProviderBody, safeProviderFailure, validateIdToken } from './core.mjs';
 
 test('fresh OAuth state, nonce, PKCE and exact callback with dynamic registration', () => {
   const hostId = 'urn:uuid:821e1a44-0f2d-4d0a-9354-52cbd8e1f937';
@@ -64,6 +64,45 @@ test('provider diagnostics retain safe status, code, field and request ID only',
   assert.deepEqual(safeProviderFailure(200, undefined, undefined, '', { kind: 'empty' }), { status: 200, kind: 'empty' });
   assert.deepEqual(safeProviderFailure(200, undefined, undefined, 'application/octet-stream', { kind: 'unknown' }), { status: 200, contentType: 'application/octet-stream', kind: 'unknown' });
 });
+test('body classification reads bounded bytes when content type and length are absent', async () => {
+  const jsonBody = new Response(Buffer.from(JSON.stringify({ object: 'response', status: 'completed', output: [{ type: 'message' }] })));
+  assert.equal(jsonBody.headers.get('content-type'), null);
+  assert.equal(jsonBody.headers.get('content-length'), null);
+  const parsed = await readSafeProviderBody(jsonBody);
+  assert.equal(parsed.payload.status, 'completed');
+  assert.equal(safeProviderFailure(200, undefined, parsed.payload, null, { kind: parsed.kind }).kind, 'responses_object');
+  assert.deepEqual(await readSafeProviderBody(new Response(null)), { kind: 'empty' });
+  assert.deepEqual(await readSafeProviderBody(new Response(Buffer.from('<html>private page</html>'))), { kind: 'html' });
+  assert.deepEqual(await readSafeProviderBody(new Response(Buffer.from('private plain text'))), { kind: 'unclassified_body' });
+  assert.deepEqual(await readSafeProviderBody(new Response(Buffer.from('x'.repeat(129))), 128), { kind: 'body_too_large' });
+  const sse = await readSafeProviderBody(new Response(Buffer.from('data: {"type":"response.completed","response":{"status":"completed","output":[{"type":"message","content":[{"text":"private output"}]}]}}\n\n')));
+  assert.equal(sse.kind, 'event_stream_body');
+  assert.deepEqual(sse.eventTypes, ['response.completed']);
+  assert.deepEqual(sse.payload, { status: 'completed' });
+  assert.deepEqual(safeProviderFailure(200, 'req_sse123', sse.payload, null, { kind: sse.kind, eventTypes: sse.eventTypes }), { status: 200, kind: 'event_stream_body', responseStatus: 'completed', requestId: 'req_sse123', eventTypes: ['response.completed'] });
+});
+test('provider response inspection handles missing headers without consuming valid SSE', async () => {
+  const metadata = (response, url = 'https://api.openai.com/v1/responses') => {
+    Object.defineProperty(response, 'url', { value: url });
+    Object.defineProperty(response, 'redirected', { value: false });
+    return response;
+  };
+  const noHeadersJson = metadata(new Response(Buffer.from(JSON.stringify({ object: 'response', status: 'completed', output: [] }))));
+  const jsonResult = await inspectProviderResponse(noHeadersJson);
+  assert.equal(jsonResult.isStream, false);
+  assert.deepEqual(jsonResult.diagnostics, { status: 200, kind: 'responses_object', responseStatus: 'completed', redirected: false, finalOrigin: 'https://api.openai.com' });
+  const emptyResult = await inspectProviderResponse(metadata(new Response(null)));
+  assert.equal(emptyResult.diagnostics.kind, 'empty');
+  const noHeaderSse = metadata(new Response(Buffer.from('data: {"type":"response.completed","response":{"status":"completed"}}\n\n')));
+  const sseResult = await inspectProviderResponse(noHeaderSse);
+  assert.equal(sseResult.diagnostics.kind, 'event_stream_body');
+  assert.deepEqual(sseResult.diagnostics.eventTypes, ['response.completed']);
+  const properStream = metadata(new Response(Buffer.from('data: {"type":"response.completed"}\n\n'), { headers: { 'content-type': 'text/event-stream; charset=utf-8' } }));
+  assert.deepEqual(await inspectProviderResponse(properStream), { isStream: true });
+  assert.equal(properStream.bodyUsed, false);
+  const failed = metadata(new Response(Buffer.from(JSON.stringify({ error: { code: 'subscription_sharing_unsupported_capability', param: 'text.format', message: 'hidden' } })), { status: 400, headers: { 'x-request-id': 'req_mock123' } }));
+  assert.deepEqual((await inspectProviderResponse(failed)).diagnostics, { status: 400, kind: 'error_object', code: 'subscription_sharing_unsupported_capability', param: 'text.format', requestId: 'req_mock123', redirected: false, finalOrigin: 'https://api.openai.com' });
+});
 const draft = { product: 'Milk', price: 1.5, currency: 'GBP', uncertainty: '' };
 function response(content = [{ type: 'output_text', text: JSON.stringify(draft) }], status = 'completed') { return { type: 'response.completed', response: { status: 'completed', output: [{ type: 'message', role: 'assistant', status, content }] } }; }
 async function* stream(events) { const bytes = Buffer.from(events.map(event => `data: ${JSON.stringify(event)}\n\n`).join('')); for (let i = 0; i < bytes.length; i += 11) yield bytes.subarray(i, i + 11); }
@@ -82,7 +121,7 @@ test('stream failure keeps only safe code/param and HTTP metadata', async () => 
     return true;
   });
   await assert.rejects(readCompleted(stream([]), { status: 200, contentType: 'text/event-stream' }), error => {
-    assert.deepEqual(error.diagnostics, { status: 200, contentType: 'text/event-stream', kind: 'stream_ended' });
+    assert.deepEqual(error.diagnostics, { status: 200, contentType: 'text/event-stream', kind: 'stream_empty' });
     return true;
   });
 });
