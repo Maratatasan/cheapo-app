@@ -13,7 +13,17 @@ async function refresh() {
   const status = await (await fetch('/status')).json();
   el('models').disabled = !status.inferenceAllowed;
   el('submit').disabled = !status.inferenceAllowed;
-  show(status.signedIn ? (status.inferenceAllowed ? 'ChatGPT identity verified and plan usage authorized. Load the model catalog to continue.' : 'ChatGPT identity verified, but plan usage was not authorized for this session.') : 'Signed out.');
+  el('signin').hidden = Boolean(status.inferenceAllowed);
+  el('logout').hidden = !status.signedIn;
+  if (!status.signedIn) {
+    el('signin').textContent = 'Sign in with ChatGPT';
+    show('Identity: signed out · ChatGPT plan permission: not checked.');
+  } else if (status.inferenceAllowed) {
+    show('Identity: verified · ChatGPT plan permission: granted. No model or image request has been sent yet.');
+  } else {
+    el('signin').textContent = 'Retry ChatGPT sign-in';
+    show('Identity: verified · ChatGPT plan permission: unavailable. Enable plan usage in ChatGPT settings, then retry sign-in. Identity alone does not authorize AI requests.');
+  }
 }
 el('signin').onclick = async () => { try { const result = await post('/auth/start'); location.assign(result.url); } catch (error) { show(error.message); } };
 el('logout').onclick = async () => { try { await post('/logout'); el('model').replaceChildren(new Option('Load catalog first', '')); el('result').textContent = 'Local session forgotten.'; await refresh(); } catch (error) { show(error.message); } };
