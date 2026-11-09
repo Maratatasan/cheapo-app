@@ -6,6 +6,7 @@ import { beginAuth, opaque, equal, guard, validateIdToken, imageRequest, readCom
 const port = Number(process.env.PORT || 8766);
 if (!Number.isInteger(port) || port < 1024 || port > 65535) throw Error('PORT must be 1024–65535');
 const stateDirectory = new URL('./.state/', import.meta.url);
+const testImagePath = '/Users/maratatasan/Documents/ChatGPT/Cheapo/local-data/price-photos/Prices/PXL_20250817_155127355.jpg';
 await mkdir(stateDirectory, { recursive: true, mode: 0o700 });
 const validUuid = value => typeof value === 'string' && /^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 let hostId;
@@ -73,6 +74,14 @@ const server = createServer(async (req, res) => {
     if (req.method === 'GET' && url.pathname === '/app.js') return reply(res, 200, await readFile(new URL('./app.js', import.meta.url), 'utf8'), 'text/javascript');
     const cookie = req.headers.cookie?.split(';').map(v => v.trim()).find(v => v.startsWith('cheapo_demo='))?.slice('cheapo_demo='.length);
     if (!equal(cookie, sessionId)) return reply(res, 403, { error: 'Open the demo home page first' });
+    if (req.method === 'GET' && url.pathname === '/test-image') {
+      let file;
+      try { file = await readFile(testImagePath); }
+      catch (error) { if (error.code === 'ENOENT') return reply(res, 404, { error: 'Default test photo unavailable. Choose an image file.' }); throw error; }
+      if (file.length > 5_900_000) return reply(res, 413, { error: 'The local test image is too large' });
+      res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Content-Length': file.length, 'Content-Disposition': 'inline; filename="PXL_20250817_155127355.jpg"', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer', 'X-Frame-Options': 'DENY', 'Content-Security-Policy': "default-src 'none'; frame-ancestors 'none'; base-uri 'none'" });
+      return res.end(file);
+    }
     if (req.method === 'GET' && url.pathname === '/auth/callback') {
       const current = flow; flow = undefined;
       if (!current || Date.now() - current.created > 600_000 || !equal(url.searchParams.get('state'), current.state)) throw Error('Invalid or expired sign-in state');
@@ -148,7 +157,7 @@ const server = createServer(async (req, res) => {
   } catch (error) {
     // Never forward provider bodies, callback URLs, tokens, or exception dumps.
     if (error.diagnostics) lastDiagnostic = error.diagnostics;
-    const safe = new Set(['Sign in again to continue', 'ChatGPT plan usage was not authorized for this session', 'Choose a listed model', 'Image is too large', 'Use PNG, JPEG, or WebP', 'Image contents do not match image type', 'Request too large', 'A draft is already running', 'Model catalog unavailable for this account', 'The provider returned a non-stream response; no draft was accepted.', 'The model did not complete a draft', 'Stream ended without response.completed']);
+    const safe = new Set(['Sign in again to continue', 'ChatGPT plan usage was not authorized for this session', 'Choose a listed model', 'Image is too large', 'Use PNG, JPEG, or WebP', 'Image contents do not match image type', 'Request too large', 'A draft is already running', 'Model catalog unavailable for this account', 'The provider returned a non-stream response; no draft was accepted.', 'The model did not complete a draft', 'Stream ended without response.completed', 'Default test photo unavailable. Choose an image file.']);
     reply(res, 400, { error: error.diagnostics ? error.message : safe.has(error.message) ? error.message : 'Request failed. Return home and retry or sign in again.', ...(error.diagnostics ? { diagnostics: error.diagnostics } : {}) });
   }
 });

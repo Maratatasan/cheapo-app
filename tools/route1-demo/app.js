@@ -2,6 +2,10 @@
 const el = id => document.getElementById(id);
 const csrf = document.querySelector('meta[name="csrf"]').content;
 const show = message => { el('status').textContent = message; };
+const imageInfo = document.createElement('small');
+imageInfo.id = 'image-info';
+el('image').insertAdjacentElement('afterend', imageInfo);
+el('image').required = false;
 function diagnosticText(d) {
   if (!d) return '';
   const fields = [Number.isInteger(d.status) ? `HTTP ${d.status}` : '', d.contentType ? `type ${d.contentType}` : '', d.responseStatus ? `response ${d.responseStatus}` : '', d.code ? `code ${d.code}` : '', d.param ? `field ${d.param}` : '', d.requestId ? `request ${d.requestId}` : '', typeof d.redirected === 'boolean' ? `redirected ${d.redirected}` : '', d.finalOrigin ? `origin ${d.finalOrigin}` : ''].filter(Boolean).join(' · ');
@@ -49,13 +53,25 @@ el('models').onclick = async () => {
   try { show('Loading model catalog…'); const result = await post('/models'); el('model').replaceChildren(new Option('Choose a model', ''), ...result.models.map(model => new Option(model.displayName, model.slug))); show(result.models.length ? 'Choose a model and test image.' : 'No models with list visibility returned.'); } catch (error) { show(error.message); }
 };
 el('image').onchange = async () => {
-  image = undefined; el('preview').hidden = true;
   const file = el('image').files[0]; if (!file) return;
-  if (file.size > 5_900_000 || !['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) { show('Choose a PNG, JPEG, or WebP smaller than 5.9 MB.'); return; }
-  const reader = new FileReader();
-  reader.onload = () => { image = reader.result; el('preview').src = image; el('preview').hidden = false; };
-  reader.readAsDataURL(file);
+  await useImageFile(file, file.name);
 };
+async function useImageFile(file, name) {
+  image = undefined; el('preview').hidden = true;
+  if (file.size > 5_900_000 || !['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) { imageInfo.textContent = 'Choose a PNG, JPEG, or WebP smaller than 5.9 MB.'; show(imageInfo.textContent); return; }
+  const reader = new FileReader();
+  reader.onload = () => { image = reader.result; el('preview').src = image; el('preview').hidden = false; imageInfo.textContent = `Selected: ${name}. It stays local until you press “Send image and draft price”.`; };
+  reader.onerror = () => { imageInfo.textContent = 'Could not read this image. Choose another file.'; show(imageInfo.textContent); };
+  reader.readAsDataURL(file);
+}
+async function preloadTestImage() {
+  try {
+    const response = await fetch('/test-image', { cache: 'no-store' });
+    if (!response.ok) throw Error('Default test photo unavailable. Choose an image file.');
+    const blob = await response.blob();
+    await useImageFile(new File([blob], 'PXL_20250817_155127355.jpg', { type: 'image/jpeg' }), 'PXL_20250817_155127355.jpg');
+  } catch (error) { imageInfo.textContent = error.message; }
+}
 el('draft').onsubmit = async event => {
   event.preventDefault(); if (!image) { show('Choose a supported test image first.'); return; }
   el('submit').disabled = true; el('result').textContent = 'Waiting for a completed draft…';
@@ -69,3 +85,4 @@ el('draft').onsubmit = async event => {
   finally { el('submit').disabled = false; }
 };
 refresh().catch(() => show('Cannot read local session.'));
+preloadTestImage();
