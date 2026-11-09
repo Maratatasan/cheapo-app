@@ -1,7 +1,8 @@
 import { createServer } from 'node:http';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
-import { beginAuth, opaque, equal, guard, validateIdToken, imageRequest, readCompleted, inspectProviderResponse, TOKEN, RESOURCE } from './core.mjs';
+import { beginAuth, opaque, equal, guard, validateIdToken, imageRequest, TOKEN, RESOURCE } from './core.mjs';
+import { appendResponseDebug } from './response-debug.mjs';
 
 const port = Number(process.env.PORT || 8766);
 if (!Number.isInteger(port) || port < 1024 || port > 65535) throw Error('PORT must be 1024–65535');
@@ -113,15 +114,8 @@ const server = createServer(async (req, res) => {
         const request = imageRequest(await json(req), models);
         requireSession();
         const response = await remote(`${RESOURCE}/responses`, { method: 'POST', headers: { Authorization: `Bearer ${session.accessToken}`, 'Content-Type': 'application/json', Accept: 'text/event-stream' }, body: JSON.stringify(request) });
-        const inspected = await inspectProviderResponse(response);
-        if (!inspected.isStream) {
-          const error = Error(response.ok ? 'The provider returned a non-stream response; no draft was accepted.' : 'The provider rejected the draft request.');
-          error.diagnostics = inspected.diagnostics;
-          throw error;
-        }
-        const contentType = response.headers.get('content-type') || '';
-        lastDiagnostic = undefined;
-        return reply(res, 200, { draft: await readCompleted(response.body, { status: response.status, contentType, requestId: response.headers.get('x-request-id') || response.headers.get('openai-request-id') }) });
+        const providerResponse = await appendResponseDebug(new URL('response-debug.jsonl', stateDirectory), response);
+        return reply(res, 200, { providerResponse });
       } finally { busy = false; }
     }
     return reply(res, 404, { error: 'Not found' });
@@ -129,7 +123,7 @@ const server = createServer(async (req, res) => {
     // Never forward provider bodies, callback URLs, tokens, or exception dumps.
     if (error.diagnostics) lastDiagnostic = error.diagnostics;
     const safe = new Set(['Sign in again to continue', 'ChatGPT plan usage was not authorized for this session', 'Choose a listed model', 'Image is too large', 'Use PNG, JPEG, or WebP', 'Image contents do not match image type', 'Request too large', 'A draft is already running', 'Model catalog unavailable for this account', 'The provider returned a non-stream response; no draft was accepted.', 'The model did not complete a draft', 'Stream ended without response.completed', 'Default test photo unavailable. Choose an image file.']);
-    reply(res, 400, { error: error.diagnostics ? error.message : safe.has(error.message) ? error.message : 'Request failed. Return home and retry or sign in again.', ...(error.diagnostics ? { diagnostics: error.diagnostics } : {}) });
+    reply(res, 400, { error: error.diagnostics ? error.message : safe.has(error.message) ? error.message : 'Request failed. Return home and retry or sign in again.', ...(error.diagnostics ? { diagnostics: error.diagnostics } : {}), ...(typeof error.debugLogSaved === 'boolean' ? { debugLogSaved: error.debugLogSaved } : {}) });
   }
 });
 server.requestTimeout = 130_000;
