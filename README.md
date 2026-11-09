@@ -1,50 +1,65 @@
-# Welcome to your Expo app 👋
+# Cheapo UI
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Expo SDK 58 / React Native 0.88 / React 19.3 starter app with Home and Explore tabs.
 
-## Get started
+## Local development
 
-1. Install dependencies
+Use the existing nvm installation and pnpm. Do not mix npm and pnpm lockfiles.
 
-   ```bash
-   npm install
-   ```
-
-2. Start the app
-
-   ```bash
-   npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
-
-```bash
-npm run reset-project
+```sh
+nvm use
+pnpm install --frozen-lockfile
+pnpm web
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+Node 24.22.2 (LTS) is pinned in `.nvmrc`; pnpm 10.11.0 is pinned in `package.json`. The supported Node ranges are 24.3 and newer within Node 24, or Node 26 and newer.
+If nvm is not loaded in your shell, run `source ~/.nvm/nvm.sh` first.
 
-## Learn more
+## Checks
 
-To learn more about developing your project with Expo, look at the following resources:
+```sh
+pnpm check
+pnpm dlx expo-doctor@latest
+pnpm exec expo export --platform all
+```
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+`pnpm check` runs TypeScript and lint. Exporting builds the JavaScript bundles; it does not compile or run a native app. There are no automated product-flow tests yet.
 
-## Join the community
+## Native development
 
-Join our community of developers creating universal apps.
+`pnpm ios` / `pnpm android` start Expo for an installed simulator or emulator with a compatible client. Simulator tooling and native runtime verification are a separate pending setup step. A native development build may be needed; do not assume an older Expo Go supports SDK 58.
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+## Upgrade notes
+
+Upgraded incrementally from SDK 53 through 54, 55, 56, 57 and 58. Matching React, React Native, Router and Expo packages were selected by Expo CLI. Navigation imports now use Expo Router's exports. Theme hydration and icon types were adapted to the newer APIs; existing screens were retained.
+
+The existing dependency installation used pnpm, so `pnpm-lock.yaml` is authoritative. The obsolete npm lockfile was backed up outside the repository. Do not run the reset-project script unless you intend to replace the starter screens.
+
+For future upgrades, follow https://docs.expo.dev/workflow/upgrading-expo-sdk-walkthrough/ and check each SDK's migration notes. Run Expo dependency alignment and the checks above after each upgrade.
+
+## Verification on 9 November 2026
+
+- Clean `pnpm install --frozen-lockfile` succeeded.
+- TypeScript and lint passed. Expo Doctor passed 20/20 checks.
+- Clean exports succeeded for web, iOS and Android.
+- Browser check passed: Home → Explore → expand File-based routing.
+- Native compilation and simulator/device execution have not yet been verified.
+
+## Local tooling update — 9 November 2026
+
+- Node 24.22.2 LTS installed through existing nvm; pnpm 10.11.0 retained. Frozen installation and `pnpm check` passed under this Node version.
+- Xcode 26.6 retained: it meets Expo SDK 58's Xcode 26.4 minimum. macOS was not changed.
+- iOS 26.5 runtime (23F73) installed; dedicated device `Cheapo iPhone 17 Pro` UUID `F97EECCE-C188-4045-AEA9-3E07D8236B28` created. Expo Go 58.0.7 installed. First startup was delayed by Xcode simulator cache generation. After one non-destructive device restart, a bounded boot check failed with NSPOSIXErrorDomain code 60: launchd_sim failed to respond / could not bind to session. App UI verification is pending. Restart the Mac after saving work, then retry this simulator; no host restart or device erasure was performed.
+- OpenJDK 17.0.21.0.3 installed via Homebrew. Google Android command-line tools revision 22.0 installed with verified archive checksum.
+- Existing `Pixel_9_API_36` AVD booted successfully once and Expo Go 58.0.5 installed. It was then shut down to avoid simultaneous cold boots. No AVD data was erased.
+- Android platform-tools 35.0.2 and emulator 35.5.10 remain unchanged. Updates to these and Android Studio are still pending. Automatic approval review blocked the grouped SDK licence prompt because it included agreements beyond the single agreement approved by the user. Complete the relevant licence review manually in Android Studio SDK Manager before further SDK package updates.
+
+For Android native builds in the current terminal (no global shell files were changed):
+
+```sh
+export JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home
+export ANDROID_HOME="$HOME/Library/Android/sdk"
+export PATH="$JAVA_HOME/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$ANDROID_HOME/cmdline-tools/latest/bin:$PATH"
+```
+
+Run one simulator at a time on this 16 GB Mac while cold starts/cache generation are in progress. Native app compilation has not yet been verified.
