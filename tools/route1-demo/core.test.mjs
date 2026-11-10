@@ -48,7 +48,9 @@ test('image request uses explicit model, schema, no storage and streaming', () =
   assert.equal(request.store, false); assert.equal(request.stream, true);
   assert.equal('max_output_tokens' in request, false);
   assert.equal(request.text.format.strict, true);
-  assert.deepEqual(request.text.format.schema.required, ['product', 'price', 'currency', 'uncertainty']);
+  assert.deepEqual(request.text.format.schema.required, ['product', 'price', 'currency', 'unit_price', 'uncertainty']);
+  assert.deepEqual(request.text.format.schema.properties.unit_price.type, ['object','null']);
+  assert.deepEqual(request.text.format.schema.properties.unit_price.required, ['amount','unit']);
   assert.throws(() => imageRequest({ model: 'unlisted', image }, ['model']));
   assert.throws(() => imageRequest({ model: 'model', image: 'data:image/png;base64,YmFk' }, ['model']));
   assert.throws(() => imageRequest({ model: 'model', image: 'x'.repeat(8_000_001) }, ['model']));
@@ -103,7 +105,7 @@ test('provider response inspection handles missing headers without consuming val
   const failed = metadata(new Response(Buffer.from(JSON.stringify({ error: { code: 'subscription_sharing_unsupported_capability', param: 'text.format', message: 'hidden' } })), { status: 400, headers: { 'x-request-id': 'req_mock123' } }));
   assert.deepEqual((await inspectProviderResponse(failed)).diagnostics, { status: 400, kind: 'error_object', code: 'subscription_sharing_unsupported_capability', param: 'text.format', requestId: 'req_mock123', redirected: false, finalOrigin: 'https://api.openai.com' });
 });
-const draft = { product: 'Milk', price: 1.5, currency: 'GBP', uncertainty: '' };
+const draft = { product: 'Milk', price: 1.5, currency: 'GBP', unit_price: null, uncertainty: '' };
 function response(content = [{ type: 'output_text', text: JSON.stringify(draft) }], status = 'completed') { return { type: 'response.completed', response: { status: 'completed', output: [{ type: 'message', role: 'assistant', status, content }] } }; }
 async function* stream(events) { const bytes = Buffer.from(events.map(event => `data: ${JSON.stringify(event)}\n\n`).join('')); for (let i = 0; i < bytes.length; i += 11) yield bytes.subarray(i, i + 11); }
 test('stream yields only a completed assistant price draft', async () => {
@@ -124,4 +126,14 @@ test('stream failure keeps only safe code/param and HTTP metadata', async () => 
     assert.deepEqual(error.diagnostics, { status: 200, contentType: 'text/event-stream', kind: 'stream_empty' });
     return true;
   });
+});
+
+test('unit price accepts a visible amount/unit or null and rejects missing or malformed fields', async () => {
+  const complete = value => stream([response([{ type:'output_text',text:JSON.stringify(value) }])]);
+  const visible = {...draft,unit_price:{amount:1.25,unit:'kg'}};
+  assert.deepEqual(await readCompleted(complete(visible)),visible);
+  assert.equal((await readCompleted(complete(draft))).unit_price,null);
+  const {unit_price: omitted,...missing}=draft;
+  await assert.rejects(readCompleted(complete(missing)));
+  for(const unit_price of [{amount:-1,unit:'kg'},{amount:'1.25',unit:'kg'},{amount:1.25,unit:''},{amount:1.25,unit:'   '},{amount:1.25,unit:5},{amount:1.25,unit:'kg',extra:true},{amount:1.25},[],1]) await assert.rejects(readCompleted(complete({...draft,unit_price})));
 });

@@ -57,3 +57,11 @@ Route 1 Sign in with ChatGPT plan-usage feasibility is tracked in
 
 See [AI toolkit setup and verification](docs/ai-toolkit.md) for the installed Codex
 plugins, personal skills in `~/.codex/skills`, native-device checks, and update instructions.
+
+## Development test photo
+
+For the optional Android emulator **Use test photo** preview, see
+[mobile test setup](docs/mobile-test-readiness.md). It uses a private local JPEG,
+requires no extra dependencies, and offers a separate explicit **Analyse test
+photo** action through a paired local Mac companion. The normal camera flow and
+upload stub remain available.

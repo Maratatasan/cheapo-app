@@ -38,6 +38,7 @@ describe("CameraComponent", () => {
     mockPermission = null;
     mockRequestPermission.mockReset();
     mockTakePictureAsync.mockReset();
+    delete process.env.EXPO_PUBLIC_CHEAPO_TEST_PHOTO_URL;
   });
 
   afterEach(() => {
@@ -84,6 +85,41 @@ describe("CameraComponent", () => {
 
     await fireEvent(screen.getByTestId("camera-preview"), "cameraReady");
     expect(screen.getByText("Take Picture of Price")).toBeTruthy();
+  });
+
+  it("previews an explicitly selected development test photo and can retake", async () => {
+    mockPermission = { granted: true };
+    process.env.EXPO_PUBLIC_CHEAPO_TEST_PHOTO_URL = "http://10.0.2.2:8767/test-photo.jpg";
+    await render(<CameraComponent />);
+    await fireEvent.press(screen.getByText("Use test photo"));
+    expect(screen.getByLabelText("Price photo preview")).toHaveProp("source", {
+      uri: "http://10.0.2.2:8767/test-photo.jpg",
+    });
+    expect(screen.getByText("Upload Photo")).toBeOnTheScreen();
+    await fireEvent.press(screen.getByText("Retake"));
+    expect(screen.getByTestId("camera-preview")).toBeOnTheScreen();
+    delete process.env.EXPO_PUBLIC_CHEAPO_TEST_PHOTO_URL;
+  });
+
+  it("can view the fixture without granting camera permission and reports load errors", async () => {
+    mockPermission = { granted: false };
+    process.env.EXPO_PUBLIC_CHEAPO_TEST_PHOTO_URL = "http://10.0.2.2:8767/test-photo.jpg";
+    const alertSpy = jest.spyOn(Alert, "alert").mockImplementation(() => {});
+    await render(<CameraComponent />);
+    await fireEvent.press(screen.getByText("Use test photo"));
+    await fireEvent(screen.getByLabelText("Price photo preview"), "error");
+    expect(alertSpy).toHaveBeenCalledWith("Photo unavailable", expect.any(String));
+    expect(screen.getByText("Grant Permission")).toBeOnTheScreen();
+    expect(mockRequestPermission).not.toHaveBeenCalled();
+  });
+
+  it("explains how to enable the missing test fixture", async () => {
+    mockPermission = { granted: true };
+    const alertSpy = jest.spyOn(Alert, "alert").mockImplementation(() => {});
+    await render(<CameraComponent />);
+    await fireEvent.press(screen.getByText("Use test photo"));
+    expect(alertSpy).toHaveBeenCalledWith("Test photo unavailable", expect.any(String));
+    expect(screen.queryByText("Retake")).not.toBeOnTheScreen();
   });
 
   it("shows an alert when taking a photo fails", async () => {

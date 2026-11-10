@@ -141,3 +141,12 @@ el('draft').onsubmit = async event => {
 };
 refresh().catch(() => show('Cannot read local session.'));
 preloadTestImage();
+
+el('pair-mobile').onclick = async () => {
+  try {
+    const response = await fetch('/mobile-pairing');
+    const value = await response.json();
+    if (!response.ok) throw Error(value.error || 'Mobile test mode is not enabled.');
+    el('pairing').textContent = `Emulator pairing code (expires in 30 minutes): ${value.key}`;
+  } catch (error) { el('pairing').textContent = error.message; }
+};

@@ -1,12 +1,19 @@
 import { open } from 'node:fs/promises';
 
 const MAX_BODY_BYTES = 1_000_000;
-const SECRET_HEADER = /authorization|cookie|token|secret|api[-_]?key|credential/i;
+// Provider-specific session headers can have innocuous names. Persist only
+// diagnostic fields we understand; new headers stay out of the log by default.
+const DIAGNOSTIC_HEADERS = new Set([
+  'content-type', 'content-length', 'date', 'x-request-id', 'openai-request-id',
+  'retry-after', 'x-ratelimit-limit-requests', 'x-ratelimit-limit-tokens',
+  'x-ratelimit-remaining-requests', 'x-ratelimit-remaining-tokens',
+  'x-ratelimit-reset-requests', 'x-ratelimit-reset-tokens'
+]);
 
 function safeHeaders(headers) {
   const output = {};
   headers?.forEach((value, name) => {
-    if (!SECRET_HEADER.test(name)) output[name] = value;
+    if (DIAGNOSTIC_HEADERS.has(name.toLowerCase())) output[name.toLowerCase()] = value;
   });
   return output;
 }

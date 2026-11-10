@@ -5,6 +5,7 @@
 <small>Tokens stay in this process’s memory. Restart or expiry requires sign-in again. A draft sends your selected image to OpenAI and may consume plan usage. This tool creates no database records. The result needs human review.</small>
 <button id="signin">Sign in with ChatGPT</button> <button id="logout">Forget local session</button>
 <p id="status" role="status">Checking local session…</p>
+<button id="pair-mobile">Get emulator pairing code</button><p id="pairing" role="status"></p>
 <button id="models" disabled>Load model catalog</button>
 <form id="draft"><label>Model <select id="model" required><option value="">Load catalog first</option></select></label><small>Catalog visibility does not guarantee image or structured-output support.</small>
 <label>Test price-label image <input id="image" type="file" accept="image/png,image/jpeg,image/webp" required></label><img id="preview" hidden alt="Selected test image"><p><button id="submit" disabled>Send image and draft price</button></p></form>

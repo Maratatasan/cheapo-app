@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { beginAuth, opaque, equal, guard, validateIdToken, imageRequest, TOKEN, RESOURCE } from './core.mjs';
 import { appendResponseDebug } from './response-debug.mjs';
+import { guardMobile, completeMobileResponse } from './mobile-draft.mjs';
 
 const port = Number(process.env.PORT || 8766);
 if (!Number.isInteger(port) || port < 1024 || port > 65535) throw Error('PORT must be 1024–65535');
@@ -24,6 +25,8 @@ try {
 const origin = `http://127.0.0.1:${port}`;
 const sessionId = opaque(), csrf = opaque();
 let flow, session, models = [], busy = false, lastDiagnostic;
+const mobileEnabled = process.env.MOBILE_TEST === '1';
+let pairing = { key: opaque(), expires: Date.now() + 30 * 60_000 };
 const html = (await readFile(new URL('./index.html', import.meta.url), 'utf8')).replace('__CSRF__', csrf);
 function reply(res, status, data, type = 'application/json') {
   res.writeHead(status, { 'Content-Type': `${type}; charset=utf-8`, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer', 'X-Frame-Options': 'DENY', 'Content-Security-Policy': "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; form-action 'self'; base-uri 'none'" });
@@ -43,6 +46,21 @@ function requireSession() {
 }
 const server = createServer(async (req, res) => {
   try {
+    if (req.url === '/mobile/draft' && mobileEnabled) {
+      guardMobile(req, port, pairing);
+      requireSession();
+      if (busy) throw Error('A draft is already running');
+      busy = true;
+      try {
+        const model = ['gpt-5.6-luna', 'gpt-6-luna'].find(slug => models.includes(slug));
+        if (!model) throw Error('Choose a listed model');
+        const request = imageRequest({ ...await json(req), model }, models);
+        requireSession();
+        const response = await remote(`${RESOURCE}/responses`, { method: 'POST', headers: { Authorization: `Bearer ${session.accessToken}`, 'Content-Type': 'application/json', Accept: 'text/event-stream' }, body: JSON.stringify(request) });
+        const result = await completeMobileResponse(response, new URL('response-debug.jsonl', stateDirectory));
+        return reply(res, 200, { ...result, model });
+      } finally { busy = false; }
+    }
     guard(req, origin, csrf);
     const url = new URL(req.url, origin);
     if (req.method === 'GET' && url.pathname === '/') {
@@ -52,6 +70,11 @@ const server = createServer(async (req, res) => {
     if (req.method === 'GET' && url.pathname === '/app.js') return reply(res, 200, await readFile(new URL('./app.js', import.meta.url), 'utf8'), 'text/javascript');
     const cookie = req.headers.cookie?.split(';').map(v => v.trim()).find(v => v.startsWith('cheapo_demo='))?.slice('cheapo_demo='.length);
     if (!equal(cookie, sessionId)) return reply(res, 403, { error: 'Open the demo home page first' });
+    if (req.method === 'GET' && url.pathname === '/mobile-pairing' && mobileEnabled) {
+      requireSession();
+      pairing = { key: opaque(), expires: Date.now() + 30 * 60_000 };
+      return reply(res, 200, { key: pairing.key, expires: pairing.expires });
+    }
     if (req.method === 'GET' && url.pathname === '/test-image') {
       let file;
       try { file = await readFile(testImagePath); }
@@ -122,7 +145,7 @@ const server = createServer(async (req, res) => {
   } catch (error) {
     // Never forward provider bodies, callback URLs, tokens, or exception dumps.
     if (error.diagnostics) lastDiagnostic = error.diagnostics;
-    const safe = new Set(['Sign in again to continue', 'ChatGPT plan usage was not authorized for this session', 'Choose a listed model', 'Image is too large', 'Use PNG, JPEG, or WebP', 'Image contents do not match image type', 'Request too large', 'A draft is already running', 'Model catalog unavailable for this account', 'The provider returned a non-stream response; no draft was accepted.', 'The model did not complete a draft', 'Stream ended without response.completed', 'Default test photo unavailable. Choose an image file.']);
+    const safe = new Set(['Mobile pairing rejected. Check the code on the Mac companion.', 'The provider response was interrupted or exceeded the local limit', 'The model did not complete a draft', 'Stream ended without response.completed', 'Sign in again to continue', 'ChatGPT plan usage was not authorized for this session', 'Choose a listed model', 'Image is too large', 'Use PNG, JPEG, or WebP', 'Image contents do not match image type', 'Request too large', 'A draft is already running', 'Model catalog unavailable for this account', 'The provider returned a non-stream response; no draft was accepted.', 'The model did not complete a draft', 'Stream ended without response.completed', 'Default test photo unavailable. Choose an image file.']);
     reply(res, 400, { error: error.diagnostics ? error.message : safe.has(error.message) ? error.message : 'Request failed. Return home and retry or sign in again.', ...(error.diagnostics ? { diagnostics: error.diagnostics } : {}), ...(typeof error.debugLogSaved === 'boolean' ? { debugLogSaved: error.debugLogSaved } : {}) });
   }
 });
