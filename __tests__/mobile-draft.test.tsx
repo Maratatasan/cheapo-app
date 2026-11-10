@@ -10,8 +10,8 @@ describe('development mobile draft', () => {
     else Reflect.deleteProperty(globalThis, 'FileReader');
   });
   it.each([
-    {unitPrice:{amount:1.25,unit:'kg'},expected:'£1.25/kg'},
-    {unitPrice:null,expected:'Unavailable'},
+    {unitPrice:{amount:1.25,unit:'kg'},expected:'£1.25 / kg'},
+    {unitPrice:null,expected:'Unit price unavailable'},
   ])('waits for explicit submission and displays unit price $expected', async ({unitPrice,expected}) => {
     const network = jest.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce({ ok:true, blob:async()=>({size:3,type:'image/jpeg'}) } as Response)
@@ -25,9 +25,12 @@ describe('development mobile draft', () => {
     expect(network).not.toHaveBeenCalled();
     await fireEvent.changeText(screen.getByPlaceholderText('Mac pairing code'),'test-pairing');
     await fireEvent.press(screen.getByText('Analyse test photo'));
-    expect(await screen.findByText(/"product": "Potatoes"/)).toBeOnTheScreen();
-    expect(screen.getByText(/Pack price: £2.50/)).toBeOnTheScreen();
-    expect(screen.getByText(new RegExp(`Price per unit: ${expected}`))).toBeOnTheScreen();
+    expect(await screen.findByText('Potatoes')).toBeOnTheScreen();
+    expect(screen.getByText('£2.50')).toBeOnTheScreen();
+    expect(screen.getByText(expected)).toBeOnTheScreen();
+    expect(screen.queryByText(/\"product\":/)).not.toBeOnTheScreen();
+    await fireEvent.press(screen.getByText('Show response details'));
+    expect(screen.getByText(/\"product\": \"Potatoes\"/)).toBeOnTheScreen();
     expect(network).toHaveBeenLastCalledWith('http://10.0.2.2:8768/mobile/draft',expect.objectContaining({method:'POST',body:JSON.stringify({image:'data:image/jpeg;base64,/9j/'})}));
   });
   it('shows a useful companion failure without retrying', async()=>{

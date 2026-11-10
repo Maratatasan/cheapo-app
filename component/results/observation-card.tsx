@@ -3,11 +3,12 @@ import { Observation, dateLabel, priceLabel } from "@/data/observation";
 import { PriceDisplay } from "./price-display";
 import { OfferNotice } from "./offer-notice";
 import { color, ui } from "./theme";
+export type ObservationCardItem = Omit<Observation, "id" | "coordinate" | "observedOn" | "currency"> & { observedOn: string | null; currency: string | null };
 export function ObservationCard({
   item,
   onShop,
 }: {
-  item: Observation;
+  item: ObservationCardItem;
   onShop?: () => void;
 }) {
   return (
@@ -42,7 +43,7 @@ export function ObservationCard({
       </View>
       <Text style={ui.body}>{item.area}</Text>
       <Text style={ui.small}>
-        Observed {dateLabel(item.observedOn)} ·{" "}
+        {item.observedOn ? `Observed ${dateLabel(item.observedOn)}` : "Observation date unconfirmed"} ·{" "}
         {item.distanceKm === null
           ? "Distance unknown"
           : `${item.distanceKm.toFixed(1)} km sample distance`}

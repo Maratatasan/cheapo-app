@@ -1,12 +1,8 @@
 import { useRef, useState } from 'react';
 import { Button, Modal, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
-function formatPrice(amount: number | null | undefined, currency: string | null) {
-  if (typeof amount !== 'number') return 'Unavailable';
-  try {
-    return new Intl.NumberFormat('en-GB', { style:'currency', currency:currency || 'XXX', maximumFractionDigits:4 }).format(amount);
-  } catch { return `${amount} ${currency || ''}`.trim(); }
-}
+import { AiDraftCard } from './results/ai-draft-card';
+import type { AiPriceDraft } from '@/data/ai-observation';
 
 // Emulator-only development UI. Provider credentials remain in the Mac process.
 export function MobileDraft({ photoUri }: { photoUri: string }) {
@@ -15,10 +11,12 @@ export function MobileDraft({ photoUri }: { photoUri: string }) {
   const [busy, setBusy] = useState(false);
   const pending = useRef(false);
   const [result, setResult] = useState('');
+  const [draft, setDraft] = useState<AiPriceDraft | null>(null);
+  const [showDebug, setShowDebug] = useState(false);
   async function analyse() {
     if (pending.current || !pairing.trim()) return;
     pending.current = true;
-    setVisible(true); setBusy(true); setResult('Reading selected photo…');
+    setVisible(true); setBusy(true); setDraft(null); setShowDebug(false); setResult('Reading selected photo…');
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 125_000);
     try {
@@ -33,7 +31,9 @@ export function MobileDraft({ photoUri }: { photoUri: string }) {
         reader.readAsDataURL(blob);
       });
       setResult('Waiting for ChatGPT plan draft…');
-      const response = await fetch('http://10.0.2.2:8768/mobile/draft', {
+      const companion = new URL(process.env.EXPO_PUBLIC_CHEAPO_COMPANION_URL || 'http://10.0.2.2:8768');
+      if (companion.protocol !== 'http:' || !['127.0.0.1','10.0.2.2'].includes(companion.hostname) || companion.username || companion.password) throw Error('Use a loopback or emulator companion URL.');
+      const response = await fetch(`${companion.origin}/mobile/draft`, {
         method:'POST', headers:{'Content-Type':'application/json','X-Cheapo-Pairing':pairing.trim()},
         body:JSON.stringify({image}), signal:controller.signal,
       });
@@ -42,9 +42,8 @@ export function MobileDraft({ photoUri }: { photoUri: string }) {
         const diagnostic = value.diagnostics;
         throw Error([value.error || 'Draft request failed.', diagnostic?.status ? `HTTP ${diagnostic.status}` : '', diagnostic?.code, diagnostic?.requestId].filter(Boolean).join(' · '));
       }
-      const draft = value.draft;
-      const unitPrice = draft.unit_price ? `${formatPrice(draft.unit_price.amount,draft.currency)}/${draft.unit_price.unit}` : 'Unavailable';
-      setResult(`Draft — review before use\nModel: ${value.model}\nPack price: ${formatPrice(draft.price,draft.currency)}\nPrice per unit: ${unitPrice}\n${JSON.stringify(draft,null,2)}${value.requestId ? `\nRequest: ${value.requestId}` : ''}`);
+      setDraft(value.draft);
+      setResult(`Model: ${value.model}\n${JSON.stringify(value.draft,null,2)}${value.requestId ? `\nRequest: ${value.requestId}` : ''}`);
     } catch (error) {
       setResult(`No draft accepted. ${error instanceof Error ? error.message : 'Request failed.'}\nCheck the local photo server, Mac sign-in and pairing code. No automatic retry was sent.`);
     } finally {
@@ -60,7 +59,13 @@ export function MobileDraft({ photoUri }: { photoUri: string }) {
     <Modal visible={visible} onRequestClose={() => { if (!busy) setVisible(false); }}>
       <View style={styles.result}>
         <Text accessibilityRole="header">Test photo AI result</Text>
-        <ScrollView><Text selectable>{result}</Text></ScrollView>
+        <ScrollView contentContainerStyle={{gap:16}}>
+          {draft ? <>
+            <AiDraftCard draft={draft} />
+            <Button title={showDebug ? 'Hide response details' : 'Show response details'} onPress={() => setShowDebug(!showDebug)} />
+            {showDebug ? <Text selectable>{result}</Text> : null}
+          </> : <Text selectable>{result}</Text>}
+        </ScrollView>
         <Button title={busy ? 'Analysing…' : 'Back to preview'} disabled={busy} onPress={() => setVisible(false)} />
       </View>
     </Modal>

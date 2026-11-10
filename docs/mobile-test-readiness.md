@@ -169,3 +169,17 @@ it still uses its previously loaded schema until restarted. Restarting currently
 requires sign-in again; saved sign-in remains a separate next increment. The
 previous native result screenshot predates this new field and does not prove a
 live unit-price response.
+
+## Shared result-card integration
+
+The live completed draft now passes through an explicit adapter into the same
+ObservationCard used by the component library and comparison screens. Product,
+pack price, currency, unit price and uncertainty come only from the AI response.
+Shop, location, brand, structured pack size, observation date, distance and offer
+conditions remain unconfirmed; no sample-shop data or current timestamp is filled
+in. Raw JSON is available only under **Show response details**.
+
+The development-only `/dev-draft` route provides an explicitly labelled offline
+fixture using that same adapter/card. Its Android emulator screenshot is
+`/private/tmp/cheapo-integrated-ai-card.png`; it is not a new inference result.
+See [Pixel USB setup](pixel-usb-test.md) for the physical Android connection.

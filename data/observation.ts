@@ -16,18 +16,13 @@ export type Observation = {
   coordinate: { latitude: number; longitude: number };
 };
 
-export type PriceValues = Pick<
-  Observation,
-  "price" | "currency" | "unit_price"
->;
+export type PriceValues = Pick<Observation, "price" | "unit_price"> & { currency: string | null };
 
 export function priceLabel(item: Pick<PriceValues, "price" | "currency">) {
-  return item.price !== null && Number.isFinite(item.price) && item.price >= 0
-    ? new Intl.NumberFormat("en-GB", {
-        style: "currency",
-        currency: item.currency,
-      }).format(item.price)
-    : "Price to review";
+  if (item.price === null || !Number.isFinite(item.price) || item.price < 0) return "Price to review";
+  if (!item.currency) return `${item.price} (currency unconfirmed)`;
+  try { return new Intl.NumberFormat("en-GB", {style:"currency",currency:item.currency}).format(item.price); }
+  catch { return `${item.price} (currency unconfirmed)`; }
 }
 /** Unit price may come from a visible shelf label, independently of pack price. */
 export function unitPriceLabel(
@@ -42,7 +37,7 @@ export function unitPriceLabel(
   ) {
     return "Unit price unavailable";
   }
-  return `${new Intl.NumberFormat("en-GB", { style: "currency", currency: item.currency }).format(value.amount)} / ${value.unit}`;
+  return `${priceLabel({price:value.amount,currency:item.currency})} / ${value.unit}`;
 }
 export function dateLabel(value: string) {
   return new Date(`${value}T12:00:00Z`).toLocaleDateString("en-GB", {
