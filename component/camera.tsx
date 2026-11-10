@@ -81,15 +81,6 @@ export const CameraComponent = () => {
     }
   };
 
-  const uploadPhoto = async () => {
-    if (!photoUri) return;
-
-    // Stub: Upload to your backend or cloud storage
-    console.log("Uploading photo:", photoUri);
-    Alert.alert("✅ Photo uploaded!", photoUri);
-    setPhotoUri(null); // Reset to camera
-  };
-
   const retakePhoto = () => {
     setPhotoUri(null);
   };
@@ -103,7 +94,7 @@ export const CameraComponent = () => {
             accessibilityLabel="Price photo preview"
             style={styles.preview}
             onError={() => {
-              setPhotoUri(null);
+              if (photoUri === process.env.EXPO_PUBLIC_CHEAPO_TEST_PHOTO_URL) setPhotoUri(null);
               Alert.alert(
                 "Photo unavailable",
                 "The photo could not be loaded. For the test photo, check that the local fixture server is running, then try again.",
@@ -111,11 +102,11 @@ export const CameraComponent = () => {
             }}
           />
           <SafeAreaView style={styles.overlay}>
-            {__DEV__ && photoUri === process.env.EXPO_PUBLIC_CHEAPO_TEST_PHOTO_URL ? (
+            {__DEV__ ? (
               <MobileDraft photoUri={photoUri} />
             ) : null}
-            <TouchableOpacity style={styles.button} onPress={uploadPhoto}>
-              <Text style={styles.buttonText}>Upload Photo</Text>
+            <TouchableOpacity style={[styles.button, {opacity:0.6}]} disabled accessibilityRole="button">
+              <Text style={styles.buttonText}>Saving not connected</Text>
             </TouchableOpacity>
 
             <TouchableOpacity

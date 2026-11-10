@@ -10,21 +10,21 @@ describe('development mobile draft', () => {
     else Reflect.deleteProperty(globalThis, 'FileReader');
   });
   it.each([
-    {unitPrice:{amount:1.25,unit:'kg'},expected:'£1.25 / kg'},
-    {unitPrice:null,expected:'Unit price unavailable'},
-  ])('waits for explicit submission and displays unit price $expected', async ({unitPrice,expected}) => {
+    {unitPrice:{amount:1.25,unit:'kg'},expected:'£1.25 / kg',photoUri:'file:///camera/captured.jpg'},
+    {unitPrice:null,expected:'Unit price unavailable',photoUri:'http://10.0.2.2:8767/test-photo.jpg'},
+  ])('waits for explicit submission and displays unit price $expected', async ({unitPrice,expected,photoUri}) => {
     const network = jest.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce({ ok:true, blob:async()=>({size:3,type:'image/jpeg'}) } as Response)
       .mockResolvedValueOnce({ok:true,json:async()=>({draft:{product:'Potatoes',price:2.5,currency:'GBP',unit_price:unitPrice,uncertainty:''},model:'gpt-5.6-luna'})} as Response);
     Object.defineProperty(globalThis,'FileReader',{configurable:true,writable:true,value:class {
-      result = 'data:image/jpeg;base64,/9j/';
+      result = photoUri.startsWith('file:') ? 'data:application/octet-stream;base64,/9j/' : 'data:image/jpeg;base64,/9j/';
       onload?: () => void;
       readAsDataURL() { this.onload?.(); }
     }});
-    await render(<MobileDraft photoUri="http://10.0.2.2:8767/test-photo.jpg" />);
+    await render(<MobileDraft photoUri={photoUri} />);
     expect(network).not.toHaveBeenCalled();
     await fireEvent.changeText(screen.getByPlaceholderText('Mac pairing code'),'test-pairing');
-    await fireEvent.press(screen.getByText('Analyse test photo'));
+    await fireEvent.press(screen.getByText('Analyse photo'));
     expect(await screen.findByText('Potatoes')).toBeOnTheScreen();
     expect(screen.getByText('£2.50')).toBeOnTheScreen();
     expect(screen.getByText(expected)).toBeOnTheScreen();
@@ -37,7 +37,7 @@ describe('development mobile draft', () => {
     const network=jest.spyOn(globalThis,'fetch').mockRejectedValue(Error('Network failed'));
     await render(<MobileDraft photoUri="http://10.0.2.2:8767/test-photo.jpg" />);
     await fireEvent.changeText(screen.getByPlaceholderText('Mac pairing code'),'test-pairing');
-    await fireEvent.press(screen.getByText('Analyse test photo'));
+    await fireEvent.press(screen.getByText('Analyse photo'));
     expect(await screen.findByText(/Network failed/)).toBeOnTheScreen();
     expect(network).toHaveBeenCalledTimes(1);
   });

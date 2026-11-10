@@ -35,7 +35,7 @@ The camera tests mock the native camera and permission APIs; they cover app beha
 
 ## Camera behavior
 
-The scan screen asks for camera permission when needed. Once granted, it shows the camera preview and capture control. A captured photo is shown with **Retake** and **Upload Photo** actions. **Upload Photo** is currently a stub: it logs the local photo URI, shows a confirmation alert, and returns to the camera. It does not send a photo to a server.
+The scan screen asks for camera permission when needed. Once granted, it shows the camera preview and capture control. A captured photo is shown with **Retake**, an explicit development **Analyse photo** action and disabled **Saving not connected** status. Analysis sends only the chosen photo through the paired local companion when explicitly pressed. Saving is not connected; the app does not claim a photo was saved or discard its preview.
 
 ## Expo upgrades
 
