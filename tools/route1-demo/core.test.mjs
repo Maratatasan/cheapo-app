@@ -137,3 +137,11 @@ test('unit price accepts a visible amount/unit or null and rejects missing or ma
   await assert.rejects(readCompleted(complete(missing)));
   for(const unit_price of [{amount:-1,unit:'kg'},{amount:'1.25',unit:'kg'},{amount:1.25,unit:''},{amount:1.25,unit:'   '},{amount:1.25,unit:5},{amount:1.25,unit:'kg',extra:true},{amount:1.25},[],1]) await assert.rejects(readCompleted(complete({...draft,unit_price})));
 });
+
+test('renewed identity can omit nonce but cannot change it or bypass signature validation',()=>{
+  const noNonce={...valid};delete noNonce.nonce;
+  assert.throws(()=>validateIdToken(jwt(noNonce),jwks,expectations));
+  assert.equal(validateIdToken(jwt(noNonce),jwks,{...expectations,allowMissingNonce:true}).sub,'person');
+  assert.throws(()=>validateIdToken(jwt({...valid,nonce:'wrong'}),jwks,{...expectations,allowMissingNonce:true}));
+  assert.throws(()=>validateIdToken(jwt(noNonce),{keys:[]},{...expectations,allowMissingNonce:true}));
+});

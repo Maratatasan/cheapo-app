@@ -61,10 +61,12 @@ async function refresh() {
   }
   if (inferenceAllowed) await loadCatalog(true);
   else updateSubmit();
+  if (status.savedLogin) show(`${el('status').textContent} Sign-in saved in Mac Keychain.`);
+  if (status.sessionIssue && status.signedIn) show(`${el('status').textContent} ${status.sessionIssue}`);
   if (status.lastDiagnostic) show(`${el('status').textContent} Last request: ${diagnosticText(status.lastDiagnostic)}`);
 }
 el('signin').onclick = async () => { try { const result = await post('/auth/start'); location.assign(result.url); } catch (error) { show(error.message); } };
-el('logout').onclick = async () => { try { await post('/logout'); el('model').replaceChildren(new Option('Load catalog first', '')); el('result').textContent = 'Local session forgotten.'; await refresh(); } catch (error) { show(error.message); } };
+el('logout').onclick = async () => { try { const signedOut = await post('/logout'); el('model').replaceChildren(new Option('Load catalog first', '')); el('result').textContent = signedOut.revocationConfirmed ? 'Signed out; renewable session revoked and local credentials cleared.' : 'Local session cleared. Remote revocation was not confirmed; disconnect the app in ChatGPT Settings if needed.'; await refresh(); } catch (error) { show(error.message); } };
 el('models').onclick = () => loadCatalog(false);
 async function loadCatalog(automatic) {
   if (catalogLoading) return catalogLoading;

@@ -15,7 +15,7 @@ export function beginAuth({ port, hostId, clientId }) {
   Object.entries(parameters).forEach(([k, v]) => url.searchParams.set(k, v));
   return { flow, url: url.toString() };
 }
-export function validateIdToken(token, jwks, { issuer, audience, nonce, now = Date.now() / 1000 }) {
+export function validateIdToken(token, jwks, { issuer, audience, nonce, allowMissingNonce = false, now = Date.now() / 1000 }) {
   const parts = typeof token === 'string' ? token.split('.') : [];
   if (parts.length !== 3) throw Error('Invalid identity token');
   const header = JSON.parse(Buffer.from(parts[0], 'base64url'));
@@ -24,7 +24,7 @@ export function validateIdToken(token, jwks, { issuer, audience, nonce, now = Da
   const key = jwks.keys?.find(k => k.kid === header.kid && k.kty === 'RSA' && (!k.use || k.use === 'sig') && (!k.alg || k.alg === 'RS256'));
   if (!key || !verify('RSA-SHA256', Buffer.from(parts.slice(0, 2).join('.')), createPublicKey({ key, format: 'jwk' }), Buffer.from(parts[2], 'base64url'))) throw Error('Invalid identity signature');
   const audiences = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
-  if (claims.iss !== issuer || !audiences.includes(audience) || (audiences.length > 1 && claims.azp !== audience) || typeof claims.exp !== 'number' || claims.exp <= now - 5 || typeof claims.iat !== 'number' || claims.iat > now + 5 || claims.iat > claims.exp || (claims.nbf !== undefined && (typeof claims.nbf !== 'number' || claims.nbf > now + 5)) || !equal(claims.nonce, nonce) || typeof claims.sub !== 'string' || !claims.sub) throw Error('Invalid identity claims');
+  if (claims.iss !== issuer || !audiences.includes(audience) || (audiences.length > 1 && claims.azp !== audience) || typeof claims.exp !== 'number' || claims.exp <= now - 5 || typeof claims.iat !== 'number' || claims.iat > now + 5 || claims.iat > claims.exp || (claims.nbf !== undefined && (typeof claims.nbf !== 'number' || claims.nbf > now + 5)) || (!(allowMissingNonce && claims.nonce === undefined) && !equal(claims.nonce, nonce)) || typeof claims.sub !== 'string' || !claims.sub) throw Error('Invalid identity claims');
   return claims;
 }
 export function guard(req, origin, csrf) {

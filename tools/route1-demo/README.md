@@ -47,3 +47,10 @@ validated JSON price draft. The mobile route is disabled unless `MOBILE_TEST=1`;
 its pairing guard is separate from unchanged browser OAuth guards. The listener
 remains loopback-only; do not expose it to a LAN or tunnel. No provider tokens are
 sent to the phone. Session persistence/refresh remains a separate next increment.
+
+## Optional saved login
+
+On macOS, `SAVE_LOGIN=1` enables protected Keychain storage and renewable sessions.
+See [saved ChatGPT login](../../docs/saved-chatgpt-login.md) for the one-time login,
+state-directory reuse, restart verification and sign-out behavior. Without this
+flag the original memory-only behavior remains available.
