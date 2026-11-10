@@ -39,3 +39,6 @@ app-example
 
 # Private local input photos and archives
 /local-data/
+
+# Local component-library build
+storybook-static/

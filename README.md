@@ -57,3 +57,17 @@ Route 1 Sign in with ChatGPT plan-usage feasibility is tracked in
 
 See [AI toolkit setup and verification](docs/ai-toolkit.md) for the installed Codex
 plugins, personal skills in `~/.codex/skills`, native-device checks, and update instructions.
+
+## Sample prices and shops
+
+Use **Explore sample prices** on Home to open the sample comparison cards and
+shop map. Prices, dates, distances and pin positions are fictional; exact shop
+branches are unverified. This sample browser is independent of photo capture and
+does not save observations. See [sample UI behavior and map limits](docs/sample-results-map.md).
+
+## Component library
+
+Run `pnpm ui:storybook` to browse the app’s shared cards and feedback states at
+[localhost:6006](http://127.0.0.1:6006/?path=/story/cheapo-library--overview).
+`pnpm ui:storybook:build` creates a local static build. See
+[component library usage and verification limits](docs/component-library.md).
