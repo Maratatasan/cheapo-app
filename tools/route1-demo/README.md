@@ -35,3 +35,15 @@ The demo uses fresh state/nonce/PKCE, validates the issued ID token against Open
 Focused offline tests cover authorization parameters/PKCE, signature and identity claims, request guards, image request constraints/schema, and stream completion/error/refusal handling. These do not verify live login, entitlement, quota accounting, model compatibility, or real image quality. No browser, simulator, physical-device, native-build or bundle verification is implied by those tests. This prototype is not run automatically by the app.
 
 Official references used for the prototype: [local/open-source registration and sign-in](https://developers.openai.com/siwc/token-sharing-open-source/sign-in), [OIDC validation](https://developers.openai.com/siwc/website). This local experiment does not itself establish eligibility for a distribution route.
+
+## Optional Android emulator companion mode
+
+The separate development increment is documented in
+[mobile test readiness](../../docs/mobile-test-readiness.md). Start this isolated
+checkout with `MOBILE_TEST=1 PORT=8768 node tools/route1-demo/server.mjs`, complete
+Mac-browser sign-in, load the catalog, and obtain a runtime pairing code. The
+emulator can then explicitly submit the selected local photo bytes and show a
+validated JSON price draft. The mobile route is disabled unless `MOBILE_TEST=1`;
+its pairing guard is separate from unchanged browser OAuth guards. The listener
+remains loopback-only; do not expose it to a LAN or tunnel. No provider tokens are
+sent to the phone. Session persistence/refresh remains a separate next increment.

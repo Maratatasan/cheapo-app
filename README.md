@@ -35,7 +35,7 @@ The camera tests mock the native camera and permission APIs; they cover app beha
 
 ## Camera behavior
 
-The scan screen asks for camera permission when needed. Once granted, it shows the camera preview and capture control. A captured photo is shown with **Retake** and **Upload Photo** actions. **Upload Photo** is currently a stub: it logs the local photo URI, shows a confirmation alert, and returns to the camera. It does not send a photo to a server.
+The scan screen asks for camera permission when needed. Once granted, it shows the camera preview and capture control. A captured photo is shown with **Retake**, an explicit development **Analyse photo** action and disabled **Saving not connected** status. Analysis sends only the chosen photo through the paired local companion when explicitly pressed. Saving is not connected; the app does not claim a photo was saved or discard its preview.
 
 ## Expo upgrades
 
@@ -57,3 +57,24 @@ Route 1 Sign in with ChatGPT plan-usage feasibility is tracked in
 
 See [AI toolkit setup and verification](docs/ai-toolkit.md) for the installed Codex
 plugins, personal skills in `~/.codex/skills`, native-device checks, and update instructions.
+
+## Development test photo
+
+For the optional Android emulator **Use test photo** preview, see
+[mobile test setup](docs/mobile-test-readiness.md). It uses a private local JPEG,
+requires no extra dependencies, and offers a separate explicit **Analyse test
+photo** action through a paired local Mac companion. The normal camera flow and
+upload stub remain available.
+## Sample prices and shops
+
+Use **Explore sample prices** on Home to open the sample comparison cards and
+shop map. Prices, dates, distances and pin positions are fictional; exact shop
+branches are unverified. This sample browser is independent of photo capture and
+does not save observations. See [sample UI behavior and map limits](docs/sample-results-map.md).
+
+## Component library
+
+Run `pnpm ui:storybook` to browse the app’s shared cards and feedback states at
+[localhost:6006](http://127.0.0.1:6006/?path=/story/cheapo-library--overview).
+`pnpm ui:storybook:build` creates a local static build. See
+[component library usage and verification limits](docs/component-library.md).

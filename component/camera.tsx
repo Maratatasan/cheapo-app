@@ -10,6 +10,7 @@ import {
 } from "react-native";
 import { CameraView, CameraType, useCameraPermissions } from "expo-camera";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { MobileDraft } from "./mobile-draft";
 
 export const CameraComponent = () => {
   const [facing, setFacing] = useState<CameraType>("back");
@@ -22,7 +23,30 @@ export const CameraComponent = () => {
 
   if (!permission) return <View style={styles.container} />;
 
-  if (!permission.granted) {
+  const useTestPhoto = () => {
+    const uri = process.env.EXPO_PUBLIC_CHEAPO_TEST_PHOTO_URL;
+    if (!uri) {
+      Alert.alert(
+        "Test photo unavailable",
+        "Start the local test-photo server and configure EXPO_PUBLIC_CHEAPO_TEST_PHOTO_URL, then restart Expo.",
+      );
+      return;
+    }
+    setCameraReady(false);
+    setPhotoUri(uri);
+  };
+  const testPhotoButton = __DEV__ ? (
+    <TouchableOpacity
+      style={[styles.button, { marginTop: 12 }]}
+      onPress={useTestPhoto}
+      disabled={isTakingPhoto}
+      accessibilityRole="button"
+    >
+      <Text style={styles.buttonText}>Use test photo</Text>
+    </TouchableOpacity>
+  ) : null;
+
+  if (!permission.granted && !photoUri) {
     return (
       <View style={styles.permissionContainer}>
         <Text style={styles.message}>
@@ -34,6 +58,7 @@ export const CameraComponent = () => {
         >
           <Text style={styles.permissionText}>Grant Permission</Text>
         </TouchableOpacity>
+        {testPhotoButton}
       </View>
     );
   }
@@ -56,15 +81,6 @@ export const CameraComponent = () => {
     }
   };
 
-  const uploadPhoto = async () => {
-    if (!photoUri) return;
-
-    // Stub: Upload to your backend or cloud storage
-    console.log("Uploading photo:", photoUri);
-    Alert.alert("✅ Photo uploaded!", photoUri);
-    setPhotoUri(null); // Reset to camera
-  };
-
   const retakePhoto = () => {
     setPhotoUri(null);
   };
@@ -73,10 +89,24 @@ export const CameraComponent = () => {
     <View style={styles.container}>
       {photoUri ? (
         <>
-          <Image source={{ uri: photoUri }} style={styles.preview} />
+          <Image
+            source={{ uri: photoUri }}
+            accessibilityLabel="Price photo preview"
+            style={styles.preview}
+            onError={() => {
+              if (photoUri === process.env.EXPO_PUBLIC_CHEAPO_TEST_PHOTO_URL) setPhotoUri(null);
+              Alert.alert(
+                "Photo unavailable",
+                "The photo could not be loaded. For the test photo, check that the local fixture server is running, then try again.",
+              );
+            }}
+          />
           <SafeAreaView style={styles.overlay}>
-            <TouchableOpacity style={styles.button} onPress={uploadPhoto}>
-              <Text style={styles.buttonText}>Upload Photo</Text>
+            {__DEV__ ? (
+              <MobileDraft photoUri={photoUri} />
+            ) : null}
+            <TouchableOpacity style={[styles.button, {opacity:0.6}]} disabled accessibilityRole="button">
+              <Text style={styles.buttonText}>Saving not connected</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -120,6 +150,7 @@ export const CameraComponent = () => {
             >
               <Text style={styles.buttonText}>Flip Camera</Text>
             </TouchableOpacity>
+            {testPhotoButton}
           </SafeAreaView>
         </>
       )}

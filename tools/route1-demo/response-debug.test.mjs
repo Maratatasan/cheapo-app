@@ -10,7 +10,7 @@ test('appends two raw responses, filters credential headers and keeps the file o
   t.after(() => rm(directory, { recursive: true, force: true }));
   const path = join(directory, 'response-debug.jsonl');
   const first = new Response('{"error":{"message":"raw provider detail"}}', { status: 400, headers: {
-    'content-type': 'application/json', 'x-request-id': 'req_test123', authorization: 'Bearer header-secret', cookie: 'session=cookie-secret', 'set-cookie': 'token=set-cookie-secret', 'x-session-token': 'also-secret'
+    'content-type': 'application/json', 'x-request-id': 'req_test123', authorization: 'Bearer header-secret', cookie: 'session=cookie-secret', 'set-cookie': 'token=set-cookie-secret', 'x-session-token': 'also-secret', 'x-codex-turn-state': 'provider-session-secret', 'x-future-session': 'unknown-secret'
   } });
   const second = new Response('data: {"type":"response.completed"}\n\n', { status: 200, headers: { 'content-type': 'text/event-stream' } });
   await appendResponseDebug(path, first, '2026-11-09T12:00:00.000Z');
@@ -25,7 +25,7 @@ test('appends two raw responses, filters credential headers and keeps the file o
   assert.equal(lines[0].headers['content-type'], 'application/json');
   assert.equal(lines[0].headers['x-request-id'], 'req_test123');
   const log = await readFile(path, 'utf8');
-  for (const secret of ['Bearer header-secret', 'cookie-secret', 'set-cookie-secret', 'also-secret', 'request-token', 'data:image/']) assert.equal(log.includes(secret), false);
+  for (const secret of ['Bearer header-secret', 'cookie-secret', 'set-cookie-secret', 'also-secret', 'provider-session-secret', 'unknown-secret', 'request-token', 'data:image/']) assert.equal(log.includes(secret), false);
   assert.equal((await stat(path)).mode & 0o777, 0o600);
 });
 
