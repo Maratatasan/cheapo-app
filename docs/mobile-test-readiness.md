@@ -183,3 +183,13 @@ The development-only `/dev-draft` route provides an explicitly labelled offline
 fixture using that same adapter/card. Its Android emulator screenshot is
 `/private/tmp/cheapo-integrated-ai-card.png`; it is not a new inference result.
 See [Pixel USB setup](pixel-usb-test.md) for the physical Android connection.
+
+## Physical-capture correction
+
+Real camera captures now expose the same explicit **Analyse photo** action as the
+preset. The old Upload Photo stub's misleading success alert was removed: saving
+is disabled and labelled **Saving not connected**, retaining the captured preview.
+Analysis/network/image errors keep a real captured photo available for retry;
+only Retake deliberately returns from it to the camera. Android local-file JPEG
+responses are normalized to the Camera capture MIME before validated byte upload.
+No automatic photo submission is added.

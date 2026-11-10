@@ -21,12 +21,16 @@ export function MobileDraft({ photoUri }: { photoUri: string }) {
     const timeout = setTimeout(() => controller.abort(), 125_000);
     try {
       const photo = await fetch(photoUri, { signal:controller.signal });
-      if (!photo.ok) throw Error('Test photo unavailable. Check the local photo server.');
+      if (!photo.ok) throw Error('Photo unavailable. The selected photo has been kept; check the connection.');
       const blob = await photo.blob();
-      if (blob.size > 5_900_000) throw Error('Test photo exceeds 5.9 MB.');
+      if (blob.size > 5_900_000) throw Error('Selected photo exceeds 5.9 MB.');
       const image = await new Promise<string>((resolve,reject) => {
         const reader = new FileReader();
-        reader.onload = () => typeof reader.result === 'string' ? resolve(reader.result) : reject(Error('Could not read selected photo.'));
+        reader.onload = () => {
+          if(typeof reader.result !== 'string') return reject(Error('Could not read selected photo.'));
+          // Expo Camera captures JPEG; Android local-file fetch may omit its MIME.
+          resolve(photoUri.startsWith('file:') ? reader.result.replace(/^data:[^;]*;base64,/, 'data:image/jpeg;base64,') : reader.result);
+        };
         reader.onerror = () => reject(Error('Could not read selected photo.'));
         reader.readAsDataURL(blob);
       });
@@ -45,7 +49,7 @@ export function MobileDraft({ photoUri }: { photoUri: string }) {
       setDraft(value.draft);
       setResult(`Model: ${value.model}\n${JSON.stringify(value.draft,null,2)}${value.requestId ? `\nRequest: ${value.requestId}` : ''}`);
     } catch (error) {
-      setResult(`No draft accepted. ${error instanceof Error ? error.message : 'Request failed.'}\nCheck the local photo server, Mac sign-in and pairing code. No automatic retry was sent.`);
+      setResult(`No draft accepted. ${error instanceof Error ? error.message : 'Request failed.'}\nYour photo remains in preview. Check the Mac connection, sign-in and pairing code. No automatic retry was sent.`);
     } finally {
       clearTimeout(timeout); pending.current = false; setBusy(false);
     }
@@ -53,12 +57,12 @@ export function MobileDraft({ photoUri }: { photoUri: string }) {
   return <>
     <View style={styles.controls}>
       <TextInput placeholder="Mac pairing code" accessibilityLabel="Mac pairing code" secureTextEntry autoCapitalize="none" autoCorrect={false} value={pairing} onChangeText={setPairing} style={styles.input} />
-      <Button title="Analyse test photo" disabled={!pairing.trim() || busy} onPress={analyse} />
+      <Button title="Analyse photo" disabled={!pairing.trim() || busy} onPress={analyse} />
       <Text style={styles.note}>Sends this photo to OpenAI using your ChatGPT plan.</Text>
     </View>
     <Modal visible={visible} onRequestClose={() => { if (!busy) setVisible(false); }}>
       <View style={styles.result}>
-        <Text accessibilityRole="header">Test photo AI result</Text>
+        <Text accessibilityRole="header">Photo AI draft</Text>
         <ScrollView contentContainerStyle={{gap:16}}>
           {draft ? <>
             <AiDraftCard draft={draft} />

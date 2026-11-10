@@ -76,7 +76,7 @@ describe("CameraComponent", () => {
 
     expect(mockTakePictureAsync).toHaveBeenCalledTimes(1);
     expect(await screen.findByText("Retake")).toBeTruthy();
-    expect(screen.getByText("Upload Photo")).toBeTruthy();
+    expect(screen.getByText("Saving not connected")).toBeTruthy();
 
     await fireEvent.press(screen.getByText("Retake"));
 
@@ -95,7 +95,7 @@ describe("CameraComponent", () => {
     expect(screen.getByLabelText("Price photo preview")).toHaveProp("source", {
       uri: "http://10.0.2.2:8767/test-photo.jpg",
     });
-    expect(screen.getByText("Upload Photo")).toBeOnTheScreen();
+    expect(screen.getByText("Saving not connected")).toBeOnTheScreen();
     await fireEvent.press(screen.getByText("Retake"));
     expect(screen.getByTestId("camera-preview")).toBeOnTheScreen();
     delete process.env.EXPO_PUBLIC_CHEAPO_TEST_PHOTO_URL;
@@ -140,24 +140,19 @@ describe("CameraComponent", () => {
     expect(screen.getByText("Take Picture of Price")).toBeTruthy();
   });
 
-  it("returns to the camera after the upload stub confirms the photo", async () => {
+  it("keeps a captured photo and never claims an unavailable save succeeded", async () => {
     mockPermission = { granted: true };
     mockTakePictureAsync.mockResolvedValue({ uri: "file:///test-photo.jpg" });
     const alertSpy = jest.spyOn(Alert, "alert").mockImplementation(() => {});
-    const logSpy = jest.spyOn(console, "log").mockImplementation(() => {});
     await render(<CameraComponent />);
-
     await fireEvent(screen.getByTestId("camera-preview"), "cameraReady");
     await fireEvent.press(screen.getByText("Take Picture of Price"));
-    await screen.findByText("Upload Photo");
-    await fireEvent.press(screen.getByText("Upload Photo"));
-
-    expect(logSpy).toHaveBeenCalledWith("Uploading photo:", "file:///test-photo.jpg");
-    expect(alertSpy).toHaveBeenCalledWith(
-      "✅ Photo uploaded!",
-      "file:///test-photo.jpg",
-    );
-    expect(screen.getByTestId("camera-preview")).toBeTruthy();
-    expect(screen.queryByText("Upload Photo")).toBeNull();
+    expect(await screen.findByText("Saving not connected")).toBeDisabled();
+    expect(screen.getByText("Analyse photo")).toBeOnTheScreen();
+    await fireEvent.press(screen.getByText("Saving not connected"));
+    expect(alertSpy).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Price photo preview")).toBeOnTheScreen();
+    await fireEvent(screen.getByLabelText("Price photo preview"),"error");
+    expect(screen.getByLabelText("Price photo preview")).toBeOnTheScreen();
   });
 });
