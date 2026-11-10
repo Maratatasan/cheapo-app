@@ -46,6 +46,9 @@ jobs:
       - name: Run tests
         run: pnpm test
 
+      - name: Build component library
+        run: pnpm ui:storybook:build
+
       - name: Run Route 1 demo tests
         run: node --test tools/route1-demo/*.test.mjs
 

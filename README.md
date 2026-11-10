@@ -65,3 +65,16 @@ For the optional Android emulator **Use test photo** preview, see
 requires no extra dependencies, and offers a separate explicit **Analyse test
 photo** action through a paired local Mac companion. The normal camera flow and
 upload stub remain available.
+## Sample prices and shops
+
+Use **Explore sample prices** on Home to open the sample comparison cards and
+shop map. Prices, dates, distances and pin positions are fictional; exact shop
+branches are unverified. This sample browser is independent of photo capture and
+does not save observations. See [sample UI behavior and map limits](docs/sample-results-map.md).
+
+## Component library
+
+Run `pnpm ui:storybook` to browse the app’s shared cards and feedback states at
+[localhost:6006](http://127.0.0.1:6006/?path=/story/cheapo-library--overview).
+`pnpm ui:storybook:build` creates a local static build. See
+[component library usage and verification limits](docs/component-library.md).
