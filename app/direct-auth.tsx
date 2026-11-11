@@ -33,6 +33,7 @@ export default function DirectAuthTest() {
   }
   return <ScrollView style={ui.page} contentContainerStyle={ui.content}>
     <Text style={ui.title}>Direct phone sign-in test</Text>
+    <Text style={ui.small}>Auth diagnostic 1.0.1 (2) · connection probe v2</Text>
     <Text style={ui.body}>This separate local test app checks the native prerequisites. It does not use the Mac companion or its credentials.</Text>
     <Text style={ui.body}>{status}</Text>
     <Button title={busy?'Checking…':'Check this phone'} disabled={busy||authState?.busy} onPress={check} />
