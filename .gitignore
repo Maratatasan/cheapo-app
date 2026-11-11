@@ -42,3 +42,8 @@ app-example
 
 # Local component-library build
 storybook-static/
+
+# Generated native project and local module build outputs
+/android/
+/modules/**/android/build/
+/modules/**/android/.gradle/

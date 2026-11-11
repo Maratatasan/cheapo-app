@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useRef, useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -7,16 +7,54 @@ import {
   Dimensions,
   Image,
   Alert,
+  Button,
+  ScrollView,
+  Platform,
 } from "react-native";
+import { captureGuide, fittedCameraFrame, seedGuideCrop, fullPhoto, type CropBox } from "@/data/crop-geometry";
 import { CameraView, CameraType, useCameraPermissions } from "expo-camera";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { GalleryCopy } from "./gallery-copy";
+import { PhotoReview } from "./photo-review";
+import { PhotoCrop } from "./photo-crop";
+import { emptyReview, loadLocalPhotos, saveLocalPhoto, type LocalPhotoDraft, type PhotoAsset } from "@/data/local-photo";
 import { MobileDraft } from "./mobile-draft";
 
 export const CameraComponent = () => {
+  const [captureStage, setCaptureStage] = useState(() => Dimensions.get("window"));
+  const captureFrame = fittedCameraFrame(captureStage);
   const [facing, setFacing] = useState<CameraType>("back");
   const [permission, requestPermission] = useCameraPermissions();
   const cameraRef = useRef<CameraView>(null);
-  const [photoUri, setPhotoUri] = useState<string | null>(null);
+  const [draft, setDraft] = useState<LocalPhotoDraft | null>(null);
+  const [cropping, setCropping] = useState(false);
+  const [visitShop, setVisitShop] = useState("");
+  const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [savedPhotos, setSavedPhotos] = useState<LocalPhotoDraft[]>([]);
+  const busy = saving;
+  const savePending = useRef(false);
+  const photoUri = draft?.selected.uri ?? null;
+  useEffect(() => { loadLocalPhotos().then(photos => { setSavedPhotos(photos); if (photos[0]?.review?.shop) setVisitShop(photos[0].review.shop); }).catch(() => Alert.alert('Saved photos unavailable', 'Your saved photos could not be read. Try reopening Scan.')); }, []);
+  function selectPhoto(photo: PhotoAsset, cropBox?: CropBox) {
+    setDraft({ id: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`, capturedAt: new Date().toISOString(), original: photo, selected: photo, review: emptyReview(visitShop), cropBox });
+    setSaved(false);
+  }
+  async function persistPhoto(): Promise<LocalPhotoDraft> {
+    if (!draft || savePending.current) throw Error("Please wait before saving this photo.");
+    savePending.current = true; setSaving(true);
+    try {
+      const persisted = await saveLocalPhoto(draft);
+      setDraft(persisted); setSaved(true);
+      setSavedPhotos(current => [persisted, ...current.filter(item => item.id !== persisted.id)]);
+      return persisted;
+    }
+    finally { savePending.current = false; setSaving(false); }
+  }
+  async function savePhoto() {
+    try { await persistPhoto(); } catch { Alert.alert('Photo not saved', 'Your preview is kept. Check free storage and try Save on this phone again.'); }
+  }
+  const savedPhotoButtons = savedPhotos.length ? <ScrollView style={{ maxHeight: 90, marginTop: 12 }}><Text style={styles.buttonText}>Saved in Cheapo ({savedPhotos.length})</Text>{savedPhotos.map(item => <Button key={item.id} title={`Review ${new Date(item.capturedAt).toLocaleString()}`} onPress={() => { setDraft({ ...item, review: item.review ?? emptyReview() }); setVisitShop(item.review?.shop ?? ""); setSaved(true); setCameraReady(false); }} />)}</ScrollView> : null;
   const [cameraReady, setCameraReady] = useState(false);
   const [isTakingPhoto, setIsTakingPhoto] = useState(false);
   const isTakingPhotoRef = useRef(false);
@@ -33,7 +71,7 @@ export const CameraComponent = () => {
       return;
     }
     setCameraReady(false);
-    setPhotoUri(uri);
+    Image.getSize(uri, (width, height) => selectPhoto({ uri, width, height, mimeType: 'image/jpeg' }), () => Alert.alert('Test photo unavailable', 'Check the local fixture server and try again.'));
   };
   const testPhotoButton = __DEV__ ? (
     <TouchableOpacity
@@ -59,6 +97,7 @@ export const CameraComponent = () => {
           <Text style={styles.permissionText}>Grant Permission</Text>
         </TouchableOpacity>
         {testPhotoButton}
+        {savedPhotoButtons}
       </View>
     );
   }
@@ -72,7 +111,10 @@ export const CameraComponent = () => {
     try {
       const photo = await cameraRef.current.takePictureAsync();
       setCameraReady(false);
-      setPhotoUri(photo.uri);
+      const asset: PhotoAsset = { uri: photo.uri, width: photo.width, height: photo.height, mimeType: "image/jpeg" };
+      const initialCrop = Platform.OS === "android" ? seedGuideCrop(asset, captureFrame) : null;
+      selectPhoto(asset, initialCrop ?? fullPhoto);
+      setCropping(true);
     } catch {
       Alert.alert("Unable to take photo", "Please try again.");
     } finally {
@@ -82,50 +124,47 @@ export const CameraComponent = () => {
   };
 
   const retakePhoto = () => {
-    setPhotoUri(null);
+    setDraft(null); setSaved(false); setCropping(false);
   };
 
   return (
     <View style={styles.container}>
       {photoUri ? (
         <>
-          <Image
-            source={{ uri: photoUri }}
-            accessibilityLabel="Price photo preview"
-            style={styles.preview}
-            onError={() => {
-              if (photoUri === process.env.EXPO_PUBLIC_CHEAPO_TEST_PHOTO_URL) setPhotoUri(null);
-              Alert.alert(
-                "Photo unavailable",
-                "The photo could not be loaded. For the test photo, check that the local fixture server is running, then try again.",
-              );
+          {draft ? <PhotoReview
+            photo={draft.selected}
+            review={draft.review ?? emptyReview()}
+            saved={saved}
+            busy={busy}
+            onReviewChange={review => { setDraft({ ...draft, review }); setSaved(false); setVisitShop(review.shop); }}
+            galleryAction={<GalleryCopy key={draft.selected.uri} photo={draft.selected} />}
+            onSave={savePhoto}
+            onRetake={retakePhoto}
+            onCrop={() => setCropping(true)}
+            onOriginal={draft.selected.uri !== draft.original.uri ? () => { setDraft({ ...draft, selected: draft.original, cropBox: fullPhoto }); setSaved(false); } : undefined}
+            onImageError={() => {
+              if (photoUri === process.env.EXPO_PUBLIC_CHEAPO_TEST_PHOTO_URL) setDraft(null);
+              Alert.alert('Photo unavailable', 'The photo could not be loaded. For the test photo, check the local fixture server and try again.');
             }}
-          />
-          <SafeAreaView style={styles.overlay}>
-            {__DEV__ ? (
-              <MobileDraft photoUri={photoUri} />
-            ) : null}
-            <TouchableOpacity style={[styles.button, {opacity:0.6}]} disabled accessibilityRole="button">
-              <Text style={styles.buttonText}>Saving not connected</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.button, { marginTop: 12 }]}
-              onPress={retakePhoto}
-            >
-              <Text style={styles.buttonText}>Retake</Text>
-            </TouchableOpacity>
-          </SafeAreaView>
+          >
+            {__DEV__ ? <MobileDraft key={photoUri} photoUri={photoUri} /> : null}
+          </PhotoReview> : null}
+          {cropping && draft ? <PhotoCrop original={draft.original} initialBox={draft.cropBox} onCancel={() => setCropping(false)} onApply={(photo, cropBox) => { setDraft({ ...draft, selected: photo, cropBox }); setSaved(false); setCropping(false); }} /> : null}
         </>
       ) : (
         <>
-          <CameraView
-            style={StyleSheet.absoluteFill}
-            facing={facing}
-            ref={cameraRef}
-            onCameraReady={() => setCameraReady(true)}
-          />
-          <SafeAreaView style={styles.overlay}>
+          <View style={styles.captureStage} onLayout={event => {
+            const { width, height } = event.nativeEvent.layout;
+            setCaptureStage(current => width === current.width && height === current.height ? current : { ...current, width, height });
+          }}>
+            <View style={{ width: captureFrame.width, height: captureFrame.height }}>
+              <CameraView style={StyleSheet.absoluteFill} ratio="4:3" facing={facing} ref={cameraRef} onCameraReady={() => setCameraReady(true)} />
+              <View pointerEvents="none" style={[styles.captureFrame, { position: 'absolute', left: `${captureGuide.left * 100}%`, top: `${captureGuide.top * 100}%`, width: `${(captureGuide.right - captureGuide.left) * 100}%`, height: `${(captureGuide.bottom - captureGuide.top) * 100}%` }]} />
+            </View>
+          </View>
+          <SafeAreaView edges={['bottom']} style={styles.captureFooter}>
+            <Text style={styles.captureGuideText}>Fit product name, price and weight/size inside the frame.</Text>
+            <Text style={styles.captureGuideText}>The full original is kept. Adjust the crop after capture.</Text>
             <TouchableOpacity
               style={styles.button}
               onPress={takePhoto}
@@ -151,14 +190,13 @@ export const CameraComponent = () => {
               <Text style={styles.buttonText}>Flip Camera</Text>
             </TouchableOpacity>
             {testPhotoButton}
+            {savedPhotoButtons}
           </SafeAreaView>
         </>
       )}
     </View>
   );
 };
-
-const { width, height } = Dimensions.get("window");
 
 const styles = StyleSheet.create({
   container: {
@@ -189,12 +227,6 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     color: "#000",
   },
-  overlay: {
-    position: "absolute",
-    bottom: 40,
-    width: width,
-    alignItems: "center",
-  },
   button: {
     backgroundColor: "rgba(0,0,0,0.6)",
     paddingVertical: 12,
@@ -206,9 +238,9 @@ const styles = StyleSheet.create({
     color: "white",
     fontWeight: "bold",
   },
-  preview: {
-    width,
-    height,
-    resizeMode: "cover",
-  },
+  captureStage: { flex: 1, alignItems: "center", justifyContent: "center" },
+  captureFooter: { paddingHorizontal: 16, paddingTop: 8, alignItems: "center", gap: 6 },
+  captureFrame: { borderWidth: 2, borderColor: "#fff", borderRadius: 14 },
+  captureGuideText: { color: "#fff", backgroundColor: "rgba(0,0,0,0.65)", padding: 8, borderRadius: 8, textAlign: "center", fontSize: 14 },
+
 });
