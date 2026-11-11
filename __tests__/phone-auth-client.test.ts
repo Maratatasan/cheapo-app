@@ -90,3 +90,21 @@ it('clears a malformed registration even when no session exists',async()=>{
   await s.client.signOut();expect(s.storage.has('direct-auth.registration')).toBe(false);
   await s.client.signIn();expect(s.client.getState().signedIn).toBe(true);
 });
+
+it('shows only bounded public connection diagnostics without request secrets',async()=>{
+  const s=setup();s.native.requestJson=jest.fn(async()=>({status:0,bodyText:JSON.stringify({error:'native_transport',category:'UnknownHostException',stage:'connect',dns:'failed',foreground:true,message:'secret-body'})}));
+  await s.client.checkConnection();expect(s.client.getState().message).toContain('native request failed');expect(s.client.getState().message).toContain('DNS failed; app foreground');
+  expect(s.client.getState().message).not.toContain('secret-body');
+});
+
+it('distinguishes a rejected native bridge without showing arbitrary codes or messages',async()=>{
+ const s=setup();s.native.requestJson=jest.fn(async()=>{throw Object.assign(new Error('UnknownHostException secret-request'),{code:'secret-code'});});
+ await s.client.checkConnection();expect(s.client.getState().message).toBe('Connection probe: native bridge rejected (UnknownHostException).');
+});
+it('shows a fresh loading message before the public probe settles',async()=>{
+ const s=setup();let release!:(value:{status:number;bodyText:string})=>void;
+ s.native.requestJson=jest.fn(()=>new Promise(resolve=>{release=resolve;}));
+ const pending=s.client.checkConnection();expect(s.client.getState()).toMatchObject({busy:true,message:'Connection probe v2: checking the public OpenAI endpoint…'});
+ release({status:200,bodyText:JSON.stringify({keys:[{}]})});await pending;
+ expect(s.client.getState().message).toContain('Connection probe v2 passed');
+});

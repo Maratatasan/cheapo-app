@@ -28,16 +28,21 @@ export function createPhoneAuth(deps:Dependencies) {
     if(registration!==null&&(typeof registration!=='object'||typeof registration.clientId!=='string'||!registration.clientId||registration.clientId==='dynamic_agent_client'||registration.clientId.length>512||(registration.subject!==undefined&&(typeof registration.subject!=='string'||!registration.subject))))throw new AuthFailure('Saved phone registration needs review. Clear the phone login before retrying.');
     return registration;
   }
-  async function request(url:string,form?:URLSearchParams) {
+  async function request(url:string,form?:URLSearchParams,probe=false) {
     let response;
     try{response=await deps.native.requestJson(url,form?.toString()??null);}catch(error){
       const message=error instanceof Error?error.message:'';
       const category=['UnknownHostException','SSLHandshakeException','SSLPeerUnverifiedException','SocketTimeoutException','NetworkOnMainThreadException','ArgumentCastException','NullArgumentException','ConnectException','SecurityException'].find(name=>message.includes(name))??'native transport';
-      throw new AuthFailure(`Phone HTTPS connection failed (${category}).`,'temporary');
+      const code=typeof error==='object'&&error!==null&&'code' in error ? error.code : undefined;
+      const safeCode=typeof code==='string'&&['ERR_UNEXPECTED','ERR_INVALID_ARGS','ERR_INVALID_ARG','ERR_MODULE_NOT_FOUND'].includes(code)?`; ${code}`:'';
+      throw new AuthFailure(probe?`Connection probe: native bridge rejected (${category}${safeCode}).`:`Phone HTTPS connection failed (${category}).`,'temporary');
     }
     let value;
     try{value=JSON.parse(response.bodyText);}catch{throw new AuthFailure('Authentication returned an invalid response.','temporary');}
-    if(response.status===0 && value?.error==='native_transport')throw new AuthFailure(`Phone HTTPS connection failed (${String(value.category).replace(/[^A-Za-z0-9_]/g,'').slice(0,80)}).`,'temporary');
+    if(response.status===0 && value?.error==='native_transport'){
+      const diagnostic=probe&&url===`${AUTH_ORIGIN}/.well-known/jwks.json` && ['connect','read','validate'].includes(value.stage) && ['resolved','failed','empty'].includes(value.dns) && typeof value.foreground==='boolean' ? `; ${value.stage}; DNS ${value.dns}; app ${value.foreground?'foreground':'background'}` : '';
+      throw new AuthFailure(`${probe?'Connection probe: native request failed':'Phone HTTPS connection failed'} (${String(value.category).replace(/[^A-Za-z0-9_]/g,'').slice(0,80)}${diagnostic}).`,'temporary');
+    }
     if(response.status<200||response.status>=300){
       const code=typeof value?.error==='string'?value.error:value?.error?.code;
       const safeCode=typeof code==='string'&&/^[A-Za-z0-9_.-]{1,100}$/.test(code)?code:'unknown';
@@ -99,7 +104,7 @@ export function createPhoneAuth(deps:Dependencies) {
   return {
     getState:()=>view,
     subscribe(listener:(state:PhoneAuthState)=>void){listeners.add(listener);return()=>{listeners.delete(listener);};},
-    checkConnection:()=>operation(async()=>{const keys=await request(`${AUTH_ORIGIN}/.well-known/jwks.json`);if(!Array.isArray(keys?.keys)||!keys.keys.length)throw new AuthFailure('Trusted identity keys were unavailable.','temporary');update({message:'Phone HTTPS connection to OpenAI identity keys passed. No login or inference request sent.'});}),
+    checkConnection:()=>operation(async()=>{update({message:'Connection probe v2: checking the public OpenAI endpoint…'});const keys=await request(`${AUTH_ORIGIN}/.well-known/jwks.json`,undefined,true);if(!Array.isArray(keys?.keys)||!keys.keys.length)throw new AuthFailure('Trusted identity keys were unavailable.','temporary');update({message:'Connection probe v2 passed. OpenAI identity keys received; no login or inference request sent.'});}),
     signIn:()=>operation(async()=>{
       const currentFlow=++flow;
       if(pendingSession){const session=pendingSession;await persistSignIn(session,currentFlow);publish(session);return;}

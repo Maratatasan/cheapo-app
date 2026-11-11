@@ -8,7 +8,7 @@ on the phone. It never uses the Mac companion, sends a photo, or requests infere
 
 The normal app identity and home flow are unchanged. Set `CHEAPO_AUTH_TEST=1`
 for **both** prebuild and build/export/Metro commands to enable the separate
-**Cheapo Auth Test** app (`com.maratatasan.cheapo.dev`, scheme `cheapo-auth-test`).
+**Cheapo Auth Test** app, version `1.0.1` / Android version code `2` (`com.maratatasan.cheapo.dev`, scheme `cheapo-auth-test`).
 The test screen is disabled in the normal app, Expo Go, iOS and web builds without
 the Android native module. Tokens and installation identity use Expo SecureStore;
 no credential or callback URL is logged or bundled.
@@ -50,6 +50,13 @@ low-memory Mac.
    registration is retained for later sign-in; malformed registration is cleared.
 5. Cancellation must not publish a login after its storage write completes.
    The prior session is restored, or a storage recovery error is shown.
+
+The test screen identifies **connection probe v2**. It shows a fresh loading
+message and distinguishes native bridge rejection from handled native request
+failure. **Check OpenAI connection** requests only the public signing keys, without tokens
+or a photo. A failed request may show a bounded transport category, request stage,
+DNS retry result and app foreground/background snapshot taken after the failure.
+That snapshot does not establish the cause of the original network failure.
 
 Provider eligibility and usage authorization are distinct from verified identity.
 One account is supported per test installation. Account switching and returning
