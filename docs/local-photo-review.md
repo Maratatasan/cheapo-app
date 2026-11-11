@@ -41,3 +41,16 @@ not device hardware. Current native/device evidence belongs in the PR.
 Physical-device acceptance: capture a harmless label, adjust/cancel/apply crop,
 edit values with the keyboard open, save, restart and reopen it, then explicitly
 copy the selected crop to the gallery. Confirm the original remains available.
+
+## Standalone field-test build
+
+Set `CHEAPO_FIELD_TEST=1` for prebuild, build and export commands. This uses the
+existing field-test package `com.maratatasan.cheapo.field`, scheme `cheapofield`,
+version `0.1.2` / Android version code `4`. Keep the existing local debug signing
+key and use install-update (`adb install -r`), never uninstall/reset, to retain
+private drafts from the previous field test. Normal app identity is unchanged.
+Do not set `CHEAPO_AUTH_TEST` at the same time.
+
+Use the [local Android build procedure](android-direct-auth-preparation.md) with
+`CHEAPO_FIELD_TEST=1` in place of `CHEAPO_AUTH_TEST=1`. The field app includes no
+backend/account setup. Its release APK bundles JavaScript; Metro is unnecessary.

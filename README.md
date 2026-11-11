@@ -53,7 +53,7 @@ Upgrade one Expo SDK at a time. For each SDK, follow the Expo upgrade guide, ins
 
 - `app/index.tsx` — home screen and link to scanning
 - `app/scan.tsx` — scan route
-- `component/camera.tsx` — permissions, camera, photo preview, and upload stub
+- `component/camera.tsx` — permissions, camera, crop, review and local saving
 - `__tests__/` — mocked component tests
 
 Repository: [Maratatasan/cheapo-app](https://github.com/Maratatasan/cheapo-app)
@@ -71,8 +71,7 @@ plugins, personal skills in `~/.codex/skills`, native-device checks, and update 
 For the optional Android emulator **Use test photo** preview, see
 [mobile test setup](docs/mobile-test-readiness.md). It uses a private local JPEG,
 requires no extra dependencies, and offers a separate explicit **Analyse test
-photo** action through a paired local Mac companion. The normal camera flow and
-upload stub remain available.
+photo** action through a paired local Mac companion. The normal camera capture, review and local saving flow remains available.
 ## Sample prices and shops
 
 Use **Explore sample prices** on Home to open the sample comparison cards and
@@ -86,3 +85,9 @@ Run `pnpm ui:storybook` to browse the app’s shared cards and feedback states a
 [localhost:6006](http://127.0.0.1:6006/?path=/story/cheapo-library--overview).
 `pnpm ui:storybook:build` creates a local static build. See
 [component library usage and verification limits](docs/component-library.md).
+
+## Android authentication experiment
+
+The opt-in [direct ChatGPT sign-in test](docs/android-direct-auth-preparation.md)
+checks phone authentication and protected session storage. It does not process
+photos and does not change the normal app configuration.
