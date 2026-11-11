@@ -35,7 +35,15 @@ The camera tests mock the native camera and permission APIs; they cover app beha
 
 ## Camera behavior
 
-The scan screen asks for camera permission when needed. Once granted, it shows the camera preview and capture control. A captured photo is shown with **Retake**, an explicit development **Analyse photo** action and disabled **Saving not connected** status. Analysis sends only the chosen photo through the paired local companion when explicitly pressed. Saving is not connected; the app does not claim a photo was saved or discard its preview.
+Scan → camera permission → capture → adjustable crop → review. The guide suggests
+where to fit the label; the full original is retained. Review has labelled product,
+price, currency, shop and unit-price fields. **Save on this phone** stores a local
+photo draft; **Copy to phone gallery** is a separate explicit action after saving.
+Saved drafts reopen from Scan. This path requires no account or cloud backend.
+
+In development, **Analyse photo** can still use the paired Mac companion. That is
+separate from local saving and does not establish direct phone AI support.
+See [local photo review](docs/local-photo-review.md) for behavior and verification.
 
 ## Expo upgrades
 
@@ -45,7 +53,7 @@ Upgrade one Expo SDK at a time. For each SDK, follow the Expo upgrade guide, ins
 
 - `app/index.tsx` — home screen and link to scanning
 - `app/scan.tsx` — scan route
-- `component/camera.tsx` — permissions, camera, photo preview, and upload stub
+- `component/camera.tsx` — permissions, camera, crop, review and local saving
 - `__tests__/` — mocked component tests
 
 Repository: [Maratatasan/cheapo-app](https://github.com/Maratatasan/cheapo-app)
@@ -63,8 +71,7 @@ plugins, personal skills in `~/.codex/skills`, native-device checks, and update 
 For the optional Android emulator **Use test photo** preview, see
 [mobile test setup](docs/mobile-test-readiness.md). It uses a private local JPEG,
 requires no extra dependencies, and offers a separate explicit **Analyse test
-photo** action through a paired local Mac companion. The normal camera flow and
-upload stub remain available.
+photo** action through a paired local Mac companion. The normal camera capture, review and local saving flow remains available.
 ## Sample prices and shops
 
 Use **Explore sample prices** on Home to open the sample comparison cards and

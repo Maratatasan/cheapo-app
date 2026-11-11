@@ -7,6 +7,9 @@
 - Camera tests mock hardware. Report simulator, browser, physical-device, and bundle checks separately; a bundle export is not a native build.
 - Follow official Expo release notes and upgrade one SDK at a time. Keep React, React Native, TypeScript, and Expo modules within the supported SDK versions.
 - Preserve uncommitted work and avoid unrelated refactors.
+- For new AI, photo, storage, or UI work, follow the incremental boundaries in
+  [docs/architecture-principles.md](docs/architecture-principles.md). Do not
+  refactor existing code solely to match the document.
 
 ## AI toolkit
 
