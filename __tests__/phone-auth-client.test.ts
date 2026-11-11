@@ -1,4 +1,10 @@
-import { createPhoneAuth,type PhoneNative } from '../lib/direct-auth/client';
+import { createPhoneAuth as createPhoneAuthClient,type PhoneNative } from '../lib/direct-auth/client';
+function createPhoneAuth(deps:Parameters<typeof createPhoneAuthClient>[0],manual=false){
+ const client=createPhoneAuthClient(deps);
+ // Existing protocol cases simulate the explicit user continuation automatically.
+ if(!manual)client.subscribe(state=>{if(state.awaitingContinue)client.continueSignIn();});
+ return client;
+}
 const nonce='n'.repeat(64);
 const encode=(value:unknown)=>btoa(JSON.stringify(value)).replace(/=/g,'').replace(/\+/g,'-').replace(/\//g,'_');
 const idToken=`${encode({alg:'RS256',kid:'key'})}.${encode({iss:'https://auth.openai.com',aud:'issued-phone',sub:'test-subject',iat:900,exp:5000,nonce})}.c2ln`;
@@ -11,7 +17,7 @@ function setup(){
     return {status:200,bodyText:JSON.stringify({access_token:refresh?'new-access':'initial-access',refresh_token:refresh?'rotated-refresh':'initial-refresh',token_type:'Bearer',expires_in:3600,scope:'resource.invoke chatgpt.tokens.use.direct offline_access',...(refresh?{}:{id_token:idToken})})};
   })};
   const openBrowser=jest.fn(async(url:string)=>{void url;});
-  const dependencies={native,getItem:async(key:string)=>storage.get(key)??null,setItem:async(key:string,value:string)=>{if(failSave&&key==='direct-auth.session')throw Error('locked');storage.set(key,value);},deleteItem:async(key:string)=>{storage.delete(key);},randomUUID:()=> '821e1a44-0f2d-4d0a-9354-52cbd8e1f937',randomHex:()=>nonce,challenge:async()=> 'c'.repeat(43),openBrowser,now:()=>clock};
+  const dependencies={native,getItem:async(key:string)=>storage.get(key)??null,setItem:async(key:string,value:string)=>{if(failSave&&key==='direct-auth.session')throw Error('locked');storage.set(key,value);},deleteItem:async(key:string)=>{storage.delete(key);},randomUUID:()=> '821e1a44-0f2d-4d0a-9354-52cbd8e1f937',randomHex:()=>nonce,challenge:async()=> 'c'.repeat(43),openBrowser,isAppActive:()=>true,now:()=>clock};
   return {dependencies,client:createPhoneAuth(dependencies),newClient:()=>createPhoneAuth(dependencies),storage,native,openBrowser,expire:()=>{clock+=3600000;},setRefreshError:(value:number)=>{refreshError=value;},setSaveFailure:(value:boolean)=>{failSave=value;}};
 }
 it('signs in only explicitly and persists a verified phone session without exposing credentials',async()=>{
@@ -107,4 +113,44 @@ it('shows a fresh loading message before the public probe settles',async()=>{
  const pending=s.client.checkConnection();expect(s.client.getState()).toMatchObject({busy:true,message:'Connection probe v2: checking the public OpenAI endpoint…'});
  release({status:200,bodyText:JSON.stringify({keys:[{}]})});await pending;
  expect(s.client.getState().message).toContain('Connection probe v2 passed');
+});
+
+const settle=async()=>{for(let i=0;i<25;i++)await Promise.resolve();};
+it('waits for explicit Continue after browser return and exchanges only once while active',async()=>{
+ const s=setup();let active=false;const client=createPhoneAuth({...s.dependencies,isAppActive:()=>active},true);
+ const signin=client.signIn();await settle();
+ const tokenCalls=()=> (s.native.requestJson as jest.Mock).mock.calls.filter(([url])=>url.endsWith('/oauth/token'));
+ expect(client.getState().awaitingContinue).toBe(true);expect(tokenCalls()).toHaveLength(0);
+ client.continueSignIn();await settle();expect(tokenCalls()).toHaveLength(0);
+ active=true;await settle();expect(tokenCalls()).toHaveLength(0);
+ client.continueSignIn();client.continueSignIn();await signin;
+ expect(tokenCalls()).toHaveLength(1);expect(client.getState().signedIn).toBe(true);
+});
+it('cancelling pending Continue prevents a late click from exchanging or persisting',async()=>{
+ const s=setup();const client=createPhoneAuth(s.dependencies,true);const signin=client.signIn();await settle();
+ await client.cancel();client.continueSignIn();await signin;
+ expect((s.native.requestJson as jest.Mock).mock.calls.filter(([url])=>url.endsWith('/oauth/token'))).toHaveLength(0);
+ expect(s.storage.has('direct-auth.session')).toBe(false);expect(JSON.parse(s.storage.get('direct-auth.registration')!)).toEqual({clientId:'issued-phone'});
+});
+it('pending Continue expires and cannot exchange after a late click',async()=>{
+ jest.useFakeTimers();try{
+  const s=setup();const client=createPhoneAuth(s.dependencies,true);const signin=client.signIn();await settle();
+  jest.advanceTimersByTime(60000);await signin;client.continueSignIn();await settle();
+  expect(client.getState().message).toContain('expired');expect(client.getState().awaitingContinue).toBe(false);
+  expect((s.native.requestJson as jest.Mock).mock.calls.filter(([url])=>url.endsWith('/oauth/token'))).toHaveLength(0);expect(s.storage.has('direct-auth.session')).toBe(false);
+ }finally{jest.useRealTimers();}
+});
+
+it('cancellation immediately after Continue wins before token exchange',async()=>{
+ const s=setup();const client=createPhoneAuth(s.dependencies,true);const signin=client.signIn();await settle();
+ client.continueSignIn();await client.cancel();await signin;
+ expect((s.native.requestJson as jest.Mock).mock.calls.filter(([url])=>url.endsWith('/oauth/token'))).toHaveLength(0);
+ expect(s.storage.has('direct-auth.session')).toBe(false);
+});
+
+it('rejects an expired Continue even if Android delayed the timeout callback',async()=>{
+ const s=setup();const client=createPhoneAuth(s.dependencies,true);const signin=client.signIn();await settle();
+ s.expire();client.continueSignIn();await signin;
+ expect(client.getState().message).toContain('expired');expect(client.getState().awaitingContinue).toBe(false);
+ expect((s.native.requestJson as jest.Mock).mock.calls.filter(([url])=>url.endsWith('/oauth/token'))).toHaveLength(0);
 });

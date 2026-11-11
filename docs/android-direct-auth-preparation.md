@@ -8,7 +8,7 @@ on the phone. It never uses the Mac companion, sends a photo, or requests infere
 
 The normal app identity and home flow are unchanged. Set `CHEAPO_AUTH_TEST=1`
 for **both** prebuild and build/export/Metro commands to enable the separate
-**Cheapo Auth Test** app, version `1.0.1` / Android version code `2` (`com.maratatasan.cheapo.dev`, scheme `cheapo-auth-test`).
+**Cheapo Auth Test** app, version `1.0.2` / Android version code `3` (`com.maratatasan.cheapo.dev`, scheme `cheapo-auth-test`).
 The test screen is disabled in the normal app, Expo Go, iOS and web builds without
 the Android native module. Tokens and installation identity use Expo SecureStore;
 no credential or callback URL is logged or bundled.
@@ -41,7 +41,11 @@ low-memory Mac.
    real native loopback receiver, RSA primitive and protected storage using a
    local mock callback; it does not establish provider authentication.
 2. **Sign in with ChatGPT on this phone**. The user completes browser consent,
-   then selects **Return to Cheapo Auth Test**. Confirm identity verified,
+   then selects **Return to Cheapo Auth Test** and taps **Continue sign-in** in
+   Cheapo. Returning alone sends no token request. Continue requires the app to
+   be active; pending confirmation expires after 60 seconds and cancellation
+   prevents later continuation. The authorization code stays in memory only.
+   Confirm identity verified,
    plan permission granted (if eligible), and saved login yes.
 3. Close and reopen the app. Check saved phone sign-in; the connection should
    restore without opening the browser. Expired tokens are renewed when checked.
@@ -51,7 +55,8 @@ low-memory Mac.
 5. Cancellation must not publish a login after its storage write completes.
    The prior session is restored, or a storage recovery error is shown.
 
-The test screen identifies **connection probe v2**. It shows a fresh loading
+The test screen identifies version **1.0.2 (3)** and **explicit Continue**;
+the public connection check remains **probe v2**. It shows a fresh loading
 message and distinguishes native bridge rejection from handled native request
 failure. **Check OpenAI connection** requests only the public signing keys, without tokens
 or a photo. A failed request may show a bounded transport category, request stage,

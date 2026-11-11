@@ -8,5 +8,5 @@ it('preserves the normal app configuration unless explicitly opted in',()=>{
 });
 it('isolates the Android auth experiment and preserves existing configuration',()=>{
   process.env.CHEAPO_AUTH_TEST='1';
-  expect(configure(context)).toMatchObject({name:'Cheapo Auth Test',version:'1.0.1',scheme:'cheapo-auth-test',android:{package:'com.maratatasan.cheapo.dev',versionCode:2},extra:{existing:true,directAuthTest:true},plugins:['expo-router','expo-secure-store']});
+  expect(configure(context)).toMatchObject({name:'Cheapo Auth Test',version:'1.0.2',scheme:'cheapo-auth-test',android:{package:'com.maratatasan.cheapo.dev',versionCode:3},extra:{existing:true,directAuthTest:true},plugins:['expo-router','expo-secure-store']});
 });

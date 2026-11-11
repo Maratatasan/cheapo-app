@@ -1,5 +1,5 @@
 import { useEffect,useState } from 'react';
-import { Button,Linking,ScrollView,Text } from 'react-native';
+import { AppState,Button,Linking,ScrollView,Text } from 'react-native';
 import { requireOptionalNativeModule } from 'expo';
 import Constants from 'expo-constants';
 import * as Crypto from 'expo-crypto';
@@ -11,7 +11,7 @@ type Check={callbackVerified:boolean;signatureVerified:boolean;boundAddress:stri
 const enabled=Constants.expoConfig?.extra?.directAuthTest===true;
 const native=enabled?requireOptionalNativeModule<PhoneNative & {selfTest(state:string):Promise<Check>}>('CheapoLoopback'):null;
 const randomHex=()=>Array.from(Crypto.getRandomBytes(32),byte=>byte.toString(16).padStart(2,'0')).join('');
-const auth=native?createPhoneAuth({native,getItem:SecureStore.getItemAsync,setItem:SecureStore.setItemAsync,deleteItem:SecureStore.deleteItemAsync,randomUUID:Crypto.randomUUID,randomHex,challenge:async verifier=>(await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256,verifier,{encoding:Crypto.CryptoEncoding.BASE64})).replace(/=/g,'').replace(/\+/g,'-').replace(/\//g,'_'),openBrowser:url=>Linking.openURL(url)}):null;
+const auth=native?createPhoneAuth({native,getItem:SecureStore.getItemAsync,setItem:SecureStore.setItemAsync,deleteItem:SecureStore.deleteItemAsync,randomUUID:Crypto.randomUUID,randomHex,challenge:async verifier=>(await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256,verifier,{encoding:Crypto.CryptoEncoding.BASE64})).replace(/=/g,'').replace(/\+/g,'-').replace(/\//g,'_'),openBrowser:url=>Linking.openURL(url),isAppActive:()=>AppState.currentState==='active'}):null;
 export default function DirectAuthTest() {
   const [busy,setBusy]=useState(false);
   const [authState,setAuthState]=useState(auth?.getState());
@@ -33,13 +33,14 @@ export default function DirectAuthTest() {
   }
   return <ScrollView style={ui.page} contentContainerStyle={ui.content}>
     <Text style={ui.title}>Direct phone sign-in test</Text>
-    <Text style={ui.small}>Auth diagnostic 1.0.1 (2) · connection probe v2</Text>
+    <Text style={ui.small}>Auth test 1.0.2 (3) · explicit Continue</Text>
     <Text style={ui.body}>This separate local test app checks the native prerequisites. It does not use the Mac companion or its credentials.</Text>
     <Text style={ui.body}>{status}</Text>
     <Button title={busy?'Checking…':'Check this phone'} disabled={busy||authState?.busy} onPress={check} />
     <Text style={ui.body}>{authState?.message || 'Install the native Android test app to sign in.'}</Text>
     <Text style={ui.small}>Identity: {authState?.signedIn?'verified':'not verified'} · Plan permission: {authState?.planAllowed?'granted':'not granted'} · Saved login: {authState?.savedLogin?'yes':'no'}</Text>
     <Button title={authState?.busy?'Completing phone sign-in…':'Sign in with ChatGPT on this phone'} disabled={!auth||busy||authState?.busy} onPress={()=>void auth?.signIn()} />
+    {authState?.awaitingContinue?<Button title="Continue sign-in" onPress={()=>auth?.continueSignIn()} />:null}
     {authState?.busy?<Button title="Cancel phone sign-in" onPress={()=>void auth?.cancel()} />:null}
     <Button title="Check OpenAI connection" disabled={!auth||busy||authState?.busy} onPress={()=>void auth?.checkConnection()} />
     <Button title="Check saved phone sign-in" disabled={!auth||busy||authState?.busy} onPress={()=>void auth?.restore()} />
