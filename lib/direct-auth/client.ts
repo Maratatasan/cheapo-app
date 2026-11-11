@@ -6,22 +6,43 @@ const RESOURCE='https://api.openai.com/v1';
 const SESSION='direct-auth.session',REGISTRATION='direct-auth.registration',HOST='direct-auth.host-id';
 const TERMINAL=new Set(['invalid_grant','invalid_refresh_token','token_expired','refresh_token_expired','refresh_token_invalidated','refresh_token_reused']);
 type Session={clientId:string;subject:string;accessToken:string;refreshToken:string;nonce:string;scopes:string[];expires:number};
-export type PhoneAuthState={busy:boolean;signedIn:boolean;planAllowed:boolean;savedLogin:boolean;message:string};
+export type PhoneAuthState={busy:boolean;signedIn:boolean;planAllowed:boolean;savedLogin:boolean;awaitingContinue:boolean;message:string};
 export type PhoneNative=IdentityBridge & {
   startReceiver(state:string):Promise<{port:number}>;
   waitForCallback():Promise<string>;
   stopReceiver():Promise<void>;
   requestJson(url:string,form:string|null):Promise<{status:number;bodyText:string}>;
 };
-type Dependencies={native:PhoneNative;getItem(key:string):Promise<string|null>;setItem(key:string,value:string):Promise<void>;deleteItem(key:string):Promise<void>;randomUUID():string;randomHex():string;challenge(verifier:string):Promise<string>;openBrowser(url:string):Promise<unknown>;now?():number};
+type Dependencies={native:PhoneNative;getItem(key:string):Promise<string|null>;setItem(key:string,value:string):Promise<void>;deleteItem(key:string):Promise<void>;randomUUID():string;randomHex():string;challenge(verifier:string):Promise<string>;openBrowser(url:string):Promise<unknown>;isAppActive():boolean;now?():number};
 class AuthFailure extends Error {constructor(message:string,readonly code='invalid'){super(message);}}
 export function createPhoneAuth(deps:Dependencies) {
   const now=deps.now??Date.now;
-  let view:PhoneAuthState={busy:false,signedIn:false,planAllowed:false,savedLogin:false,message:'Not signed in on this phone.'};
+  let view:PhoneAuthState={busy:false,signedIn:false,planAllowed:false,savedLogin:false,awaitingContinue:false,message:'Not signed in on this phone.'};
   let pendingSession:Session|undefined;
   let flow=0;
+  let continuation:((error?:AuthFailure)=>void)|undefined;
   const listeners=new Set<(state:PhoneAuthState)=>void>();
   function update(patch:Partial<PhoneAuthState>){view={...view,...patch};listeners.forEach(listener=>listener(view));}
+  function waitForContinue() {
+    return new Promise<void>((resolve,reject)=>{
+      const deadline=now()+60000;
+      const finish=(error?:AuthFailure)=>{
+        if(continuation!==finish)return;
+        continuation=undefined;clearTimeout(timer);update({awaitingContinue:false});
+        if(!error&&now()>=deadline)error=new AuthFailure('Pending phone sign-in expired. Start sign-in again.');
+        if(error)reject(error);else resolve();
+      };
+      const timer=setTimeout(()=>finish(new AuthFailure('Pending phone sign-in expired. Start sign-in again.')),60000);
+      continuation=finish;
+      update({awaitingContinue:true,message:'Browser sign-in received. Return to Cheapo and tap Continue to finish sign-in.'});
+    });
+  }
+  async function inPhase<T>(phase:string,action:()=>Promise<T>):Promise<T> {
+    try{return await action();}catch(error){
+      if(error instanceof AuthFailure)throw new AuthFailure(`${phase}: ${error.message}`,error.code);
+      throw error;
+    }
+  }
   async function read<T>(key:string):Promise<T|null>{const value=await deps.getItem(key);if(!value)return null;try{return JSON.parse(value);}catch{throw new AuthFailure('Saved phone credentials need review.');}}
   async function readRegistration() {
     const registration=await read<{clientId:string;subject?:string}>(REGISTRATION);
@@ -112,7 +133,7 @@ export function createPhoneAuth(deps:Dependencies) {
       let host=await deps.getItem(HOST);if(!host){host=`urn:uuid:${deps.randomUUID()}`;await deps.setItem(HOST,host);}
       const registration=await readRegistration();
       update({message:'Checking the trusted OpenAI identity endpoint from this phone…'});
-      const keys=await request(`${AUTH_ORIGIN}/.well-known/jwks.json`);
+      const keys=await inPhase('OpenAI public keys',()=>request(`${AUTH_ORIGIN}/.well-known/jwks.json`));
       if(!Array.isArray(keys?.keys)||!keys.keys.length)throw new AuthFailure('Identity verification is unavailable. Try later.','temporary');
       ensureActive();
       const state=deps.randomHex(),nonce=deps.randomHex(),verifier=deps.randomHex();
@@ -130,8 +151,11 @@ export function createPhoneAuth(deps:Dependencies) {
         const returned=validateCallback(target,{port,state,clientId:registration?.clientId});
         if(!registration)await deps.setItem(REGISTRATION,JSON.stringify({clientId:returned.clientId}));
         ensureActive();
-        update({message:'Phone callback received. Validating identity and plan permission…'});
-        const tokens=await request(TOKEN,new URLSearchParams({grant_type:'authorization_code',client_id:returned.clientId,code:returned.code,redirect_uri:`http://127.0.0.1:${port}/auth/callback`,code_verifier:verifier,resource:RESOURCE}));
+        await waitForContinue();
+        ensureActive();
+        if(!deps.isAppActive())throw new AuthFailure('Return to Cheapo and start sign-in again; no token request was sent.');
+        update({message:'Finishing ChatGPT token exchange on this phone…'});
+        const tokens=await inPhase('ChatGPT token exchange',()=>request(TOKEN,new URLSearchParams({grant_type:'authorization_code',client_id:returned.clientId,code:returned.code,redirect_uri:`http://127.0.0.1:${port}/auth/callback`,code_verifier:verifier,resource:RESOURCE})));
         ensureActive();
         const claims=await identity(tokens.id_token,returned.clientId,nonce,registration?.subject,false,keys);
         ensureActive();
@@ -140,7 +164,12 @@ export function createPhoneAuth(deps:Dependencies) {
         publish(session);
       }finally{await deps.native.stopReceiver().catch(()=>{});}
     }),
-    async cancel(){flow++;await deps.native.stopReceiver().catch(()=>{});update({message:'Phone sign-in cancelled.'});},
+    continueSignIn(){
+      if(!continuation)return;
+      if(!deps.isAppActive()){update({message:'Return to Cheapo before tapping Continue. No token request has been sent.'});return;}
+      continuation();
+    },
+    async cancel(){flow++;continuation?.(new AuthFailure('Phone sign-in cancelled.'));await deps.native.stopReceiver().catch(()=>{});update({message:'Phone sign-in cancelled.'});},
     restore:()=>operation(async()=>{
       let session=pendingSession??await savedSession();
       if(pendingSession)await persist(pendingSession);

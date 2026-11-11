@@ -18,10 +18,10 @@ export default function configure({ config }: ConfigContext): ExpoConfig {
   return {
     ...config,
     name: 'Cheapo Auth Test',
-    version: '1.0.1',
+    version: '1.0.2',
     slug: config.slug ?? 'cheapo-app',
     scheme: 'cheapo-auth-test',
-    android: { ...config.android, package: 'com.maratatasan.cheapo.dev', versionCode: 2 },
+    android: { ...config.android, package: 'com.maratatasan.cheapo.dev', versionCode: 3 },
     plugins: [...(config.plugins ?? []), 'expo-secure-store'],
     extra: { ...config.extra, directAuthTest: true },
   };
