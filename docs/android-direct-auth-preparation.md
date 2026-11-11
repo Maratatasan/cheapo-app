@@ -51,6 +51,11 @@ low-memory Mac.
 5. Cancellation must not publish a login after its storage write completes.
    The prior session is restored, or a storage recovery error is shown.
 
+**Check OpenAI connection** requests only the public signing keys, without tokens
+or a photo. A failed request may show a bounded transport category, request stage,
+DNS retry result and app foreground/background snapshot taken after the failure.
+That snapshot does not establish the cause of the original network failure.
+
 Provider eligibility and usage authorization are distinct from verified identity.
 One account is supported per test installation. Account switching and returning
 sign-in hints are not implemented. Phone image processing is a separate increment.

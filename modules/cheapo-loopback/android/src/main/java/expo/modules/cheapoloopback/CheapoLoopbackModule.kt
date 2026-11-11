@@ -41,9 +41,11 @@ class CheapoLoopbackModule : Module() {
       } catch (error: Exception) { false }
     }
     AsyncFunction("requestJson") { address: String, form: String? ->
+      var stage = "validate"
       try {
       val uri = URI(address)
       require(uri.scheme == "https" && uri.host == "auth.openai.com" && (uri.port == -1 || uri.port == 443) && uri.userInfo == null && uri.fragment == null) { "Untrusted authentication endpoint" }
+      stage = "connect"
       val connection = uri.toURL().openConnection() as HttpsURLConnection
       try {
         connection.instanceFollowRedirects = false
@@ -58,6 +60,7 @@ class CheapoLoopbackModule : Module() {
           connection.outputStream.use { it.write(form.toByteArray(Charsets.UTF_8)) }
         }
         val status = connection.responseCode
+        stage = "read"
         val stream = if (status in 200..299) connection.inputStream else connection.errorStream
         val output = ByteArrayOutputStream()
         stream?.use {
@@ -77,8 +80,16 @@ class CheapoLoopbackModule : Module() {
         var current: Throwable? = error
         var category = error.javaClass.simpleName
         repeat(5) { if (current != null) { if (current!!.javaClass.simpleName in categories) category = current!!.javaClass.simpleName; current = current!!.cause } }
-        // Category only: never return request data, tokens, URLs or exception messages.
-        mapOf("status" to 0, "bodyText" to "{\"error\":\"native_transport\",\"category\":\"$category\"}")
+        // Credential-free diagnostics only for the explicit public-key connection probe.
+        // Never return exception messages, request bodies, callback URLs or credentials.
+        val diagnostic = if (address == "https://auth.openai.com/.well-known/jwks.json" && form == null) {
+          val dns = try { if (java.net.InetAddress.getAllByName("auth.openai.com").isNotEmpty()) "resolved" else "empty" } catch (_: Exception) { "failed" }
+          val process = android.app.ActivityManager.RunningAppProcessInfo()
+          android.app.ActivityManager.getMyMemoryState(process)
+          val foreground = process.importance == android.app.ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND
+          ",\"stage\":\"$stage\",\"dns\":\"$dns\",\"foreground\":$foreground"
+        } else ""
+        mapOf("status" to 0, "bodyText" to "{\"error\":\"native_transport\",\"category\":\"$category\"$diagnostic}")
       }
     }
     OnDestroy { receiver?.close(); receiver = null }

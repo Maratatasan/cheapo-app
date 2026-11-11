@@ -90,3 +90,9 @@ it('clears a malformed registration even when no session exists',async()=>{
   await s.client.signOut();expect(s.storage.has('direct-auth.registration')).toBe(false);
   await s.client.signIn();expect(s.client.getState().signedIn).toBe(true);
 });
+
+it('shows only bounded public connection diagnostics without request secrets',async()=>{
+  const s=setup();s.native.requestJson=jest.fn(async()=>({status:0,bodyText:JSON.stringify({error:'native_transport',category:'UnknownHostException',stage:'connect',dns:'failed',foreground:true,message:'secret-body'})}));
+  await s.client.checkConnection();expect(s.client.getState().message).toContain('DNS failed; app foreground');
+  expect(s.client.getState().message).not.toContain('secret-body');
+});

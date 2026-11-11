@@ -37,7 +37,10 @@ export function createPhoneAuth(deps:Dependencies) {
     }
     let value;
     try{value=JSON.parse(response.bodyText);}catch{throw new AuthFailure('Authentication returned an invalid response.','temporary');}
-    if(response.status===0 && value?.error==='native_transport')throw new AuthFailure(`Phone HTTPS connection failed (${String(value.category).replace(/[^A-Za-z0-9_]/g,'').slice(0,80)}).`,'temporary');
+    if(response.status===0 && value?.error==='native_transport'){
+      const diagnostic=url===`${AUTH_ORIGIN}/.well-known/jwks.json` && ['connect','read','validate'].includes(value.stage) && ['resolved','failed','empty'].includes(value.dns) && typeof value.foreground==='boolean' ? `; ${value.stage}; DNS ${value.dns}; app ${value.foreground?'foreground':'background'}` : '';
+      throw new AuthFailure(`Phone HTTPS connection failed (${String(value.category).replace(/[^A-Za-z0-9_]/g,'').slice(0,80)}${diagnostic}).`,'temporary');
+    }
     if(response.status<200||response.status>=300){
       const code=typeof value?.error==='string'?value.error:value?.error?.code;
       const safeCode=typeof code==='string'&&/^[A-Za-z0-9_.-]{1,100}$/.test(code)?code:'unknown';
