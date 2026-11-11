@@ -78,3 +78,9 @@ Run `pnpm ui:storybook` to browse the app’s shared cards and feedback states a
 [localhost:6006](http://127.0.0.1:6006/?path=/story/cheapo-library--overview).
 `pnpm ui:storybook:build` creates a local static build. See
 [component library usage and verification limits](docs/component-library.md).
+
+## Android authentication experiment
+
+The opt-in [direct ChatGPT sign-in test](docs/android-direct-auth-preparation.md)
+checks phone authentication and protected session storage. It does not process
+photos and does not change the normal app configuration.
