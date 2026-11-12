@@ -7,10 +7,11 @@ type ShopHomeProps = {
   currentShop?: Shop;
   onChooseShop?: () => void;
   onScan: () => void;
+  onOpenSaved?: () => void;
   onExploreSamples?: () => void;
 };
 
-export function ShopHome({ currentShop, onChooseShop, onScan, onExploreSamples }: ShopHomeProps) {
+export function ShopHome({ currentShop, onChooseShop, onScan, onOpenSaved, onExploreSamples }: ShopHomeProps) {
   const shopLabel = currentShop ? shopDisplayName(currentShop) : undefined;
 
   return (
@@ -28,6 +29,11 @@ export function ShopHome({ currentShop, onChooseShop, onScan, onExploreSamples }
       <Pressable accessibilityRole="button" onPress={onScan} style={[ui.button, styles.scan]}>
         <Text style={[ui.buttonText, styles.scanLabel]}>Scan item</Text>
       </Pressable>
+      {onOpenSaved ? (
+        <Pressable accessibilityRole="button" onPress={onOpenSaved} style={[ui.button, styles.secondary]}>
+          <Text style={styles.action}>Saved products and photos</Text>
+        </Pressable>
+      ) : null}
       {onExploreSamples ? (
         <Pressable accessibilityRole="button" onPress={onExploreSamples} style={[ui.button, styles.samples]}>
           <Text style={styles.action}>Explore sample prices</Text>

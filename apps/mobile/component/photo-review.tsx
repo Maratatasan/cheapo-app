@@ -19,6 +19,7 @@ export function PhotoReview({ photo, review, selectedShopName, saved, busy, onRe
   const positions = useRef<Partial<Record<keyof ManualReview, number>>>({});
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [headerOffset, setHeaderOffset] = useState(0);
+  const complete = reviewComplete(review, selectedShopName);
   const revealFocused = () => {
     const y = focused.current ? positions.current[focused.current] : undefined;
     if (y !== undefined) scroll.current?.scrollTo({ y: Math.max(0, y - 12), animated: false });
@@ -41,7 +42,7 @@ export function PhotoReview({ photo, review, selectedShopName, saved, busy, onRe
       <ScrollView ref={scroll} style={styles.root} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" onContentSizeChange={revealFocused} onLayout={revealFocused}>
         {!keyboardVisible ? <Image source={{ uri: photo.uri }} accessibilityLabel="Price photo preview" style={styles.photo} resizeMode="contain" onError={onImageError} /> : null}
         <Text style={styles.status}>{saved ? 'On this phone' : 'Review photo · Not saved'}</Text>
-        <Text style={styles.note}>{reviewComplete(review, selectedShopName) ? 'Manual details ready' : selectedShopName ? 'Incomplete draft · Add product and price' : 'Incomplete draft · Add product, price and shop'}</Text>
+        <Text style={styles.note}>{complete ? 'Manual details ready' : selectedShopName ? 'Incomplete draft · Add product and price' : 'Incomplete draft · Add product, price and shop'}</Text>
         <View style={styles.actions}>
           <Button title="Crop photo" disabled={busy} onPress={() => { Keyboard.dismiss(); onCrop(); }} />
           {onOriginal ? <Button title="Use original" disabled={busy} onPress={onOriginal} /> : null}
@@ -56,7 +57,7 @@ export function PhotoReview({ photo, review, selectedShopName, saved, busy, onRe
         {children}
       </ScrollView>
       <SafeAreaView edges={['bottom']} style={styles.footer}>
-        <Button title={busy ? 'Saving…' : 'Save on this phone'} disabled={busy || saved} onPress={() => { Keyboard.dismiss(); onSave(); }} />
+        <Button title={busy ? 'Saving…' : complete ? 'Save product' : 'Save on this phone'} disabled={busy || saved} onPress={() => { Keyboard.dismiss(); onSave(); }} />
         {saved ? galleryAction : null}
         <Button title="Retake" disabled={busy} onPress={() => { Keyboard.dismiss(); onRetake(); }} />
       </SafeAreaView>
