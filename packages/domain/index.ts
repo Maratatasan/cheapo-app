@@ -7,7 +7,7 @@ export { shopDisplayName } from '@cheapo/domain/names';
 const stableId = z.string().regex(/^\S+$/u);
 const nonblankText = z.string().trim().min(1);
 const name = z.preprocess(normalizeName, z.string());
-const optionalShopName = z.string().optional().transform(normalizeName);
+const optionalShopName = z.string().transform(normalizeName).optional();
 
 export const shopSchema = z.object({
   id: stableId,
