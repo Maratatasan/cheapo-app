@@ -34,6 +34,9 @@ export default function SavedProducts() {
   const focus = useRef<AbortController | null>(null);
   const [opened, setOpened] = useState<LocalPhotoDraft>();
   const [original, setOriginal] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string>();
+  const exportingRef = useRef(false);
 
   const refresh = useCallback((signal: AbortSignal) => {
     setError(false);
@@ -49,6 +52,25 @@ export default function SavedProducts() {
     refresh(controller.signal);
     return () => { controller.abort(); focus.current = null; };
   }, [refresh]));
+
+  async function exportSaved() {
+    const signal = focus.current?.signal;
+    if (!signal || exportingRef.current) return;
+    exportingRef.current = true;
+    setExporting(true);
+    setExportError(undefined);
+    try {
+      const { exportShoppingData } = await import('@/lib/shopping-export').catch(() => {
+        throw Error('Sharing is unavailable in this build.');
+      });
+      await exportShoppingData(signal);
+    } catch (error) {
+      if (!signal.aborted) setExportError(error instanceof Error ? error.message : 'Could not prepare the export.');
+    } finally {
+      exportingRef.current = false;
+      setExporting(false);
+    }
+  }
 
   return (
     <>
@@ -77,6 +99,11 @@ export default function SavedProducts() {
             <View style={styles.details}>
               <Text accessibilityRole="alert" style={ui.body}>Could not read saved products and photos.</Text>
               <Button title="Try again" onPress={() => { if (focus.current) refresh(focus.current.signal); }} />
+            </View>
+          ) : Platform.OS === 'android' && drafts ? (
+            <View style={styles.details}>
+              <Button title={exporting ? 'Preparing ZIP…' : 'Export saved products and photos'} disabled={exporting} onPress={exportSaved} />
+              {exportError ? <Text accessibilityRole="alert" style={ui.body}>{exportError}</Text> : null}
             </View>
           ) : undefined}
           ListEmptyComponent={error ? undefined : (

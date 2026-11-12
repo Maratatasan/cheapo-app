@@ -30,11 +30,11 @@ export async function localPhotoSource(asset: PhotoAsset): Promise<PhotoAsset> {
   const file = await File.downloadFileAsync(asset.uri, new File(Paths.cache, `fixture-${Date.now()}-${Math.random().toString(36).slice(2)}.jpg`));
   return { ...asset, uri: file.uri, size: file.size };
 }
-const folder = () => new Directory(Paths.document, 'price-photos');
+export const savedPhotoDirectory = () => new Directory(Paths.document, 'price-photos');
 
 // A manifest is published only after both image files have been copied and checked.
 export async function saveLocalPhoto(draft: LocalPhotoDraft): Promise<LocalPhotoDraft> {
-  const directory = folder();
+  const directory = savedPhotoDirectory();
   directory.create({ intermediates: true, idempotent: true });
   const copy = async (asset: PhotoAsset, name: string): Promise<PhotoAsset> => {
     const source = new File(asset.uri);
@@ -76,8 +76,8 @@ async function readSavedDraft(file: File): Promise<LocalPhotoDraft | null> {
   } catch { return null; }
 }
 
-export async function loadLocalPhotos(): Promise<LocalPhotoDraft[]> {
-  const directory = folder();
+export async function loadLocalPhotos({ requireAll = false } = {}): Promise<LocalPhotoDraft[]> {
+  const directory = savedPhotoDirectory();
   if (!directory.exists) return [];
   const drafts = new Map<string, LocalPhotoDraft>();
   const entries = directory.list().filter((entry): entry is File => entry instanceof File);
@@ -88,6 +88,12 @@ export async function loadLocalPhotos(): Promise<LocalPhotoDraft[]> {
       const value = await readSavedDraft(entry);
       if (value && entry.name === `${value.id}${suffix}`) drafts.set(value.id, value);
     }
+  }
+  if (requireAll && entries.some((entry) => {
+    const match = /^(.+)\.json(?:\.bak)?$/.exec(entry.name);
+    return match && !drafts.has(match[1]);
+  })) {
+    throw Error('A saved record or photo is unreadable. Cheapo could not export the full collection.');
   }
   return [...drafts.values()].sort((a, b) => b.capturedAt.localeCompare(a.capturedAt));
 }
