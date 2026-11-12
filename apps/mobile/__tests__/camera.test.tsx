@@ -12,6 +12,8 @@ import { CameraComponent } from "../component/camera";
 
 const mockSaveLocalPhoto = jest.fn();
 const mockLoadLocalPhotos = jest.fn();
+const mockChoosePhoto = jest.fn();
+jest.mock('../lib/choose-photo', () => ({ choosePhoto: () => mockChoosePhoto() }));
 jest.mock('../data/local-photo', () => ({ emptyReview: (shop = '') => ({ productName: '', price: '', currency: 'GBP', shop, unitPrice: '', unit: '' }), reviewComplete: (review: any) => !!review?.productName && !!review?.price && !!review?.shop, saveLocalPhoto: (...args: unknown[]) => mockSaveLocalPhoto(...args), loadLocalPhotos: () => mockLoadLocalPhotos() }));
 jest.mock('../component/photo-crop', () => ({ PhotoCrop: ({ onApply, onCancel }: any) => {
   const React = require('react'); const { Button, View } = require('react-native');
@@ -45,6 +47,7 @@ describe("CameraComponent", () => {
     jest.spyOn(Image, "getSize").mockImplementation((uri, success) => { success?.(1200, 800); return Promise.resolve({ width: 1200, height: 800 }); });
     mockPermission = null;
     mockSaveLocalPhoto.mockReset();
+    mockChoosePhoto.mockReset();
     mockLoadLocalPhotos.mockResolvedValue([]);
     mockRequestPermission.mockReset();
     mockTakePictureAsync.mockReset();
@@ -62,6 +65,18 @@ describe("CameraComponent", () => {
     await fireEvent.press(screen.getByText("Grant Permission"));
 
     expect(mockRequestPermission).toHaveBeenCalledTimes(1);
+  });
+
+  it("chooses and crops a phone photo without camera permission", async () => {
+    mockPermission = { granted: false };
+    mockChoosePhoto.mockResolvedValue({ uri: "file:///chosen.jpg", width: 1200, height: 800, mimeType: "image/jpeg" });
+    await render(<CameraComponent currentShop={{ id: "test-shop", displayName: "Test shop" }} />);
+
+    await fireEvent.press(screen.getByRole("button", { name: "Choose photo" }));
+    await fireEvent.press(await screen.findByText("Apply crop"));
+    expect(screen.getByLabelText("Confirmed shop: Test shop")).toHaveTextContent("Test shop");
+    expect(screen.getByLabelText("Price photo preview")).toHaveProp("source", { uri: "file:///cropped.jpg" });
+    expect(mockRequestPermission).not.toHaveBeenCalled();
   });
 
   it("shows no camera controls while the permission response is loading", async () => {

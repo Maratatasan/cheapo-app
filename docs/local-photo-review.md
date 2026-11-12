@@ -46,11 +46,14 @@ copy the selected crop to the gallery. Confirm the original remains available.
 
 Set `CHEAPO_FIELD_TEST=1` for prebuild, build and export commands. This uses the
 existing field-test package `com.maratatasan.cheapo.field`, scheme `cheapofield`,
-version `0.1.2` / Android version code `4`. Keep the existing local debug signing
+version `0.1.3` / Android version code `5`. Keep the existing local debug signing
 key and use install-update (`adb install -r`), never uninstall/reset, to retain
 private drafts from the previous field test. Normal app identity is unchanged.
 Do not set `CHEAPO_AUTH_TEST` at the same time.
 
 Use the [local Android build procedure](android-direct-auth-preparation.md) with
-`CHEAPO_FIELD_TEST=1` in place of `CHEAPO_AUTH_TEST=1`. The field app includes no
-backend/account setup. Its release APK bundles JavaScript; Metro is unnecessary.
+`CHEAPO_FIELD_TEST=1` in place of `CHEAPO_AUTH_TEST=1`. The release APK bundles
+JavaScript and launches without Metro. Use **Choose photo** to import an image
+from the system picker without granting camera permission. Use **ChatGPT** on
+Home to connect the optional plan usage in this field app. Android keeps the
+separate auth-test app’s login in its own protected storage.

@@ -9,10 +9,16 @@ import java.util.concurrent.*;
 public final class LoopbackReceiver implements AutoCloseable {
   private final ServerSocket server;
   private final String state;
+  private final String returnLink;
   private final CompletableFuture<String> callback = new CompletableFuture<>();
   public LoopbackReceiver(String expectedState) throws IOException {
+    this(expectedState, false);
+  }
+  public LoopbackReceiver(String expectedState, boolean fieldApp) throws IOException {
     if(expectedState == null || expectedState.length() < 32) throw new IllegalArgumentException("State is too short");
     state = expectedState;
+    returnLink = fieldApp ? "<a href='cheapofield://direct-auth'>Return to Cheapo Field</a>"
+        : "<a href='cheapo-auth-test://direct-auth'>Return to Cheapo Auth Test</a>";
     server = new ServerSocket();
     server.bind(new InetSocketAddress(InetAddress.getByName("127.0.0.1"), 0), 1);
     server.setSoTimeout(600000);
@@ -47,7 +53,7 @@ public final class LoopbackReceiver implements AutoCloseable {
             }
           }
           valid=valid && state.equals(returnedState);
-          byte[] body=(valid ? "<!doctype html><meta name=viewport content=width=device-width><h1>Sign-in received</h1><p>Return to Cheapo Auth Test to finish verification.</p><a href='cheapo-auth-test://direct-auth'>Return to Cheapo Auth Test</a>" : "Invalid callback.").getBytes(StandardCharsets.UTF_8);
+          byte[] body=(valid ? "<!doctype html><meta name=viewport content=width=device-width><h1>Sign-in received</h1><p>Return to Cheapo to finish verification.</p>" + returnLink : "Invalid callback.").getBytes(StandardCharsets.UTF_8);
           OutputStream output=client.getOutputStream();
           output.write(("HTTP/1.1 "+(valid?"200 OK":"400 Bad Request")+"\r\nContent-Type: "+(valid?"text/html":"text/plain")+"; charset=utf-8\r\nCache-Control: no-store\r\nConnection: close\r\nContent-Length: "+body.length+"\r\n\r\n").getBytes(StandardCharsets.US_ASCII));
           output.write(body);output.flush();

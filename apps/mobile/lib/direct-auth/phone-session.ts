@@ -16,6 +16,7 @@ export const phoneAuthNative = Platform.OS === 'android' && (fieldPhotoAnalysisE
 export const randomHex = () => Array.from(Crypto.getRandomBytes(32), (byte) => byte.toString(16).padStart(2, '0')).join('');
 export const phoneAuth = phoneAuthNative ? createPhoneAuth({
   native: phoneAuthNative,
+  appName: fieldPhotoAnalysisEnabled ? 'Cheapo Field' : undefined,
   getItem: SecureStore.getItemAsync,
   setItem: SecureStore.setItemAsync,
   deleteItem: SecureStore.deleteItemAsync,

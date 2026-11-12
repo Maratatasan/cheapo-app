@@ -13,7 +13,7 @@ export type PhoneNative=IdentityBridge & {
   stopReceiver():Promise<void>;
   requestJson(url:string,form:string|null):Promise<{status:number;bodyText:string}>;
 };
-type Dependencies={native:PhoneNative;getItem(key:string):Promise<string|null>;setItem(key:string,value:string):Promise<void>;deleteItem(key:string):Promise<void>;randomUUID():string;randomHex():string;challenge(verifier:string):Promise<string>;openBrowser(url:string):Promise<unknown>;isAppActive():boolean;now?():number};
+type Dependencies={native:PhoneNative;getItem(key:string):Promise<string|null>;setItem(key:string,value:string):Promise<void>;deleteItem(key:string):Promise<void>;randomUUID():string;randomHex():string;challenge(verifier:string):Promise<string>;openBrowser(url:string):Promise<unknown>;isAppActive():boolean;now?():number;appName?:string};
 class AuthFailure extends Error {constructor(message:string,readonly code='invalid'){super(message);}}
 export function createPhoneAuth(deps:Dependencies) {
   const now=deps.now??Date.now;
@@ -161,7 +161,7 @@ export function createPhoneAuth(deps:Dependencies) {
       const {port}=await deps.native.startReceiver(state);
       try{
         ensureActive();
-        const url=authorizeUrl({port,hostId:host,clientId:registration?.clientId,state,nonce,challenge:await deps.challenge(verifier)});
+        const url=authorizeUrl({port,hostId:host,clientId:registration?.clientId,state,nonce,challenge:await deps.challenge(verifier),appName:deps.appName});
         update({message:'Complete sign-in in the phone browser, then return to Cheapo.'});
         const callback=deps.native.waitForCallback();
         // Observe an early native timeout without an unhandled rejection while the browser opens.

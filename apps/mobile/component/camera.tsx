@@ -21,6 +21,7 @@ import { emptyReview, loadLocalPhotos, saveLocalPhoto, type DraftShop, type Loca
 import { MobileDraft } from "./mobile-draft";
 import { DirectPhotoAnalysis } from "./direct-photo-analysis";
 import { fieldPhotoAnalysisEnabled } from "@/lib/direct-auth/phone-session";
+import { choosePhoto } from "@/lib/choose-photo";
 
 export const CameraComponent = ({ currentShop }: { currentShop?: DraftShop }) => {
   const [captureStage, setCaptureStage] = useState(() => Dimensions.get("window"));
@@ -85,6 +86,32 @@ export const CameraComponent = ({ currentShop }: { currentShop?: DraftShop }) =>
       <Text style={styles.buttonText}>Use test photo</Text>
     </TouchableOpacity>
   ) : null;
+  const choosePhotoButton = Platform.OS !== "web" ? (
+    <TouchableOpacity
+      style={styles.button}
+      onPress={async () => {
+        if (isTakingPhotoRef.current) return;
+        isTakingPhotoRef.current = true;
+        setIsTakingPhoto(true);
+        try {
+          const photo = await choosePhoto();
+          if (!photo) return;
+          setCameraReady(false);
+          selectPhoto(photo, fullPhoto);
+          setCropping(true);
+        } catch {
+          Alert.alert("Photo unavailable", "Choose a different photo and try again.");
+        } finally {
+          isTakingPhotoRef.current = false;
+          setIsTakingPhoto(false);
+        }
+      }}
+      disabled={isTakingPhoto}
+      accessibilityRole="button"
+    >
+      <Text style={styles.buttonText}>Choose photo</Text>
+    </TouchableOpacity>
+  ) : null;
 
   if (!permission.granted && !photoUri) {
     return (
@@ -98,6 +125,7 @@ export const CameraComponent = ({ currentShop }: { currentShop?: DraftShop }) =>
         >
           <Text style={styles.permissionText}>Grant Permission</Text>
         </TouchableOpacity>
+        {choosePhotoButton}
         {testPhotoButton}
         {savedPhotoButtons}
       </View>
@@ -208,6 +236,7 @@ export const CameraComponent = ({ currentShop }: { currentShop?: DraftShop }) =>
             >
               <Text style={styles.buttonText}>Flip Camera</Text>
             </TouchableOpacity>
+            {choosePhotoButton}
             {testPhotoButton}
             {savedPhotoButtons}
           </SafeAreaView>
