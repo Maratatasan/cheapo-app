@@ -12,7 +12,7 @@ const preview: Preview = {
     },
   },
   decorators: [
-    (Story) => (
+    (Story, { parameters }) => parameters.componentLibraryFrame === false ? <Story /> : (
       <View
         style={{
           backgroundColor: color.cream,
