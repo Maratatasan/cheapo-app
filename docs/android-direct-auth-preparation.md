@@ -37,7 +37,7 @@ low-memory Mac.
 
 ## Manual verification
 
-1. Home → **Direct phone sign-in test** → **Check this phone**. This checks the
+1. Home → **Developer tools** → **Direct phone sign-in test** → **Check this phone**. This checks the
    real native loopback receiver, RSA primitive and protected storage using a
    local mock callback; it does not establish provider authentication.
 2. **Sign in with ChatGPT on this phone**. The user completes browser consent,

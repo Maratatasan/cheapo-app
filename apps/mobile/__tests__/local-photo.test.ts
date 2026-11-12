@@ -115,3 +115,10 @@ it('reads a previous draft with free-text review fields and both photo reference
   expect(restored).toEqual([legacyDraft]);
   expect(reviewComplete(restored[0].review)).toBe(false);
 });
+
+it('restores a shop snapshot with its original ID and display name', async () => {
+  const shop = { id: 'lidl-tandem', displayName: 'Tandem Centre Lidl' };
+  await saveLocalPhoto({ ...draft, shop, review: emptyReview(shop.displayName) });
+
+  expect((await loadLocalPhotos())[0].shop).toEqual(shop);
+});

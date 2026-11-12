@@ -11,8 +11,17 @@ appId: host.exp.exponent
       visible: "Grant Permission"
     commands:
       - back
-- assertVisible: "Edit app/index.tsx to edit this screen. it works. iPhone."
-- tapOn: "Scan price"
+- assertVisible: "Scan item"
+- tapOn: "Scan item"
+- runFlow:
+    when:
+      visible: "Select current shop"
+    commands:
+      - tapOn: "Add a shop"
+      - tapOn: "Tandem Centre Lidl"
+      - inputText: "Camera smoke shop"
+      - hideKeyboard
+      - tapOn: "Save shop"
 - assertVisible: "Grant Permission|Take Picture of Price"
 - runFlow:
     when:

@@ -41,6 +41,7 @@ export function ShopsBrowser({
           area={item.area}
           price={item.price}
           currency={item.currency}
+          unit_price={item.unit_price}
           number={index + 1}
           selected={selected?.id === item.id}
           onSelect={() => setSelectedId(item.id)}

@@ -17,10 +17,10 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { GalleryCopy } from "./gallery-copy";
 import { PhotoReview } from "./photo-review";
 import { PhotoCrop } from "./photo-crop";
-import { emptyReview, loadLocalPhotos, saveLocalPhoto, type LocalPhotoDraft, type PhotoAsset } from "@/data/local-photo";
+import { emptyReview, loadLocalPhotos, saveLocalPhoto, type DraftShop, type LocalPhotoDraft, type PhotoAsset } from "@/data/local-photo";
 import { MobileDraft } from "./mobile-draft";
 
-export const CameraComponent = () => {
+export const CameraComponent = ({ currentShop }: { currentShop?: DraftShop }) => {
   const [captureStage, setCaptureStage] = useState(() => Dimensions.get("window"));
   const captureFrame = fittedCameraFrame(captureStage);
   const [facing, setFacing] = useState<CameraType>("back");
@@ -37,7 +37,7 @@ export const CameraComponent = () => {
   const photoUri = draft?.selected.uri ?? null;
   useEffect(() => { loadLocalPhotos().then(photos => { setSavedPhotos(photos); if (photos[0]?.review?.shop) setVisitShop(photos[0].review.shop); }).catch(() => Alert.alert('Saved photos unavailable', 'Your saved photos could not be read. Try reopening Scan.')); }, []);
   function selectPhoto(photo: PhotoAsset, cropBox?: CropBox) {
-    setDraft({ id: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`, capturedAt: new Date().toISOString(), original: photo, selected: photo, review: emptyReview(visitShop), cropBox });
+    setDraft({ id: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`, capturedAt: new Date().toISOString(), original: photo, selected: photo, review: emptyReview(currentShop?.displayName ?? visitShop), cropBox, shop: currentShop });
     setSaved(false);
   }
   async function persistPhoto(): Promise<LocalPhotoDraft> {
@@ -134,6 +134,7 @@ export const CameraComponent = () => {
           {draft ? <PhotoReview
             photo={draft.selected}
             review={draft.review ?? emptyReview()}
+            selectedShopName={draft.shop?.displayName}
             saved={saved}
             busy={busy}
             onReviewChange={review => { setDraft({ ...draft, review }); setSaved(false); setVisitShop(review.shop); }}
