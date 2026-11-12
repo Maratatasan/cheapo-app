@@ -1,27 +1,28 @@
 import { z } from 'zod';
 
-import { normalizeName } from '@cheapo/domain/names';
+import { normalizeName, shopDisplayName } from '@cheapo/domain/names';
+
+export { shopDisplayName } from '@cheapo/domain/names';
 
 const stableId = z.string().regex(/^\S+$/u);
 const nonblankText = z.string().trim().min(1);
 const name = z.preprocess(normalizeName, z.string());
+const optionalShopName = z.string().transform(normalizeName).optional();
 
 export const shopSchema = z.object({
   id: stableId,
-  name,
-  nickname: z.string().trim().optional(),
+  name: optionalShopName,
+  nickname: optionalShopName,
   address: nonblankText.optional(),
   location: z.object({
     latitude: z.number().min(-90).max(90),
     longitude: z.number().min(-180).max(180),
   }).optional(),
+}).refine((shop) => shopDisplayName(shop) !== undefined, {
+  error: 'Enter a shop nickname or name.',
 });
 
 export type Shop = z.infer<typeof shopSchema>;
-
-export function shopDisplayName(shop: Pick<Shop, 'name' | 'nickname'>): string {
-  return normalizeName(shop.nickname) ?? shop.name;
-}
 
 export const productSchema = z.object({
   id: stableId,

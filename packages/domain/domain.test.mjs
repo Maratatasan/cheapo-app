@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { productSchema, shopDisplayName, shopSchema } from '@cheapo/domain';
-import { normalizeName } from '@cheapo/domain/names';
+import { normalizeName, shopDisplayName as lightweightShopDisplayName } from '@cheapo/domain/names';
 
 const manualShop = { id: 'shop-123', name: 'Tesco Borough Road' };
 
@@ -21,6 +21,33 @@ test('a manual shop needs no coordinates and prefers a trimmed nickname', () => 
   assert.equal(shop.location, undefined);
   assert.equal(shopDisplayName(shopSchema.parse(manualShop)), 'Tesco Borough Road');
   assert.equal(shopDisplayName(shopSchema.parse({ ...manualShop, nickname: '  ' })), 'Tesco Borough Road');
+});
+
+test('a shop can use a nickname without a branch name', () => {
+  const shop = shopSchema.parse({ id: 'lidl-tandem', nickname: ' Tandem Centre Lidl ', name: '  ' });
+
+  assert.equal(shop.id, 'lidl-tandem');
+  assert.equal(shop.name, undefined);
+  assert.equal(shopDisplayName(shop), 'Tandem Centre Lidl');
+  assert.equal(shopSchema.safeParse({ id: 'lidl-tandem', nickname: 'Tandem Centre Lidl' }).success, true);
+});
+
+test('a shop needs a stable ID and at least one nonblank name', () => {
+  for (const shop of [
+    { id: 'shop-123' },
+    { id: 'shop-123', name: '  ', nickname: '\t' },
+    { id: 'shop-123', name: 'Shop', nickname: 123 },
+    { name: 'Shop' },
+    { id: '  ', nickname: 'Shop' },
+  ]) {
+    assert.equal(shopSchema.safeParse(shop).success, false);
+  }
+});
+
+test('the lightweight display helper also works with unvalidated form text', () => {
+  assert.equal(lightweightShopDisplayName({ nickname: ' My Tesco ', name: ' Tesco ' }), 'My Tesco');
+  assert.equal(lightweightShopDisplayName({ nickname: ' ', name: ' Tesco ' }), 'Tesco');
+  assert.equal(lightweightShopDisplayName({ nickname: ' ', name: ' ' }), undefined);
 });
 
 test('validates and serializes exact products in the same comparable group', () => {
