@@ -1,5 +1,5 @@
 import { Pressable, Text, View, StyleSheet } from "react-native";
-import { Observation, priceLabel } from "@/data/observation";
+import { Observation, observationShopLabel, priceLabel } from "@/data/observation";
 import { color, ui, spacing, typography } from "./theme";
 export type ShopCardProps = Pick<
   Observation,
@@ -14,10 +14,11 @@ export function ShopCard({
   selected = false,
   onSelect,
 }: ShopCardProps) {
+  const label = observationShopLabel(shop);
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`Select ${shop}`}
+      accessibilityLabel={`Select ${label}`}
       aria-selected={selected}
       onPress={onSelect}
       style={[ui.card, styles.container, selected && styles.selected]}
@@ -29,7 +30,7 @@ export function ShopCard({
           </View>
         )}
         <View style={styles.copy}>
-          <Text style={styles.name}>{shop}</Text>
+          <Text style={styles.name}>{label}</Text>
           <Text style={ui.small}>{area}</Text>
         </View>
       </View>

@@ -1,6 +1,9 @@
+import type { Shop } from "@cheapo/domain";
+import { shopDisplayName } from "@cheapo/domain/names";
+
 export type Observation = {
   id: string;
-  shop: string;
+  shop: string | Shop;
   area: string;
   product: string;
   brand: string;
@@ -15,6 +18,10 @@ export type Observation = {
   note?: string;
   coordinate: { latitude: number; longitude: number };
 };
+
+export function observationShopLabel(shop: Observation["shop"]) {
+  return typeof shop === "string" ? shop : shopDisplayName(shop) ?? "Shop unconfirmed";
+}
 
 export type PriceValues = Pick<Observation, "price" | "unit_price"> & { currency: string | null };
 

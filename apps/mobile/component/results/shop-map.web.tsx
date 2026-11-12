@@ -1,3 +1,4 @@
+import { observationShopLabel } from "@/data/observation";
 import { useState } from "react";
 import { Image, Linking, Pressable, Text, View } from "react-native";
 import { ShopMapProps } from "./shop-map.types";
@@ -60,7 +61,7 @@ export function ShopMap({ observations, selectedId, onSelect }: ShopMapProps) {
             <Pressable
               key={item.id}
               accessibilityRole="button"
-              accessibilityLabel={`Map pin: ${item.shop}`}
+              accessibilityLabel={`Map pin: ${observationShopLabel(item.shop)}`}
               accessibilityState={{ selected: item.id === selectedId }}
               onPress={() => onSelect(item.id)}
               style={{
