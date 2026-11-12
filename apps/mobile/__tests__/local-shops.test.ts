@@ -1,4 +1,4 @@
-import { loadSavedShops, saveShop, selectShop } from '../data/local-shops';
+import { loadSavedShops, removeShop, saveShop, selectShop, updateShop } from '../data/local-shops';
 
 const mockFiles = new Map<string, string>();
 const mockDirectories = new Set<string>();
@@ -164,4 +164,54 @@ it('serializes overlapping saves without losing either shop', async () => {
   const state = await loadSavedShops();
   expect(state.shops.map((shop) => shop.name)).toEqual(['Lidl', 'Tesco']);
   expect(state.currentShop?.name).toBe('Tesco');
+});
+
+
+it('updates an existing shop without replacing its ID, location, or selection', async () => {
+  const location = { latitude: 51.4, longitude: -0.18 };
+  const { currentShop: original } = await saveShop({ nickname: 'Local shop', location }, { select: true });
+  const id = original!.id;
+  await saveShop({ name: 'Other shop' });
+
+  const updated = await updateShop(id, { name: 'Example Market', address: '12 Market Road' });
+  expect(updated.currentShop).toEqual({ id, name: 'Example Market', address: '12 Market Road', location });
+  expect(updated.shops).toHaveLength(2);
+  expect(await loadSavedShops()).toEqual(updated);
+
+  await expect(updateShop(id, { nickname: ' ', name: '' })).rejects.toThrow('Enter a shop nickname or name');
+  await expect(updateShop('missing', { name: 'Unexpected shop' })).rejects.toThrow('That shop is no longer saved');
+  expect(await loadSavedShops()).toEqual(updated);
+});
+
+it('keeps shop details and selection when an edit cannot be published', async () => {
+  const before = await saveShop({ name: 'Example Market' }, { select: true });
+  mockFailPublish = true;
+  await expect(updateShop(before.currentShop!.id, { name: 'Renamed' })).rejects.toThrow('Could not save');
+  expect(await loadSavedShops()).toEqual(before);
+});
+
+it('clears only a removed current selection and keeps historical photo data intact', async () => {
+  const { currentShop } = await saveShop({ name: 'Historic market' }, { select: true });
+  const { shops: [, other] } = await saveShop({ name: 'Other shop' });
+  const history = JSON.stringify({ shop: { id: currentShop!.id, displayName: currentShop!.name }, price: 2.50 });
+  const historyPath = 'file:///documents/price-photos/old-draft.json';
+  const photoPath = 'file:///documents/price-photos/old-draft-original.jpg';
+  mockFiles.set(historyPath, history);
+  mockFiles.set(photoPath, 'original photo data');
+
+  expect(await removeShop(other.id)).toEqual({ shops: [currentShop], currentShop });
+  expect(await removeShop(currentShop!.id)).toEqual({ shops: [] });
+  expect(await loadSavedShops()).toEqual({ shops: [] });
+  expect(mockFiles.get(historyPath)).toBe(history);
+  expect(mockFiles.get(photoPath)).toBe('original photo data');
+  await expect(updateShop(currentShop!.id, { name: 'Stale edit' })).rejects.toThrow('That shop is no longer saved');
+  await expect(removeShop(currentShop!.id)).rejects.toThrow('That shop is no longer saved');
+  expect(await loadSavedShops()).toEqual({ shops: [] });
+});
+
+it('keeps the shop and current selection if removal cannot be written', async () => {
+  const before = await saveShop({ name: 'Example Market' }, { select: true });
+  mockFailWrite = true;
+  await expect(removeShop(before.currentShop!.id)).rejects.toThrow('Could not save');
+  expect(await loadSavedShops()).toEqual(before);
 });

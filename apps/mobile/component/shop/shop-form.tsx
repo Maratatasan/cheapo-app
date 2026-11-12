@@ -11,6 +11,8 @@ export type ShopFormValues = {
 
 export type ShopFormProps = {
   values: ShopFormValues;
+  editing?: boolean;
+  onRemove?: () => void;
   error?: string;
   isSubmitting?: boolean;
   onChange: (values: ShopFormValues) => void;
@@ -26,6 +28,8 @@ const fields = [
 
 export function ShopForm({
   values,
+  editing = false,
+  onRemove,
   error,
   isSubmitting = false,
   onChange,
@@ -44,7 +48,7 @@ export function ShopForm({
       keyboardShouldPersistTaps="handled"
       keyboardDismissMode="on-drag"
     >
-      <Text accessibilityRole="header" style={ui.title}>Add a shop</Text>
+      <Text accessibilityRole="header" style={ui.title}>{editing ? "Edit shop" : "Add a shop"}</Text>
       <Text style={ui.body}>Enter a nickname, a shop name, or both.</Text>
       {fields.map(({ key, label, ...inputProps }) => (
         <View key={key} style={styles.field}>
@@ -79,7 +83,7 @@ export function ShopForm({
         }}
         style={[ui.button, isSubmitting && styles.disabled]}
       >
-        <Text style={ui.buttonText}>{isSubmitting ? "Saving shop…" : "Save shop"}</Text>
+        <Text style={ui.buttonText}>{isSubmitting ? "Saving shop…" : editing ? "Save changes" : "Save shop"}</Text>
       </Pressable>
       <Pressable
         accessibilityRole="button"
@@ -92,6 +96,11 @@ export function ShopForm({
       >
         <Text style={styles.label}>Cancel</Text>
       </Pressable>
+      {onRemove ? (
+        <Pressable accessibilityRole="button" disabled={isSubmitting} onPress={() => { Keyboard.dismiss(); onRemove(); }} style={styles.remove}>
+          <Text style={styles.error}>Remove shop</Text>
+        </Pressable>
+      ) : null}
     </ScrollView>
   );
 }
@@ -109,6 +118,7 @@ const styles = StyleSheet.create({
     color: color.ink,
     fontSize: typography.label,
   },
+  remove: { minHeight: 44, padding: spacing.sm, alignItems: "center", justifyContent: "center" },
   error: { color: "#A22A23", fontSize: typography.body },
   cancel: { backgroundColor: color.mint },
   disabled: { opacity: 0.65 },

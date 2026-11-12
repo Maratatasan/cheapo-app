@@ -10,6 +10,7 @@ export type SavedShopState = {
 };
 
 type ShopInput = Omit<Shop, 'id'> & { id?: string };
+type EditableShopDetails = Pick<Shop, 'nickname' | 'name' | 'address'>;
 type ShopSnapshot = {
   version: 1;
   shops: Shop[];
@@ -76,20 +77,42 @@ export function loadSavedShops(): Promise<SavedShopState> {
   return serialize(async () => toState(await loadSnapshot()));
 }
 
+function validateShop(input: Shop): Shop {
+  if (!shopDisplayName(input)) throw new Error('Enter a shop nickname or name.');
+  const result = getShopSchema().safeParse(input);
+  if (!result.success) throw new Error('Check the shop details and try again.', { cause: result.error });
+  return result.data;
+}
+
 export function saveShop(input: ShopInput, options?: { select?: boolean }): Promise<SavedShopState> {
   return serialize(async () => {
-    if (!shopDisplayName(input)) throw new Error('Enter a shop nickname or name.');
-    const shopSchema = getShopSchema();
-    const result = shopSchema.safeParse({ ...input, id: input.id ?? randomUUID() });
-    if (!result.success) throw new Error('Check the shop details and try again.', { cause: result.error });
-
+    const shop = validateShop({ ...input, id: input.id ?? randomUUID() });
     const snapshot = await loadSnapshot();
-    const shop = result.data;
     const index = snapshot.shops.findIndex(({ id }) => id === shop.id);
     if (index < 0) snapshot.shops.push(shop);
     else snapshot.shops[index] = shop;
     if (options?.select) snapshot.currentShopId = shop.id;
     return persist(snapshot);
+  });
+}
+
+export function updateShop(id: string, { nickname, name, address }: EditableShopDetails): Promise<SavedShopState> {
+  return serialize(async () => {
+    const snapshot = await loadSnapshot();
+    const index = snapshot.shops.findIndex(shop => shop.id === id);
+    if (index < 0) throw new Error('That shop is no longer saved.');
+    snapshot.shops[index] = validateShop({ ...snapshot.shops[index], nickname, name, address });
+    return persist(snapshot);
+  });
+}
+
+export function removeShop(id: string): Promise<SavedShopState> {
+  return serialize(async () => {
+    const snapshot = await loadSnapshot();
+    const shops = snapshot.shops.filter(shop => shop.id !== id);
+    if (shops.length === snapshot.shops.length) throw new Error('That shop is no longer saved.');
+    const currentShopId = snapshot.currentShopId === id ? undefined : snapshot.currentShopId;
+    return persist({ ...snapshot, shops, currentShopId });
   });
 }
 

@@ -11,7 +11,7 @@ import {
 } from "react-native";
 import type { Shop } from "@cheapo/domain";
 import { normalizeName, shopDisplayName } from "@cheapo/domain/names";
-import { color, radius, spacing, typography, ui } from "@/component/results/theme";
+import { color, marketColor, radius, spacing, typography, ui } from "@/component/results/theme";
 import { matchShops } from "@/data/match-shops";
 
 export type ShopPickerProps = {
@@ -21,6 +21,7 @@ export type ShopPickerProps = {
   error?: string;
   onSelect: (shop: Shop) => void;
   onAddShop: () => void;
+  onEditShop?: (shop: Shop) => void;
   onCancel: () => void;
 };
 
@@ -31,6 +32,7 @@ export function ShopPicker({
   error,
   onSelect,
   onAddShop,
+  onEditShop,
   onCancel,
 }: ShopPickerProps) {
   const [search, setSearch] = useState("");
@@ -108,19 +110,31 @@ export function ShopPicker({
         const selected = item.id === selectedShopId;
 
         return (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityState={{ selected }}
-            style={[ui.card, styles.shop, selected && styles.selected]}
-            onPress={() => {
-              Keyboard.dismiss();
-              onSelect(item);
-            }}
-          >
-            <Text style={styles.label}>{label}</Text>
-            {details ? <Text style={ui.body}>{details}</Text> : null}
-            {selected ? <Text style={styles.current}>Current shop</Text> : null}
-          </Pressable>
+          <View style={[ui.card, styles.shop, selected && styles.selected]}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityState={{ selected }}
+              style={styles.shopSelection}
+              onPress={() => {
+                Keyboard.dismiss();
+                onSelect(item);
+              }}
+            >
+              <Text style={styles.label}>{label}</Text>
+              {details ? <Text style={ui.body}>{details}</Text> : null}
+              {selected ? <Text style={styles.current}>Current shop</Text> : null}
+            </Pressable>
+            {onEditShop ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Edit ${label}`}
+                onPress={() => { Keyboard.dismiss(); onEditShop(item); }}
+                style={styles.edit}
+              >
+                <Text style={styles.editLabel}>Edit</Text>
+              </Pressable>
+            ) : null}
+          </View>
         );
       }}
     />
@@ -145,7 +159,11 @@ const styles = StyleSheet.create({
   cancel: { backgroundColor: color.mint },
   loading: { flexDirection: "row", gap: spacing.sm, alignItems: "center" },
   error: { color: "#A22A23", fontSize: typography.body },
-  shop: { gap: spacing.xs },
+  shop: { flexDirection: "row", alignItems: "center", gap: spacing.md },
+  shopSelection: { flex: 1, minHeight: 44, justifyContent: "center", gap: spacing.xs },
+  edit: { minWidth: 44, minHeight: 44, justifyContent: "center", alignItems: "center", paddingHorizontal: spacing.md,
+    borderRadius: 12, borderWidth: 1, borderColor: marketColor.green, backgroundColor: marketColor.surface },
+  editLabel: { color: marketColor.green, fontWeight: "700" },
   selected: { borderColor: color.green, backgroundColor: color.mint },
   current: { color: color.green, fontSize: typography.caption, fontWeight: "700" },
 });

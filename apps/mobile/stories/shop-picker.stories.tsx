@@ -27,3 +27,5 @@ export const ConfirmSelection: Story = {
     await expect(args.onSelect).toHaveBeenCalledWith(shops[1]);
   },
 };
+
+export const ManageShops: Story = { args: { onEditShop: fn(), selectedShopId: "morden" } };
