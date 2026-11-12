@@ -37,9 +37,9 @@ export const CameraComponent = ({ currentShop }: { currentShop?: DraftShop }) =>
   const [savedPhotos, setSavedPhotos] = useState<LocalPhotoDraft[]>([]);
   const busy = saving;
   const savePending = useRef(false);
-  const photoUri = draft?.selected.uri ?? null;
   useEffect(() => { loadLocalPhotos().then(photos => { setSavedPhotos(photos); if (photos[0]?.review?.shop) setVisitShop(photos[0].review.shop); }).catch(() => Alert.alert('Saved photos unavailable', 'Your saved photos could not be read. Try reopening Scan.')); }, []);
   function selectPhoto(photo: PhotoAsset, cropBox?: CropBox) {
+    setCropping(cropBox !== undefined);
     setDraft({ id: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`, capturedAt: new Date().toISOString(), original: photo, selected: photo, review: emptyReview(currentShop?.displayName ?? visitShop), cropBox, shop: currentShop });
     setSaved(false);
   }
@@ -62,7 +62,7 @@ export const CameraComponent = ({ currentShop }: { currentShop?: DraftShop }) =>
   const [isTakingPhoto, setIsTakingPhoto] = useState(false);
   const isTakingPhotoRef = useRef(false);
 
-  if (!permission) return <View style={styles.container} />;
+  if (!permission) return <View key="loading" style={styles.container} />;
 
   const useTestPhoto = () => {
     const uri = process.env.EXPO_PUBLIC_CHEAPO_TEST_PHOTO_URL;
@@ -98,7 +98,6 @@ export const CameraComponent = ({ currentShop }: { currentShop?: DraftShop }) =>
           if (!photo) return;
           setCameraReady(false);
           selectPhoto(photo, fullPhoto);
-          setCropping(true);
         } catch {
           Alert.alert("Photo unavailable", "Choose a different photo and try again.");
         } finally {
@@ -113,9 +112,9 @@ export const CameraComponent = ({ currentShop }: { currentShop?: DraftShop }) =>
     </TouchableOpacity>
   ) : null;
 
-  if (!permission.granted && !photoUri) {
+  if (!permission.granted && !draft) {
     return (
-      <View style={styles.permissionContainer}>
+      <View key="permission" collapsable={false} style={styles.permissionContainer}>
         <Text style={styles.message}>
           We need your permission to show the camera
         </Text>
@@ -144,7 +143,6 @@ export const CameraComponent = ({ currentShop }: { currentShop?: DraftShop }) =>
       const asset: PhotoAsset = { uri: photo.uri, width: photo.width, height: photo.height, mimeType: "image/jpeg" };
       const initialCrop = Platform.OS === "android" ? seedGuideCrop(asset, captureFrame) : null;
       selectPhoto(asset, initialCrop ?? fullPhoto);
-      setCropping(true);
     } catch {
       Alert.alert("Unable to take photo", "Please try again.");
     } finally {
@@ -157,50 +155,61 @@ export const CameraComponent = ({ currentShop }: { currentShop?: DraftShop }) =>
     setDraft(null); setSaved(false); setCropping(false);
   };
 
+  if (draft && cropping) {
+    // Mount the crop modal before mounting the review and its native inputs.
+    return <View key="crop" collapsable={false} style={styles.container}>
+      <PhotoCrop original={draft.original} initialBox={draft.cropBox}
+        onCancel={() => setCropping(false)}
+        onApply={(photo, cropBox) => {
+          setDraft({ ...draft, selected: photo, cropBox });
+          setSaved(false);
+          setCropping(false);
+        }}
+      />
+    </View>;
+  }
+
   return (
-    <View style={styles.container}>
-      {photoUri ? (
-        <>
-          {draft ? <PhotoReview
-            photo={draft.selected}
-            review={draft.review ?? emptyReview()}
-            selectedShopName={draft.shop?.displayName}
-            saved={saved}
-            busy={busy}
-            onReviewChange={review => { setDraft({ ...draft, review }); setSaved(false); setVisitShop(review.shop); }}
-            galleryAction={<GalleryCopy key={draft.selected.uri} photo={draft.selected} />}
-            onSave={savePhoto}
-            onRetake={retakePhoto}
-            onCrop={() => setCropping(true)}
-            onOriginal={draft.selected.uri !== draft.original.uri ? () => { setDraft({ ...draft, selected: draft.original, cropBox: fullPhoto }); setSaved(false); } : undefined}
-            onImageError={() => {
-              if (photoUri === process.env.EXPO_PUBLIC_CHEAPO_TEST_PHOTO_URL) setDraft(null);
-              Alert.alert('Photo unavailable', 'The photo could not be loaded. For the test photo, check the local fixture server and try again.');
-            }}
-          >
-            {fieldPhotoAnalysisEnabled ? (
-              <DirectPhotoAnalysis key={photoUri} photo={draft.selected} busy={busy} onApply={(suggestion) => {
-                const review = draft.review ?? emptyReview(draft.shop?.displayName);
-                setDraft({
-                  ...draft,
-                  review: {
-                    ...review,
-                    productName: suggestion.product ?? review.productName,
-                    productType: suggestion.productType ?? review.productType,
-                    variety: suggestion.variety ?? review.variety,
-                    brand: suggestion.brand ?? review.brand,
-                    price: suggestion.price?.toString() ?? review.price,
-                    currency: suggestion.currency ?? review.currency,
-                    unitPrice: suggestion.unit_price?.amount.toString() ?? review.unitPrice,
-                    unit: suggestion.unit_price?.unit ?? review.unit,
-                  },
-                });
-                setSaved(false);
-              }} />
-            ) : __DEV__ ? <MobileDraft key={photoUri} photoUri={photoUri} /> : null}
-          </PhotoReview> : null}
-          {cropping && draft ? <PhotoCrop original={draft.original} initialBox={draft.cropBox} onCancel={() => setCropping(false)} onApply={(photo, cropBox) => { setDraft({ ...draft, selected: photo, cropBox }); setSaved(false); setCropping(false); }} /> : null}
-        </>
+    <View key={draft ? "review" : "capture"} collapsable={false} style={styles.container}>
+      {draft ? (
+        <PhotoReview
+          photo={draft.selected}
+          review={draft.review ?? emptyReview()}
+          selectedShopName={draft.shop?.displayName}
+          saved={saved}
+          busy={busy}
+          onReviewChange={review => { setDraft({ ...draft, review }); setSaved(false); setVisitShop(review.shop); }}
+          galleryAction={<GalleryCopy key={draft.selected.uri} photo={draft.selected} />}
+          onSave={savePhoto}
+          onRetake={retakePhoto}
+          onCrop={() => setCropping(true)}
+          onOriginal={draft.selected.uri !== draft.original.uri ? () => { setDraft({ ...draft, selected: draft.original, cropBox: fullPhoto }); setSaved(false); } : undefined}
+          onImageError={() => {
+            if (draft.selected.uri === process.env.EXPO_PUBLIC_CHEAPO_TEST_PHOTO_URL) setDraft(null);
+            Alert.alert('Photo unavailable', 'The photo could not be loaded. For the test photo, check the local fixture server and try again.');
+          }}
+        >
+          {fieldPhotoAnalysisEnabled ? (
+            <DirectPhotoAnalysis key={draft.selected.uri} photo={draft.selected} busy={busy} onApply={(suggestion) => {
+              const review = draft.review ?? emptyReview(draft.shop?.displayName);
+              setDraft({
+                ...draft,
+                review: {
+                  ...review,
+                  productName: suggestion.product ?? review.productName,
+                  productType: suggestion.productType ?? review.productType,
+                  variety: suggestion.variety ?? review.variety,
+                  brand: suggestion.brand ?? review.brand,
+                  price: suggestion.price?.toString() ?? review.price,
+                  currency: suggestion.currency ?? review.currency,
+                  unitPrice: suggestion.unit_price?.amount.toString() ?? review.unitPrice,
+                  unit: suggestion.unit_price?.unit ?? review.unit,
+                },
+              });
+              setSaved(false);
+            }} />
+          ) : __DEV__ ? <MobileDraft key={draft.selected.uri} photoUri={draft.selected.uri} /> : null}
+        </PhotoReview>
       ) : (
         <>
           <View style={styles.captureStage} onLayout={event => {
