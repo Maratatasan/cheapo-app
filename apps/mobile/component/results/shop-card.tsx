@@ -1,11 +1,12 @@
 import { Pressable, Text, View, StyleSheet } from "react-native";
-import { Observation, observationShopLabel, priceLabel, unitPriceLabel } from "@/data/observation";
+import { Observation, observationShopLabel, priceLabel, unitPriceLabel, type PriceValues } from "@/data/observation";
 import { PriceDisplay } from "./price-display";
 import { color, ui, spacing, typography } from "./theme";
 export type ShopCardProps = Pick<
   Observation,
-  "shop" | "price" | "currency"
-> & Partial<Pick<Observation, "area" | "unit_price">> & {
+  "shop"
+> & Pick<PriceValues, "price" | "currency"> & Partial<Pick<Observation, "area" | "unit_price">> & {
+  product?: string;
   number?: number;
   selected?: boolean;
   onSelect?: () => void;
@@ -13,6 +14,7 @@ export type ShopCardProps = Pick<
 export function ShopCard({
   shop,
   area,
+  product,
   price,
   currency,
   unit_price = null,
@@ -34,6 +36,7 @@ export function ShopCard({
         <View style={styles.copy}>
           <Text style={styles.name}>{label}</Text>
           {area ? <Text style={ui.small}>{area}</Text> : null}
+          {product ? <Text style={ui.body}>{product}</Text> : null}
         </View>
       </View>
       <PriceDisplay {...prices} showPackLabel />

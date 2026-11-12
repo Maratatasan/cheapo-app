@@ -61,3 +61,58 @@ export const ErrorWithRetry: Story = {
     await expect(args.onRetry).toHaveBeenCalledTimes(1);
   },
 };
+
+const freshPotatoes = { productType: "Fresh potatoes", variety: "Rooster", brand: "Brand A" };
+const filteredPrices: ShopComparisonProps["comparisons"] = [
+  { ...samplePrices[0], ...freshPotatoes, product: "Rooster potatoes 2 kg" },
+  { ...samplePrices[1], ...freshPotatoes, product: "Rooster potatoes 1 kg", price: 1.42 },
+  { ...samplePrices[2], ...freshPotatoes, variety: "Maris Piper", product: "Maris Piper potatoes 2 kg", unit_price: { amount: 0.124, unit: "100g" } },
+  { ...samplePrices[3], ...freshPotatoes, brand: "Brand B", product: "Brand B Rooster potatoes 2 kg" },
+  { ...samplePrices[4], ...freshPotatoes, brand: "Brand C", variety: "Maris Piper", product: "Brand C Maris Piper potatoes 2 kg" },
+  { ...samplePrices[5], ...freshPotatoes, productType: "Frozen chips", product: "Frozen chips 2 kg" },
+];
+const filterReference = {
+  ...freshPotatoes, id: "reference", shop: "Reference shop", price: 2.8, currency: "GBP",
+  unit_price: { amount: 0.14, unit: "100g" },
+};
+
+export const ProductFilters: Story = {
+  args: {
+    product: { ...product, name: "Rooster potatoes" },
+    reference: filterReference,
+    comparisons: filteredPrices,
+  },
+  play: async ({ canvas, userEvent }) => {
+    const variety = canvas.getByRole("checkbox", { name: "Same variety" });
+    const brand = canvas.getByRole("checkbox", { name: "Same brand" });
+    const sameBrandOnly = "Maris Piper potatoes 2 kg";
+    const sameVarietyOnly = "Brand B Rooster potatoes 2 kg";
+    await expect(canvas.getByText("£1.40 / kg")).toBeVisible();
+    await expect(canvas.getByText(sameBrandOnly)).toBeVisible();
+    await expect(canvas.getByText(sameVarietyOnly)).toBeVisible();
+    await expect(canvas.queryByText("Frozen chips 2 kg")).not.toBeInTheDocument();
+    await userEvent.click(variety);
+    await expect(variety).toBeChecked();
+    await expect(canvas.queryByText(sameBrandOnly)).not.toBeInTheDocument();
+    await expect(canvas.getByText(sameVarietyOnly)).toBeVisible();
+    await userEvent.click(brand);
+    await expect(brand).toBeChecked();
+    await expect(canvas.queryByText(sameVarietyOnly)).not.toBeInTheDocument();
+    await expect(canvas.getByText("Rooster potatoes 1 kg")).toBeVisible();
+    await userEvent.click(variety);
+    await expect(variety).not.toBeChecked();
+    await expect(canvas.getByText(sameBrandOnly)).toBeVisible();
+    await expect(canvas.queryByText(sameVarietyOnly)).not.toBeInTheDocument();
+    await userEvent.click(brand);
+    await expect(brand).not.toBeChecked();
+    await expect(canvas.getByText(sameVarietyOnly)).toBeVisible();
+  },
+};
+
+export const MissingVariety: Story = {
+  args: { ...ProductFilters.args, reference: { ...filterReference, variety: undefined } },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("checkbox", { name: "Same variety" }));
+    await expect(canvas.getByText("More product details needed")).toBeVisible();
+  },
+};
