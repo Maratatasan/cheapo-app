@@ -75,6 +75,8 @@ test('compares completed saved reviews and toggles variety and brand independent
 
   expect(await screen.findByRole('header', { name: 'Compare shop prices' })).toBeOnTheScreen();
   expect(screen.getByText('£2.50 / kg')).toBeOnTheScreen();
+  expect(screen.getByText('Saved prices · Check when each price was recorded.')).toBeOnTheScreen();
+  expect(screen.getAllByText('Recorded 12 Nov 2026')).toHaveLength(4);
   expect(screen.getAllByText(/Shop$/).map(label => label.props.children)).toEqual(['Other Brand Shop', 'Long Grain Shop', 'Both Match Shop']);
   await fireEvent.press(screen.getByRole('checkbox', { name: 'Same variety' }));
   expect(screen.getByRole('checkbox', { name: 'Same variety' })).toBeChecked();

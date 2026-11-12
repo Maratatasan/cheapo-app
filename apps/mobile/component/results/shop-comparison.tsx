@@ -1,14 +1,14 @@
 import { Fragment, useState } from "react";
 import { Image, Pressable, StyleSheet, Text, View, type ImageSourcePropType } from "react-native";
 import { comparePrices, normalizedUnitPrice, type ComparisonPrice } from "@/data/comparison-prices";
-import { observationShopLabel } from "@/data/observation";
+import { dateLabel, observationShopLabel } from "@/data/observation";
 import { DisplayState } from "./display-state";
 import { PriceDisplay } from "./price-display";
 import { SampleNotice } from "./sample-notice";
 import { ShopCard, type ShopCardProps } from "./shop-card";
 import { color, radius, spacing, typography, ui } from "./theme";
 
-export type ComparisonRow = ComparisonPrice & Pick<ShopCardProps, "shop" | "product" | "area">;
+export type ComparisonRow = ComparisonPrice & Pick<ShopCardProps, "shop" | "product" | "area" | "capturedOn">;
 
 export type ShopComparisonProps = {
   product: { name: string; pack?: string; photo?: ImageSourcePropType };
@@ -68,6 +68,7 @@ export function ShopComparison({
         {reference ? (
           <>
             <Text style={ui.body}>{observationShopLabel(reference.shop)}</Text>
+            {reference.capturedOn ? <Text style={ui.small}>Recorded {dateLabel(reference.capturedOn)}</Text> : null}
             <Text style={ui.small}>{[reference.productType, reference.variety, reference.brand].filter(Boolean).join(" · ")}</Text>
             <PriceDisplay price={reference.price} currency={reference.currency} unit_price={referenceUnitPrice ?? reference.unit_price ?? null} showPackLabel />
           </>
@@ -79,6 +80,7 @@ export function ShopComparison({
       <Text accessibilityRole="header" style={styles.heading}>Compare shop prices</Text>
       {reference && state === "ready" ? (
         <>
+          {!sample ? <Text style={ui.small}>Saved prices · Check when each price was recorded.</Text> : null}
           <View style={styles.filters}>
             <FilterPill label="Same variety" checked={sameVariety} onPress={() => setSameVariety(!sameVariety)} />
             <FilterPill label="Same brand" checked={sameBrand} onPress={() => setSameBrand(!sameBrand)} />
@@ -118,7 +120,7 @@ export function ShopComparison({
                 <Text accessibilityRole="header" style={styles.group}>Per {unit}{ranked.groups.some(group => group.currency !== currency) ? ` (${currency})` : ""}</Text>
               ) : null}
               {entries.map(({ row, unitPrice }) => (
-                <ShopCard key={row.id} shop={row.shop} product={row.product} area={row.area} price={row.price} currency={row.currency} unit_price={unitPrice} />
+                <ShopCard key={row.id} shop={row.shop} product={row.product} area={row.area} capturedOn={row.capturedOn} price={row.price} currency={row.currency} unit_price={unitPrice} />
               ))}
             </Fragment>
           ))}
@@ -128,8 +130,8 @@ export function ShopComparison({
               <Text style={ui.small}>{reference && !referenceUnitPrice
                 ? "The selected product has no comparable unit price."
                 : "These prices have no comparable unit price."}</Text>
-              {ranked.unranked.map(({ id, shop, product, area, price, currency, unit_price }) => (
-                <ShopCard key={id} shop={shop} product={product} area={area} price={price} currency={currency} unit_price={unit_price} />
+              {ranked.unranked.map(({ id, shop, product, area, capturedOn, price, currency, unit_price }) => (
+                <ShopCard key={id} shop={shop} product={product} area={area} capturedOn={capturedOn} price={price} currency={currency} unit_price={unit_price} />
               ))}
             </>
           ) : null}
