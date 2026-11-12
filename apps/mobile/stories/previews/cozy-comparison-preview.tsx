@@ -52,6 +52,7 @@ export function CozyComparisonPreview({ theme }: { theme: CozyTheme }) {
   const [editing, setEditing] = useState<{ offer: Offer; review: ManualReview }>();
   const ranked = comparePrices(offers, reference, filters);
   const referenceUnit = normalizedUnitPrice(reference.unit_price);
+  const polishedSage = theme === 'sage';
 
   function startEdit(offer: Offer) {
     setEditing({ offer, review: {
@@ -89,13 +90,17 @@ export function CozyComparisonPreview({ theme }: { theme: CozyTheme }) {
   }
 
   return (
+    <>
     <main className="cozy-compare" data-theme={theme}>
-      <header className="cozy-header"><span>Cheapo</span><span>Sample saved prices</span></header>
+      <header className="cozy-header">
+        <span>Cheapo</span>
+        {polishedSage ? <h1>Compare prices</h1> : <span>Sample saved prices</span>}
+      </header>
       <article className="cozy-reference">
         {photo ? <img className="cozy-photo" src={photo} alt="Rooster potatoes and shelf label" />
           : <div className="cozy-photo cozy-photo-empty">Photo unavailable</div>}
         <div className="cozy-reference-details">
-          <h1>{reference.name}</h1>
+          {polishedSage ? <h2>{reference.name}</h2> : <h1>{reference.name}</h1>}
           <p>{reference.shop} · 2 kg bag</p>
           <div className="cozy-reference-prices">
             <Prices offer={reference} unitPrice={referenceUnit ?? reference.unit_price} />
@@ -104,7 +109,7 @@ export function CozyComparisonPreview({ theme }: { theme: CozyTheme }) {
         </div>
       </article>
       <section className="cozy-results" aria-label="Shop price comparison">
-        <h2>Compare shop prices</h2>
+        <h2>{polishedSage ? 'Saved offers' : 'Compare shop prices'}</h2>
         <div className="cozy-filters">
           {filtersList.map(({ key, label }) => (
             <label className="cozy-filter" key={key}>
@@ -117,21 +122,28 @@ export function CozyComparisonPreview({ theme }: { theme: CozyTheme }) {
         {ranked.missing.length ? <p className="cozy-sort" role="status">Add {ranked.missing.join(' and ')} to the selected product to use this comparison.</p> : null}
         {!ranked.missing.length && !ranked.groups.length && !ranked.unranked.length ? <p className="cozy-sort" role="status">No matching saved prices</p> : null}
         <ul className="cozy-offers" aria-label="Saved offers">
-          {[...ranked.groups.flatMap(group => group.entries), ...ranked.unranked.map(row => ({ row, unitPrice: null }))].map(({ row, unitPrice }) => (
-            <li className="cozy-offer" key={row.id}>
+          {[...ranked.groups.flatMap(group => group.entries), ...ranked.unranked.map(row => ({ row, unitPrice: null }))].map(({ row, unitPrice }) => {
+            const prices = <Prices offer={row} unitPrice={unitPrice} />;
+            const edit = <EditButton offer={row} onEdit={() => startEdit(row)} />;
+            const date = <p className="cozy-date">Recorded {dateLabel(row.capturedOn)}</p>;
+            const details = (
               <div className="cozy-offer-details">
                 <h3>{row.shop}</h3>
-                <p>{row.name}</p>
-                <p className="cozy-date">Recorded {dateLabel(row.capturedOn)}</p>
+                {polishedSage ? date : null}
+                <p className="cozy-item">{row.name}</p>
+                {polishedSage ? null : date}
               </div>
-              <div className="cozy-offer-values">
-                <Prices offer={row} unitPrice={unitPrice} />
-                <EditButton offer={row} onEdit={() => startEdit(row)} />
-              </div>
-            </li>
-          ))}
+            );
+            return (
+              <li className="cozy-offer" key={row.id}>
+                {polishedSage ? <>{prices}{details}{edit}</> : <>{details}<div className="cozy-offer-values">{prices}{edit}</div></>}
+              </li>
+            );
+          })}
         </ul>
       </section>
     </main>
+    {polishedSage ? <footer className="cozy-style-note">Style preview · sample prices</footer> : null}
+    </>
   );
 }

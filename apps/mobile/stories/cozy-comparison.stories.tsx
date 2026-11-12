@@ -28,6 +28,8 @@ const checkInteractions: NonNullable<Story['play']> = async ({ canvas, userEvent
   window.scrollTo(0, 0);
 };
 
-export const SageAndLinen: Story = { name: 'Sage & Linen', play: checkInteractions };
+export const SageAndLinen: Story = {
+  name: 'Sage & Linen', parameters: { componentLibraryFrame: false }, play: checkInteractions,
+};
 export const BerryAndBakery: Story = { name: 'Berry & Bakery', args: { theme: 'berry' }, play: checkInteractions };
 export const TerracottaAndPantry: Story = { name: 'Terracotta & Pantry', args: { theme: 'terracotta' }, play: checkInteractions };
