@@ -73,7 +73,9 @@ describe("CameraComponent", () => {
     await render(<CameraComponent currentShop={{ id: "test-shop", displayName: "Test shop" }} />);
 
     await fireEvent.press(screen.getByRole("button", { name: "Choose photo" }));
-    await fireEvent.press(await screen.findByText("Apply crop"));
+    const applyCrop = await screen.findByText("Apply crop");
+    expect(screen.queryByLabelText("Price photo preview")).not.toBeOnTheScreen();
+    await fireEvent.press(applyCrop);
     expect(screen.getByLabelText("Confirmed shop: Test shop")).toHaveTextContent("Test shop");
     expect(screen.getByLabelText("Price photo preview")).toHaveProp("source", { uri: "file:///cropped.jpg" });
     expect(mockRequestPermission).not.toHaveBeenCalled();
