@@ -85,6 +85,8 @@ export function DirectPhotoAnalysis({ photo, busy, onApply }: {
       {status ? <Text accessibilityLiveRegion="polite" style={styles.text}>{status}</Text> : null}
       {draft ? <>
         <AiDraftCard draft={draft} />
+        {draft.productType ? <Text style={styles.text}>Product type: {draft.productType}</Text> : null}
+        {draft.variety ? <Text style={styles.text}>Variety: {draft.variety}</Text> : null}
         <Button title="Use suggested details" disabled={busy} onPress={() => { onApply(draft); setDraft(undefined); setStatus('Suggestions added. Review or edit before saving.'); }} />
       </> : null}
     </View>

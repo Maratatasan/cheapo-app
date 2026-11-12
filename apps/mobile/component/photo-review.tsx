@@ -3,6 +3,7 @@ import { Button, Image, Keyboard, KeyboardAvoidingView, Platform, ScrollView, St
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { ManualReview, PhotoAsset } from '@/data/local-photo';
 import { reviewComplete } from '@/data/local-photo';
+import { productMetadataMaxLength } from '@/data/product-metadata';
 
 type Props = {
   photo: PhotoAsset; review: ManualReview; saved: boolean; busy: boolean;
@@ -31,6 +32,9 @@ export function PhotoReview({ photo, review, selectedShopName, saved, busy, onRe
   }, []);
   const fields = [
     ['productName', 'Product', 'Product name', 'For example rice 1kg'],
+    ['productType', 'Product type (optional)', 'Product type', 'For example dry rice or microwave rice', productMetadataMaxLength],
+    ['variety', 'Variety (optional)', 'Variety', 'For example basmati', productMetadataMaxLength],
+    ['brand', 'Brand (optional)', 'Brand', 'For example Tilda', productMetadataMaxLength],
     ['price', `Price (${review.currency || 'GBP'})`, 'Pack price', '0.00'],
     ['currency', 'Currency', 'Currency', 'GBP'],
     ['shop', 'Shop', 'Confirmed shop', 'Shop and branch'],
@@ -47,14 +51,15 @@ export function PhotoReview({ photo, review, selectedShopName, saved, busy, onRe
           <Button title="Crop photo" disabled={busy} onPress={() => { Keyboard.dismiss(); onCrop(); }} />
           {onOriginal ? <Button title="Use original" disabled={busy} onPress={onOriginal} /> : null}
         </View>
-        {fields.map(([field, label, accessibilityLabel, placeholder]) => <View key={field} style={styles.field} onLayout={event => { positions.current[field] = event.nativeEvent.layout.y; if (keyboardVisible && focused.current === field) revealFocused(); }}>
+        {children}
+        {fields.map(([field, label, accessibilityLabel, placeholder, maxLength]) => <View key={field} style={styles.field} onLayout={event => { positions.current[field] = event.nativeEvent.layout.y; if (keyboardVisible && focused.current === field) revealFocused(); }}>
           <Text style={styles.label}>{label}</Text>
+          {field === 'productType' ? <Text style={styles.note}>Use the same type for products you would compare. For example, use different types for fresh potatoes and frozen chips.</Text> : null}
           {field === 'shop' && selectedShopName ? <Text accessibilityLabel={`${accessibilityLabel}: ${selectedShopName}`} style={styles.input}>{selectedShopName}</Text> : (
-            <TextInput accessibilityLabel={accessibilityLabel} placeholder={placeholder} placeholderTextColor="#666" value={review[field]} editable={!busy} keyboardType={field === 'price' || field === 'unitPrice' ? 'decimal-pad' : 'default'} autoCapitalize={field === 'currency' ? 'characters' : 'sentences'} style={styles.input} onFocus={() => { focused.current = field; revealFocused(); }} onChangeText={value => onReviewChange({ ...review, [field]: field === 'currency' ? value.toUpperCase().slice(0, 3) : value })} />
+            <TextInput accessibilityLabel={accessibilityLabel} placeholder={placeholder} placeholderTextColor="#666" value={review[field] ?? ''} maxLength={maxLength} editable={!busy} keyboardType={field === 'price' || field === 'unitPrice' ? 'decimal-pad' : 'default'} autoCapitalize={field === 'currency' ? 'characters' : 'sentences'} style={styles.input} onFocus={() => { focused.current = field; revealFocused(); }} onChangeText={value => onReviewChange({ ...review, [field]: field === 'currency' ? value.toUpperCase().slice(0, 3) : value })} />
           )}
         </View>)}
         <Text style={styles.note}>Use a decimal point for prices. {selectedShopName ? '' : 'Confirm the shop manually. '}Incomplete details are saved as a photo draft.</Text>
-        {children}
       </ScrollView>
       <SafeAreaView edges={['bottom']} style={styles.footer}>
         <Button title={busy ? 'Saving…' : complete ? 'Save product' : 'Save on this phone'} disabled={busy || saved} onPress={() => { Keyboard.dismiss(); onSave(); }} />

@@ -42,6 +42,7 @@ function describeRecord(draft: LocalPhotoDraft, index: number) {
     review: review ? {
       productName: review.productName, price: review.price, currency: review.currency,
       shop: review.shop, unitPrice: review.unitPrice, unit: review.unit,
+      productType: normalizeName(review.productType), variety: normalizeName(review.variety), brand: normalizeName(review.brand),
     } : null,
     cropBox: cropBox ? { left: cropBox.left, top: cropBox.top, right: cropBox.right, bottom: cropBox.bottom } : null,
     photos: {

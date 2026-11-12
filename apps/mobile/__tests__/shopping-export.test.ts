@@ -59,7 +59,7 @@ const crop = { ...original, uri: 'file:///documents/price-photos/rice-crop.jpg',
 const complete: LocalPhotoDraft = {
   id: 'rice', capturedAt: '2026-11-12T12:00:00Z', original, selected: crop,
   shop: { id: 'test-shop-id', displayName: 'Test shop' },
-  review: { ...emptyReview('Test shop'), productName: 'Basmati rice', price: '1.25', unitPrice: '2.50', unit: 'kg' },
+  review: { ...emptyReview('Test shop'), productName: 'Basmati rice', price: '1.25', unitPrice: '2.50', unit: 'kg', productType: 'Dry rice', variety: 'Basmati', brand: 'Example brand' },
 };
 const old: LocalPhotoDraft = { ...complete, id: 'old', selected: original, shop: undefined, review: emptyReview('Previous shop') };
 

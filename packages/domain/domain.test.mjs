@@ -54,6 +54,8 @@ test('validates and serializes exact products in the same comparable group', () 
   const product = {
     id: 'basmati-brand-a-500g',
     name: 'Dry basmati rice',
+    productType: 'Dry rice',
+    variety: 'Basmati',
     brand: 'Brand A',
     barcode: '0012345678905',
     pack: { quantity: 500, unit: 'g' },
@@ -112,6 +114,8 @@ test('rejects malformed product details without coercing them', () => {
   for (const details of [
     { id: '' },
     { name: '  ' },
+    { productType: ' ' },
+    { variety: 123 },
     { barcode: 123 },
     { barcode: '12A3' },
     { pack: { quantity: 2 } },

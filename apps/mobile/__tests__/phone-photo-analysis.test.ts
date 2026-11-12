@@ -5,7 +5,7 @@ jest.mock('expo/fetch', () => ({ fetch: jest.fn() }));
 
 const provider = jest.mocked(fetch);
 const image = 'data:image/jpeg;base64,/9j/';
-const draft = { product: 'Café beans', price: 2.5, currency: 'GBP', unit_price: { amount: 5, unit: 'kg' }, uncertainty: '' };
+const draft = { product: 'Café beans', productType: 'Coffee beans', variety: null, brand: 'Café', price: 2.5, currency: 'GBP', unit_price: { amount: 5, unit: 'kg' }, uncertainty: '' };
 
 function bodyResponse(chunks: Uint8Array[], status = 200) {
   const reader = {
@@ -53,7 +53,7 @@ test('uses the preferred listed model and returns only the completed structured 
   expect(JSON.parse(String(request?.body))).toMatchObject({
     model: 'gpt-5.6-luna', store: false, stream: true,
     input: [{ role: 'user', content: [expect.anything(), { type: 'input_image', image_url: image }] }],
-    text: { format: { type: 'json_schema', strict: true } },
+    text: { format: { type: 'json_schema', strict: true, schema: { required: expect.arrayContaining(['productType', 'variety', 'brand']) } } },
   });
   expect(reader.releaseLock).toHaveBeenCalled();
 });
@@ -78,6 +78,7 @@ test.each([
   [completed([{ type: 'refusal', refusal: 'private detail' }]), 'could not analyse this photo'],
   [completed([{ type: 'output_text', text: '{malformed draft}' }]), 'invalid price draft'],
   [completed([{ type: 'output_text', text: JSON.stringify({ ...draft, price: -1 }) }]), 'invalid price draft'],
+  [completed([{ type: 'output_text', text: JSON.stringify({ ...draft, variety: 42 }) }]), 'invalid price draft'],
 ])('rejects unusable stream output without sending a retry', async (stream, message) => {
   catalog();
   bodyResponse([new TextEncoder().encode(stream)]);
