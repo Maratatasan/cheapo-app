@@ -1,17 +1,14 @@
-/// <reference types="vite/client" />
-
 import { useState } from 'react';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { PhotoReview } from '../../component/photo-review';
 import { comparePrices, normalizedUnitPrice, type ComparisonFilters, type ComparisonPrice } from '../../data/comparison-prices';
 import { dateLabel, priceLabel } from '../../data/observation';
 import { emptyReview, type ManualReview } from '../../data/photo-review';
-import './cozy-comparison-preview.css';
+import { MarketScanPreview, previewPhoto as photo } from './market-scan-preview';
 
-export type CozyTheme = 'sage' | 'berry' | 'terracotta';
-type Offer = ComparisonPrice & { shop: string; name: string; capturedOn: string };
+export type CozyTheme = 'sage' | 'berry' | 'terracotta' | 'market';
+type Offer = ComparisonPrice & { shop: string; name: string; capturedOn: string; pack?: string };
 
-const photo = import.meta.env.DEV ? import.meta.env.VITE_COMPARISON_SAMPLE_PHOTO : undefined;
 const base = { productType: 'Fresh potatoes', variety: 'Rooster', brand: 'Albert Bartlett', currency: 'GBP', capturedOn: '2026-11-12' };
 const selected: Offer = {
   ...base, id: 'selected', name: 'Albert Bartlett Rooster Potatoes', shop: 'Reference shop',
@@ -50,9 +47,12 @@ export function CozyComparisonPreview({ theme }: { theme: CozyTheme }) {
   const [offers, setOffers] = useState(sampleOffers);
   const [filters, setFilters] = useState<ComparisonFilters>({ sameVariety: false, sameBrand: false });
   const [editing, setEditing] = useState<{ offer: Offer; review: ManualReview }>();
+  const [scanning, setScanning] = useState(false);
   const ranked = comparePrices(offers, reference, filters);
   const referenceUnit = normalizedUnitPrice(reference.unit_price);
-  const polishedSage = theme === 'sage';
+  const market = theme === 'market';
+  const priceFirst = theme === 'sage' || market;
+  const cheapestId = market ? ranked.groups[0]?.entries[0]?.row.id : undefined;
 
   function startEdit(offer: Offer) {
     setEditing({ offer, review: {
@@ -75,6 +75,13 @@ export function CozyComparisonPreview({ theme }: { theme: CozyTheme }) {
     setEditing(undefined);
   }
 
+  if (scanning) {
+    return <MarketScanPreview onBack={() => setScanning(false)} onSave={(draft, unitPrice) => setReference(current => ({
+      ...current, name: draft.name.trim(), pack: draft.pack.trim(), price: Number(draft.price), unit_price: unitPrice,
+      brand: draft.brand.trim(), variety: draft.variety.trim(), productType: draft.productType.trim(),
+    }))} />;
+  }
+
   if (editing) {
     return (
       <div className="cozy-editor">
@@ -94,14 +101,14 @@ export function CozyComparisonPreview({ theme }: { theme: CozyTheme }) {
     <main className="cozy-compare" data-theme={theme}>
       <header className="cozy-header">
         <span>Cheapo</span>
-        {polishedSage ? <h1>Compare prices</h1> : <span>Sample saved prices</span>}
+        {priceFirst ? <h1>Compare prices</h1> : <span>Sample saved prices</span>}
       </header>
       <article className="cozy-reference">
         {photo ? <img className="cozy-photo" src={photo} alt="Rooster potatoes and shelf label" />
           : <div className="cozy-photo cozy-photo-empty">Photo unavailable</div>}
         <div className="cozy-reference-details">
-          {polishedSage ? <h2>{reference.name}</h2> : <h1>{reference.name}</h1>}
-          <p>{reference.shop} · 2 kg bag</p>
+          {priceFirst ? <h2>{reference.name}</h2> : <h1>{reference.name}</h1>}
+          <p>{reference.shop} · {reference.pack ?? '2 kg bag'}</p>
           <div className="cozy-reference-prices">
             <Prices offer={reference} unitPrice={referenceUnit ?? reference.unit_price} />
             <EditButton offer={reference} onEdit={() => startEdit(reference)} />
@@ -109,7 +116,7 @@ export function CozyComparisonPreview({ theme }: { theme: CozyTheme }) {
         </div>
       </article>
       <section className="cozy-results" aria-label="Shop price comparison">
-        <h2>{polishedSage ? 'Saved offers' : 'Compare shop prices'}</h2>
+        <h2>{priceFirst ? 'Saved offers' : 'Compare shop prices'}</h2>
         <div className="cozy-filters">
           {filtersList.map(({ key, label }) => (
             <label className="cozy-filter" key={key}>
@@ -123,27 +130,29 @@ export function CozyComparisonPreview({ theme }: { theme: CozyTheme }) {
         {!ranked.missing.length && !ranked.groups.length && !ranked.unranked.length ? <p className="cozy-sort" role="status">No matching saved prices</p> : null}
         <ul className="cozy-offers" aria-label="Saved offers">
           {[...ranked.groups.flatMap(group => group.entries), ...ranked.unranked.map(row => ({ row, unitPrice: null }))].map(({ row, unitPrice }) => {
-            const prices = <Prices offer={row} unitPrice={unitPrice} />;
+            const cheapest = row.id === cheapestId;
+            const prices = <div><Prices offer={row} unitPrice={unitPrice} />{cheapest ? <span className="market-cheapest">Lowest unit price</span> : null}</div>;
             const edit = <EditButton offer={row} onEdit={() => startEdit(row)} />;
             const date = <p className="cozy-date">Recorded {dateLabel(row.capturedOn)}</p>;
             const details = (
               <div className="cozy-offer-details">
                 <h3>{row.shop}</h3>
-                {polishedSage ? date : null}
+                {priceFirst ? date : null}
                 <p className="cozy-item">{row.name}</p>
-                {polishedSage ? null : date}
+                {priceFirst ? null : date}
               </div>
             );
             return (
-              <li className="cozy-offer" key={row.id}>
-                {polishedSage ? <>{prices}{details}{edit}</> : <>{details}<div className="cozy-offer-values">{prices}{edit}</div></>}
+              <li className="cozy-offer" key={row.id} data-cheapest={cheapest || undefined}>
+                {priceFirst ? <>{prices}{details}{edit}</> : <>{details}<div className="cozy-offer-values">{prices}{edit}</div></>}
               </li>
             );
           })}
         </ul>
       </section>
+      {market ? <button type="button" className="market-scan-cta" onClick={() => setScanning(true)}><span aria-hidden="true" /> Scan Label</button> : null}
     </main>
-    {polishedSage ? <footer className="cozy-style-note">Style preview · sample prices</footer> : null}
+    {priceFirst ? <footer className="cozy-style-note">Style preview · sample prices</footer> : null}
     </>
   );
 }

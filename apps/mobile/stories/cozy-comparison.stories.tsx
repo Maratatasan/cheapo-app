@@ -33,3 +33,14 @@ export const SageAndLinen: Story = {
 };
 export const BerryAndBakery: Story = { name: 'Berry & Bakery', args: { theme: 'berry' }, play: checkInteractions };
 export const TerracottaAndPantry: Story = { name: 'Terracotta & Pantry', args: { theme: 'terracotta' }, play: checkInteractions };
+
+export const MarketComparison: Story = {
+  name: 'Market Green · Compare prices', args: { theme: 'market' }, parameters: { componentLibraryFrame: false },
+  play: async ({ canvas, userEvent }) => {
+    await expect(canvas.getByText('Lowest unit price', { exact: true })).toBeVisible();
+    await userEvent.click(canvas.getByRole('button', { name: 'Scan Label' }));
+    await expect(canvas.getByRole('heading', { name: 'Review scan' })).toBeVisible();
+    await userEvent.click(canvas.getByRole('button', { name: 'Back to comparison' }));
+    window.scrollTo(0, 0);
+  },
+};
