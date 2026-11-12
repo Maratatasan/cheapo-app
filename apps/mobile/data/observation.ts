@@ -31,20 +31,19 @@ export function priceLabel(item: Pick<PriceValues, "price" | "currency">) {
   try { return new Intl.NumberFormat("en-GB", {style:"currency",currency:item.currency}).format(item.price); }
   catch { return `${item.price} (currency unconfirmed)`; }
 }
+export function knownUnitPrice(value: PriceValues["unit_price"] | undefined) {
+  return value && Number.isFinite(value.amount) && value.amount >= 0 && value.unit.trim()
+    ? value
+    : null;
+}
+
 /** Unit price may come from a visible shelf label, independently of pack price. */
 export function unitPriceLabel(
   item: Pick<PriceValues, "unit_price" | "currency">,
 ) {
-  const value = item.unit_price;
-  if (
-    !value ||
-    !Number.isFinite(value.amount) ||
-    value.amount < 0 ||
-    !value.unit.trim()
-  ) {
-    return "Unit price unavailable";
-  }
-  return `${priceLabel({price:value.amount,currency:item.currency})} / ${value.unit}`;
+  const value = knownUnitPrice(item.unit_price);
+  if (!value) return "Unit price unavailable";
+  return `${priceLabel({price:value.amount,currency:item.currency})} / ${value.unit.trim()}`;
 }
 export function dateLabel(value: string) {
   return new Date(`${value}T12:00:00Z`).toLocaleDateString("en-GB", {
