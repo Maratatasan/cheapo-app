@@ -31,3 +31,26 @@ test.each(names)("shows $expected on the observation and shop cards", async ({ s
   expect(onShop).toHaveBeenCalledTimes(1);
   expect(onSelect).toHaveBeenCalledTimes(1);
 });
+
+test("shows pack and unit prices independently on a display-only comparison card", async () => {
+  await render(
+    <ShopCard
+      shop="Tandem Centre Lidl"
+      price={2.5}
+      currency="GBP"
+      unit_price={{ amount: 1.25, unit: "kg" }}
+    />,
+  );
+
+  expect(screen.getByText("Pack price")).toBeOnTheScreen();
+  expect(screen.getByText("£2.50")).toBeOnTheScreen();
+  expect(screen.getByText("£1.25 / kg")).toBeOnTheScreen();
+  expect(screen.queryByRole("button")).not.toBeOnTheScreen();
+});
+
+test("makes missing unit prices explicit for older cards", async () => {
+  await render(<ShopCard shop="Aldi" price={1.39} currency="GBP" onSelect={jest.fn()} />);
+
+  expect(screen.getByText("£1.39")).toBeOnTheScreen();
+  expect(screen.getByText("Unit price unavailable")).toBeOnTheScreen();
+});
