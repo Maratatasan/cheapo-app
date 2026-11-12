@@ -1,8 +1,14 @@
 /// <reference types="vite/client" />
 
+import { useState } from "react";
+import { View } from "react-native";
+import { SafeAreaProvider } from "react-native-safe-area-context";
+import { PhotoReview } from "../component/photo-review";
+import { observationShopLabel } from "../data/observation";
+import { emptyReview, type ManualReview } from "../data/photo-review";
 import type { Meta, StoryObj } from "@storybook/react-native-web-vite";
-import { expect, fn } from "storybook/test";
-import { ShopComparison, type ShopComparisonProps } from "../component/results/shop-comparison";
+import { expect, fireEvent, fn } from "storybook/test";
+import { ShopComparison, type ComparisonRow, type ShopComparisonProps } from "../component/results/shop-comparison";
 
 const localPhoto = import.meta.env.DEV
   ? import.meta.env.VITE_COMPARISON_SAMPLE_PHOTO
@@ -114,5 +120,93 @@ export const MissingVariety: Story = {
   play: async ({ canvas, userEvent }) => {
     await userEvent.click(canvas.getByRole("checkbox", { name: "Same variety" }));
     await expect(canvas.getByText("More product details needed")).toBeVisible();
+  },
+};
+
+
+function EditComparison({ saveFails = false }: { saveFails?: boolean }) {
+  const [reference, setReference] = useState<ComparisonRow>(filterReference);
+  const [prices, setPrices] = useState(filteredPrices);
+  const [editing, setEditing] = useState<{ id: string; review: ManualReview }>();
+  const [error, setError] = useState<string>();
+
+  function startEdit(id: string) {
+    const row = id === reference.id ? reference : prices.find(price => price.id === id);
+    if (!row) return;
+    setError(undefined);
+    setEditing({ id, review: {
+      ...emptyReview(observationShopLabel(row.shop)), productName: row.product ?? product.name,
+      price: String(row.price ?? ""), currency: row.currency ?? "", unitPrice: String(row.unit_price?.amount ?? ""),
+      unit: row.unit_price?.unit ?? "", productType: row.productType, variety: row.variety, brand: row.brand,
+    } });
+  }
+
+  function save() {
+    if (!editing) return;
+    if (saveFails) { setError("Could not save changes. Your edits are still here. Try again."); return; }
+    const { id, review } = editing;
+    const changes = {
+      product: review.productName, price: Number(review.price), currency: review.currency,
+      unit_price: review.unitPrice ? { amount: Number(review.unitPrice), unit: review.unit } : null,
+      productType: review.productType, variety: review.variety, brand: review.brand,
+    };
+    if (id === reference.id) setReference({ ...reference, ...changes });
+    else setPrices(prices.map(row => row.id === id ? { ...row, ...changes } : row));
+    setEditing(undefined);
+  }
+
+  return (
+    <>
+      <View style={editing ? { display: "none" } : undefined}>
+        <ShopComparison product={{ ...product, name: reference.product ?? product.name }} sample reference={reference}
+          comparisons={prices} onEdit={startEdit} />
+      </View>
+      {editing ? (
+        <View style={{ height: 680 }}>
+          <SafeAreaProvider initialMetrics={{ frame: { x: 0, y: 0, width: 600, height: 680 }, insets: { top: 0, left: 0, bottom: 0, right: 0 } }}>
+            <PhotoReview photo={localPhoto ? { uri: localPhoto, width: 600, height: 600, mimeType: 'image/jpeg' } : undefined}
+              review={editing.review} selectedShopName={editing.review.shop} saved={false} busy={false}
+              onReviewChange={review => setEditing({ ...editing, review })} onSave={save} onCancel={() => setEditing(undefined)} saveError={error} />
+          </SafeAreaProvider>
+        </View>
+      ) : null}
+    </>
+  );
+}
+
+const editOffer = "Edit Maris Piper potatoes 2 kg at Tandem Centre Lidl";
+export const EditSavedComparison: Story = {
+  render: () => <EditComparison />,
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("checkbox", { name: "Same brand" }));
+    await userEvent.click(canvas.getByRole("button", { name: editOffer }));
+    await expect(canvas.getByLabelText("Unit price (optional)")).toHaveValue("0.124");
+    await expect(canvas.getByLabelText("Unit (for example kg or litre)")).toHaveValue("100g");
+    await userEvent.click(canvas.getByRole("button", { name: "Cancel" }));
+    await expect(canvas.getByText("£1.24 / kg")).toBeVisible();
+    await userEvent.click(canvas.getByRole("button", { name: editOffer }));
+    const update = async (name: string, value: string) => {
+      const field = canvas.getByLabelText(name);
+      await fireEvent.change(field, { target: { value } });
+      await expect(field).toHaveValue(value);
+    };
+    await update("Pack price", "3.50");
+    await update("Unit price (optional)", "1.75");
+    await update("Unit (for example kg or litre)", "kg");
+    await userEvent.click(canvas.getByRole("button", { name: "Save changes" }));
+    await expect(canvas.getByRole("checkbox", { name: "Same brand" })).toBeChecked();
+    await expect(canvas.getAllByText(/£[\d.]+ \/ kg/).map(price => price.textContent)).toEqual([
+      "£1.40 / kg", "£1.35 / kg", "£1.42 / kg", "£1.75 / kg",
+    ]);
+  },
+};
+
+export const EditSaveError: Story = {
+  render: () => <EditComparison saveFails />,
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: editOffer }));
+    await userEvent.click(canvas.getByRole("button", { name: "Save changes" }));
+    await expect(canvas.getByRole("alert")).toHaveTextContent("Your edits are still here");
+    await expect(canvas.getByLabelText("Unit price (optional)")).toHaveValue("0.124");
   },
 };

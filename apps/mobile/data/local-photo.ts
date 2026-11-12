@@ -2,27 +2,11 @@ import { normalizeName } from '@cheapo/domain/names';
 import { Directory, File, Paths } from 'expo-file-system';
 
 import type { CropBox } from './crop-geometry';
-import type { ProductMetadata } from './product-metadata';
+import { emptyReview, reviewComplete, type ManualReview } from './photo-review';
+
+export { emptyReview, reviewComplete, type ManualReview } from './photo-review';
 
 export type PhotoAsset = { uri: string; width: number; height: number; mimeType: 'image/jpeg'; size?: number };
-export type ManualReview = ProductMetadata & { productName: string; price: string; currency: string; shop: string; unitPrice: string; unit: string };
-export const emptyReview = (shop = ''): ManualReview => ({ productName: '', price: '', currency: 'GBP', shop, unitPrice: '', unit: '' });
-const validPrice = (value: string, fraction = 2) => new RegExp(`^\\d+(\\.\\d{1,${fraction}})?$`).test(value.trim()) && value.length <= 24 && Number(value) > 0 && Number(value) <= 9999999.99;
-
-export function reviewComplete(review?: ManualReview, selectedShopName?: string): boolean {
-  if (!review) return false;
-  const productName = normalizeName(review.productName);
-  const shopName = normalizeName(selectedShopName ?? review.shop);
-
-  return !!productName && productName.length <= 200
-    && !!shopName && (selectedShopName !== undefined || shopName.length <= 150)
-    && validPrice(review.price)
-    && /^[A-Z]{3}$/.test(review.currency)
-    && (
-      (!review.unitPrice.trim() && !review.unit.trim())
-      || (validPrice(review.unitPrice, 6) && !!review.unit.trim() && review.unit.trim().length <= 30)
-    );
-}
 export type DraftShop = { id: string; displayName: string };
 export type LocalPhotoDraft = { id: string; capturedAt: string; original: PhotoAsset; selected: PhotoAsset; review?: ManualReview; cropBox?: CropBox; shop?: DraftShop };
 export async function localPhotoSource(asset: PhotoAsset): Promise<PhotoAsset> {
@@ -48,13 +32,17 @@ export async function saveLocalPhoto(draft: LocalPhotoDraft): Promise<LocalPhoto
   const selected = draft.original.uri === draft.selected.uri ? original : await localPhotoSource(draft.selected);
   const savedOriginal = await copy(original, 'original');
   const saved = { ...draft, original: savedOriginal, selected: draft.original.uri === draft.selected.uri ? savedOriginal : await copy(selected, `selected-${Date.now()}`) };
+  await writeSavedDraft(directory, saved);
+  return saved;
+}
+
+async function writeSavedDraft(directory: Directory, draft: LocalPhotoDraft) {
   const manifest = new File(directory, `${draft.id}.json`);
   const previous = await readSavedDraft(manifest);
   // Never overwrite the last good fallback with an interrupted/invalid primary.
   // If making the safety copy fails, the primary has not been touched.
-  if (previous) await new File(directory, `${draft.id}.json.bak`).write(JSON.stringify(previous));
-  await manifest.write(JSON.stringify(saved));
-  return saved;
+  if (previous?.id === draft.id) await new File(directory, `${draft.id}.json.bak`).write(JSON.stringify(previous));
+  await manifest.write(JSON.stringify(draft));
 }
 
 function validSavedDraft(value: unknown): value is LocalPhotoDraft {
@@ -79,6 +67,25 @@ async function readSavedDraft(file: File): Promise<LocalPhotoDraft | null> {
     const value: unknown = JSON.parse(await file.text());
     return validSavedDraft(value) && new File(value.original.uri).exists && new File(value.selected.uri).exists ? value : null;
   } catch { return null; }
+}
+
+export async function loadLocalPhoto(id: string): Promise<LocalPhotoDraft | null> {
+  if (typeof id !== 'string' || !/^[A-Za-z0-9_-]+$/.test(id)) return null;
+  const directory = savedPhotoDirectory();
+  const primary = await readSavedDraft(new File(directory, `${id}.json`));
+  if (primary?.id === id) return primary;
+  const backup = await readSavedDraft(new File(directory, `${id}.json.bak`));
+  return backup?.id === id ? backup : null;
+}
+
+export async function saveLocalPhotoReview(id: string, changes: ManualReview): Promise<LocalPhotoDraft> {
+  const draft = await loadLocalPhoto(id);
+  if (!draft?.review || !reviewComplete(draft.review, draft.shop?.displayName)) throw Error('Saved product unavailable.');
+  const review = { ...changes, shop: draft.review.shop };
+  if (!reviewComplete(review, draft.shop?.displayName)) throw Error('Enter valid product and price details.');
+  const updated = { ...draft, review };
+  await writeSavedDraft(savedPhotoDirectory(), updated);
+  return updated;
 }
 
 export async function loadLocalPhotos({ requireAll = false } = {}): Promise<LocalPhotoDraft[]> {

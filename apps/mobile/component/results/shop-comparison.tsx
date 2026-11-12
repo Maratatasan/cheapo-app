@@ -2,6 +2,7 @@ import { Fragment, useState } from "react";
 import { Image, Pressable, StyleSheet, Text, View, type ImageSourcePropType } from "react-native";
 import { comparePrices, normalizedUnitPrice, type ComparisonPrice } from "@/data/comparison-prices";
 import { dateLabel, observationShopLabel } from "@/data/observation";
+import { EditPriceButton } from "./edit-price-button";
 import { DisplayState } from "./display-state";
 import { PriceDisplay } from "./price-display";
 import { SampleNotice } from "./sample-notice";
@@ -16,6 +17,7 @@ export type ShopComparisonProps = {
   reference?: ComparisonRow;
   state?: "ready" | "loading" | "error";
   onRetry?: () => void;
+  onEdit?: (id: string) => void;
   sample?: boolean;
 };
 
@@ -37,6 +39,7 @@ export function ShopComparison({
   reference,
   state = "ready",
   onRetry,
+  onEdit,
   sample = false,
 }: ShopComparisonProps) {
   const [failedPhoto, setFailedPhoto] = useState<ImageSourcePropType>();
@@ -71,6 +74,7 @@ export function ShopComparison({
             {reference.capturedOn ? <Text style={ui.small}>Recorded {dateLabel(reference.capturedOn)}</Text> : null}
             <Text style={ui.small}>{[reference.productType, reference.variety, reference.brand].filter(Boolean).join(" · ")}</Text>
             <PriceDisplay price={reference.price} currency={reference.currency} unit_price={referenceUnitPrice ?? reference.unit_price ?? null} showPackLabel />
+            {onEdit ? <EditPriceButton label={`Edit ${product.name} at ${observationShopLabel(reference.shop)}`} onPress={() => onEdit(reference.id)} /> : null}
           </>
         ) : null}
       </View>
@@ -114,13 +118,14 @@ export function ShopComparison({
               {ranked.groups.length > 1 ? "Lowest unit price first within each unit" : "Lowest unit price first"}
             </Text>
           ) : null}
+          {onEdit && ranked.groups.length > 0 ? <Text style={ui.small}>Comparison uses a common unit. Edit opens the saved amount and unit.</Text> : null}
           {ranked.groups.map(({ unit, currency, entries }) => (
             <Fragment key={`${unit}-${currency}`}>
               {ranked.groups.length > 1 ? (
                 <Text accessibilityRole="header" style={styles.group}>Per {unit}{ranked.groups.some(group => group.currency !== currency) ? ` (${currency})` : ""}</Text>
               ) : null}
               {entries.map(({ row, unitPrice }) => (
-                <ShopCard key={row.id} shop={row.shop} product={row.product} area={row.area} capturedOn={row.capturedOn} price={row.price} currency={row.currency} unit_price={unitPrice} />
+                <ShopCard key={row.id} shop={row.shop} product={row.product} area={row.area} capturedOn={row.capturedOn} price={row.price} currency={row.currency} unit_price={unitPrice} onEdit={onEdit ? () => onEdit(row.id) : undefined} />
               ))}
             </Fragment>
           ))}
@@ -131,7 +136,7 @@ export function ShopComparison({
                 ? "The selected product has no comparable unit price."
                 : "These prices have no comparable unit price."}</Text>
               {ranked.unranked.map(({ id, shop, product, area, capturedOn, price, currency, unit_price }) => (
-                <ShopCard key={id} shop={shop} product={product} area={area} capturedOn={capturedOn} price={price} currency={currency} unit_price={unit_price} />
+                <ShopCard key={id} shop={shop} product={product} area={area} capturedOn={capturedOn} price={price} currency={currency} unit_price={unit_price} onEdit={onEdit ? () => onEdit(id) : undefined} />
               ))}
             </>
           ) : null}

@@ -56,3 +56,14 @@ export const SelectShop: Story = {
     await expect(args.onSelect).toHaveBeenCalled();
   },
 };
+
+export const EditableSavedPrice: Story = {
+  args: {
+    onSelect: undefined, onEdit: fn(), product: 'Sample long-grain rice 1kg',
+    price: 1.69, unit_price: { amount: 1.69, unit: 'kg' },
+  },
+  play: async ({ canvas, userEvent, args }) => {
+    await userEvent.click(canvas.getByRole('button', { name: 'Edit Sample long-grain rice 1kg at Aldi' }));
+    await expect(args.onEdit).toHaveBeenCalledTimes(1);
+  },
+};

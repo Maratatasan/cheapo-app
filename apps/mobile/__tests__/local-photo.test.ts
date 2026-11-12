@@ -1,4 +1,4 @@
-import { emptyReview, reviewComplete, loadLocalPhotos, saveLocalPhoto, type LocalPhotoDraft } from '../data/local-photo';
+import { emptyReview, reviewComplete, loadLocalPhotos, saveLocalPhoto, saveLocalPhotoReview, type LocalPhotoDraft } from '../data/local-photo';
 const mockFiles = new Map<string, string>();
 let mockFailCopy = false;
 let mockFailWrite = false;
@@ -136,4 +136,29 @@ it('retains optional classification after saving without changing review complet
   await saveLocalPhoto({ ...draft, review });
   expect((await loadLocalPhotos())[0].review).toEqual(review);
   expect(reviewComplete(review)).toBe(true);
+});
+
+
+it('updates only the existing review and never recopies the capture', async () => {
+  const shop = { id: 'test-shop', displayName: 'Test shop' };
+  const review = { ...emptyReview('Test shop'), productName: 'Tilda rice', price: '2.50', unitPrice: '0.25', unit: '100g' };
+  const saved = await saveLocalPhoto({ ...draft, shop, review });
+  mockFailCopy = true;
+  const changed = { ...review, shop: 'Wrong shop', unitPrice: '2.50', unit: 'kg' };
+  await saveLocalPhotoReview(saved.id, changed);
+  expect(await loadLocalPhotos()).toEqual([{ ...saved, review: { ...changed, shop: 'Test shop' } }]);
+  expect([...mockFiles.keys()].filter(path => path.startsWith('file:///documents') && path.endsWith('.jpg'))).toHaveLength(2);
+});
+
+it('keeps the prior review on interrupted edits and rejects missing or unsafe record IDs', async () => {
+  const review = { ...emptyReview('Legacy shop'), productName: 'Rice', price: '1.25' };
+  const saved = await saveLocalPhoto({ ...draft, review });
+  mockPartialWrite = true;
+  await expect(saveLocalPhotoReview(saved.id, { ...review, price: '2.50' })).rejects.toThrow('Interrupted manifest write');
+  expect(await loadLocalPhotos()).toEqual([saved]);
+  mockPartialWrite = false;
+  await expect(saveLocalPhotoReview('absent', review)).rejects.toThrow('Saved product unavailable');
+  await expect(saveLocalPhotoReview('../absent', review)).rejects.toThrow('Saved product unavailable');
+  await expect(saveLocalPhotoReview(saved.id, { ...review, unitPrice: '1' })).rejects.toThrow('valid product and price');
+  expect(await loadLocalPhotos()).toEqual([saved]);
 });

@@ -23,6 +23,8 @@ flowchart TD
     Home --> Saved["Saved products and photos"]
     Saved --> SavedPhoto["Open the saved crop or full original"]
     SavedPhoto --> Compare["Compare saved prices by product type"]
+    SavedPhoto --> Edit["Edit existing review"]
+    Compare --> Edit
     Saved --> Export["Export ZIP with Android sharing"]
     Scan -->|Reopen saved draft| Review
     Home --> Results["Explore sample prices"]
@@ -40,7 +42,7 @@ flowchart TD
 | Review | The [review form](../apps/mobile/component/photo-review.tsx) edits product, price, currency, and optional type, variety, brand and unit-price details. Product type is a reviewed comparison category, for example dry rice or microwave rice. New drafts store the selected shop's stable ID and display name at capture. A later selection applies to subsequent captures. Older drafts still support their saved free-text shop field. Incomplete details can still be saved as a draft. |
 | Storage | The [local photo store](../apps/mobile/data/local-photo.ts) writes JPEGs and a JSON manifest in the app’s private directory. Scan reopens saved drafts. The [gallery helper](../apps/mobile/lib/photo-gallery.ts) copies the selected image only on request after saving. |
 | Export | On Android, **Saved products and photos → Export saved products and photos** prepares a private ZIP and opens the Android share sheet. Choose an app or save destination there. The archive contains `manifest.json` (version 1), saved shop details and capture snapshots, manual review values and status, and original and cropped JPEGs linked by relative paths. It excludes sign-in credentials, sessions, logs and device-local paths. Cheapo makes no upload and keeps saved records intact. If a record or photo cannot be read, the export stops. Completed archives stay in Android-managed cache so the chosen app can read them after the share sheet closes. |
-| Saved price comparison | [Compare](../apps/mobile/app/compare/%5Bid%5D.tsx) opens from a completed saved review. It compares other completed local reviews of the same type and currency. The variety and brand filters can be used independently or together. Compatible unit prices are normalized and sorted ascending. Records without a comparable unit price are shown separately. |
+| Saved price comparison | [Compare](../apps/mobile/app/compare/%5Bid%5D.tsx) opens from a completed saved review. It compares other completed local reviews of the same type and currency. The variety and brand filters can be used independently or together. Compatible unit prices are normalized and sorted ascending. Records without a comparable unit price are shown separately. **Edit** opens the original price and unit in the shared review form. Saving updates only the existing record’s review and refreshes the comparison. |
 | Sample browsing | [Results](../apps/mobile/app/results.tsx) and [Shops](../apps/mobile/app/shops.tsx) use [fictional sample data](../apps/mobile/data/sample-observations.ts). This browse flow is independent of local drafts. |
 
 ## Experiments and planned boundaries
