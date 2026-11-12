@@ -86,8 +86,8 @@ pnpm lint
 pnpm test
 ```
 
-After dependency changes also run `pnpm exec expo install --check`,
-`pnpm dlx expo-doctor`, and `pnpm exec expo export --platform all`.
+After dependency changes also run `pnpm expo install --check`,
+`pnpm expo:doctor`, and `pnpm build` from the repository root.
 Bundle exports are not native binary builds. A camera smoke test must distinguish
 mocked tests, emulator UI, browser UI, and actual physical-device capture.
 

@@ -16,10 +16,10 @@ no credential or callback URL is logged or bundled.
 ```sh
 nvm use
 pnpm install --frozen-lockfile
-CHEAPO_AUTH_TEST=1 pnpm exec expo prebuild --platform android --no-install
+CHEAPO_AUTH_TEST=1 pnpm expo prebuild --platform android --no-install
 ```
 
-Use JDK 17 and the installed Android SDK. From generated `android/`:
+Use JDK 17 and the installed Android SDK. From the generated `apps/mobile/android/` project:
 
 ```sh
 export JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home
@@ -29,10 +29,10 @@ CHEAPO_AUTH_TEST=1 ./gradlew :app:assembleRelease --no-daemon --max-workers=1 -D
 ```
 
 This local test release variant uses the generated debug signing key; it is not
-an app-store release. Install `android/app/build/outputs/apk/release/app-release.apk`
+an app-store release. Install `apps/mobile/android/app/build/outputs/apk/release/app-release.apk`
 on the connected test device with `adb -s DEVICE_SERIAL install -r PATH_TO_APK`.
 The APK bundles JavaScript and runs without Metro or the Mac companion. Generated
-`android/` and local-module build outputs are ignored. Keep emulators off on the
+`apps/mobile/android/` and local-module build outputs are ignored. Keep emulators off on the
 low-memory Mac.
 
 ## Manual verification

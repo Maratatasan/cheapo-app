@@ -1,0 +1,29 @@
+{
+  "name": "cheapo-workspace",
+  "private": true,
+  "packageManager": "pnpm@10.11.0",
+  "engines": {
+    "node": ">=24.3.0 <25"
+  },
+  "scripts": {
+    "dev": "turbo run dev",
+    "start": "pnpm --filter cheapo-app start",
+    "android": "pnpm --filter cheapo-app android",
+    "ios": "pnpm --filter cheapo-app ios",
+    "web": "pnpm --filter cheapo-app web",
+    "build": "turbo run build",
+    "typecheck": "turbo run typecheck",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "test:watch": "pnpm --filter cheapo-app test:watch",
+    "test:route1": "node --test tools/route1-demo/*.test.mjs",
+    "test:auth-native": "pnpm --filter cheapo-app test:auth-native",
+    "ui:storybook": "pnpm --filter cheapo-app ui:storybook",
+    "ui:storybook:build": "turbo run ui:storybook:build",
+    "expo": "pnpm --filter cheapo-app exec expo",
+    "expo:doctor": "cd apps/mobile && pnpm dlx expo-doctor"
+  },
+  "devDependencies": {
+    "turbo": "2.11.11"
+  }
+}

@@ -34,6 +34,12 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
 
+      - name: Set up Java for native auth helper tests
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
@@ -50,13 +56,16 @@ jobs:
         run: pnpm ui:storybook:build
 
       - name: Run Route 1 demo tests
-        run: node --test tools/route1-demo/*.test.mjs
+        run: pnpm test:route1
+
+      - name: Run native auth helper tests
+        run: pnpm test:auth-native
 
       - name: Check Expo dependency compatibility
-        run: pnpm exec expo install --check
+        run: pnpm expo install --check
 
       - name: Run Expo Doctor
-        run: pnpm dlx expo-doctor
+        run: pnpm expo:doctor
 
       - name: Export Android, iOS, and web bundles
-        run: pnpm exec expo export --platform all
+        run: pnpm build
