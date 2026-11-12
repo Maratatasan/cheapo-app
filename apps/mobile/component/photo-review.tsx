@@ -6,12 +6,13 @@ import { reviewComplete } from '@/data/local-photo';
 
 type Props = {
   photo: PhotoAsset; review: ManualReview; saved: boolean; busy: boolean;
+  selectedShopName?: string;
   onReviewChange: (review: ManualReview) => void;
   onSave: () => void; onRetake: () => void; onCrop: () => void;
   galleryAction?: ReactNode; onOriginal?: () => void; onImageError: () => void; children?: ReactNode;
 };
 
-export function PhotoReview({ photo, review, saved, busy, onReviewChange, onSave, onRetake, onCrop, onOriginal, onImageError, galleryAction, children }: Props) {
+export function PhotoReview({ photo, review, selectedShopName, saved, busy, onReviewChange, onSave, onRetake, onCrop, onOriginal, onImageError, galleryAction, children }: Props) {
   const container = useRef<ComponentRef<typeof View>>(null);
   const scroll = useRef<ComponentRef<typeof ScrollView>>(null);
   const focused = useRef<keyof ManualReview | null>(null);
@@ -40,16 +41,18 @@ export function PhotoReview({ photo, review, saved, busy, onReviewChange, onSave
       <ScrollView ref={scroll} style={styles.root} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" onContentSizeChange={revealFocused} onLayout={revealFocused}>
         {!keyboardVisible ? <Image source={{ uri: photo.uri }} accessibilityLabel="Price photo preview" style={styles.photo} resizeMode="contain" onError={onImageError} /> : null}
         <Text style={styles.status}>{saved ? 'On this phone' : 'Review photo · Not saved'}</Text>
-        <Text style={styles.note}>{reviewComplete(review) ? 'Manual details ready' : 'Incomplete draft · Add product, price and shop'}</Text>
+        <Text style={styles.note}>{reviewComplete(review, selectedShopName) ? 'Manual details ready' : selectedShopName ? 'Incomplete draft · Add product and price' : 'Incomplete draft · Add product, price and shop'}</Text>
         <View style={styles.actions}>
           <Button title="Crop photo" disabled={busy} onPress={() => { Keyboard.dismiss(); onCrop(); }} />
           {onOriginal ? <Button title="Use original" disabled={busy} onPress={onOriginal} /> : null}
         </View>
         {fields.map(([field, label, accessibilityLabel, placeholder]) => <View key={field} style={styles.field} onLayout={event => { positions.current[field] = event.nativeEvent.layout.y; if (keyboardVisible && focused.current === field) revealFocused(); }}>
           <Text style={styles.label}>{label}</Text>
-          <TextInput accessibilityLabel={accessibilityLabel} placeholder={placeholder} placeholderTextColor="#666" value={review[field]} editable={!busy} keyboardType={field === 'price' || field === 'unitPrice' ? 'decimal-pad' : 'default'} autoCapitalize={field === 'currency' ? 'characters' : 'sentences'} style={styles.input} onFocus={() => { focused.current = field; revealFocused(); }} onChangeText={value => onReviewChange({ ...review, [field]: field === 'currency' ? value.toUpperCase().slice(0, 3) : value })} />
+          {field === 'shop' && selectedShopName ? <Text accessibilityLabel={`${accessibilityLabel}: ${selectedShopName}`} style={styles.input}>{selectedShopName}</Text> : (
+            <TextInput accessibilityLabel={accessibilityLabel} placeholder={placeholder} placeholderTextColor="#666" value={review[field]} editable={!busy} keyboardType={field === 'price' || field === 'unitPrice' ? 'decimal-pad' : 'default'} autoCapitalize={field === 'currency' ? 'characters' : 'sentences'} style={styles.input} onFocus={() => { focused.current = field; revealFocused(); }} onChangeText={value => onReviewChange({ ...review, [field]: field === 'currency' ? value.toUpperCase().slice(0, 3) : value })} />
+          )}
         </View>)}
-        <Text style={styles.note}>Use a decimal point for prices. Confirm the shop manually. Incomplete details are saved as a photo draft.</Text>
+        <Text style={styles.note}>Use a decimal point for prices. {selectedShopName ? '' : 'Confirm the shop manually. '}Incomplete details are saved as a photo draft.</Text>
         {children}
       </ScrollView>
       <SafeAreaView edges={['bottom']} style={styles.footer}>

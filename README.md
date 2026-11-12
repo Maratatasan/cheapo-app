@@ -1,6 +1,7 @@
 # Cheapo
 
-Cheapo is a small Expo app for capturing a price photo. The home screen links to the scan screen, which requests camera permission, opens the camera, and lets you capture a photo, preview it, or retake it.
+Cheapo is a small Expo app for capturing price photos. Choose your current
+shop once, then scan multiple items with that shop already filled in.
 
 ## Runtime
 
@@ -45,10 +46,11 @@ The camera tests mock the native camera and permission APIs; they cover app beha
 
 ## Camera behavior
 
-Scan → camera permission → capture → adjustable crop → review. The guide suggests
-where to fit the label; the full original is retained. Review has labelled product,
-price, currency, shop and unit-price fields. **Save on this phone** stores a local
-photo draft; **Copy to phone gallery** is a separate explicit action after saving.
+Scan → choose a shop if needed → camera permission → capture → adjustable crop →
+review. The guide suggests where to fit the label, and Cheapo keeps the full
+original. Review shows the selected shop alongside product, price, currency and
+unit-price fields. **Save on this phone** stores a local photo draft.
+**Copy to phone gallery** is a separate action after saving.
 Saved drafts reopen from Scan. This path requires no account or cloud backend.
 
 In development, **Analyse photo** can still use the paired Mac companion. That is
