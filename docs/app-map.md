@@ -18,6 +18,8 @@ flowchart TD
     Review -->|Retake| Capture
     Review --> Save["Save on this phone"]
     Save --> Gallery["Optional gallery copy"]
+    Home --> Saved["Saved products and photos"]
+    Saved --> SavedPhoto["Open the saved crop or full original"]
     Scan -->|Reopen saved draft| Review
     Home --> Results["Explore sample prices"]
     Results --> Shops["Sample shops and map"]

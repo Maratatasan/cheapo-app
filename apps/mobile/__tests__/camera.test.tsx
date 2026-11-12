@@ -199,7 +199,7 @@ describe("CameraComponent", () => {
     await fireEvent.changeText(screen.getByLabelText("Product name"), "Milk 2 litres");
     await fireEvent.changeText(screen.getByLabelText("Pack price"), "1.65");
     await fireEvent.changeText(screen.getByLabelText("Confirmed shop"), "Tesco Borough Road");
-    await fireEvent.press(screen.getByText("Save on this phone"));
+    await fireEvent.press(screen.getByText("Save product"));
     expect(mockSaveLocalPhoto).toHaveBeenCalledWith(expect.objectContaining({ review: expect.objectContaining({ productName: "Milk 2 litres", price: "1.65", shop: "Tesco Borough Road", currency: "GBP" }) }));
     await fireEvent.press(screen.getByText("Retake"));
     await fireEvent(screen.getByTestId("camera-preview"), "cameraReady");
