@@ -1,7 +1,7 @@
 # Cheapo domain contracts
 
-Import `shopSchema`, `productSchema`, `shopDisplayName` and the inferred types
-`Shop` and `Product` from `@cheapo/domain`. Use the schemas' `parse` or
+Import `shopSchema`, `productSchema` and the inferred types `Shop` and
+`Product` from `@cheapo/domain`. Use the schemas' `parse` or
 `safeParse` methods on incoming data. This private workspace package exports
 TypeScript source for Expo's bundler and supports direct use on the repository's
 Node version. Run `pnpm --filter @cheapo/domain test` for the plain Node contract
@@ -11,9 +11,11 @@ tests.
 
 - `id` identifies a particular branch and stays stable if the branch's name or
   nickname is edited.
-- `name` is the branch's required name. `nickname` is optional.
-  `shopDisplayName` prefers the trimmed nickname and falls back to `name`
-  when the nickname is absent or blank.
+- A shop needs at least one nonblank `nickname` or `name`. Validation trims
+  each and treats blank text as absent.
+- Import `shopDisplayName` from `@cheapo/domain/names` for display and form
+  checks without loading Zod. It returns the trimmed nickname first, falls back
+  to the trimmed name, and returns `undefined` when both are blank or absent.
 - `address` is optional free text. `location` is optional and contains both
   latitude and longitude in decimal degrees within ±90 and ±180 respectively.
   A manually entered branch may have neither an address nor coordinates.
