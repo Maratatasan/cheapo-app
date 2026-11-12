@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Pressable, Text, TextInput, View } from "react-native";
-import { Observation } from "@/data/observation";
+import { Observation, observationShopLabel } from "@/data/observation";
 import { DisplayState } from "./display-state";
 import { ObservationCard } from "./observation-card";
 import { color, ui } from "./theme";
@@ -19,7 +19,7 @@ export function ResultsBrowser({
   const [query, setQuery] = useState("");
   const rows = observations
     .filter((item) =>
-      `${item.product} ${item.shop} ${item.brand}`
+      `${item.product} ${observationShopLabel(item.shop)} ${item.brand}`
         .toLowerCase()
         .includes(query.toLowerCase()),
     )

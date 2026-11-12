@@ -19,6 +19,10 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 export const Default: Story = {};
+export const Nickname: Story = {
+  args: { shop: { id: "tandem", name: "Lidl", nickname: "Tandem Centre Lidl" } },
+};
+export const ShopName: Story = { args: { shop: { id: "lidl", name: "Lidl" } } };
 export const Selected: Story = { args: { selected: true } };
 export const LongBranch: Story = {
   args: {

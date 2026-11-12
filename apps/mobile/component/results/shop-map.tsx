@@ -1,3 +1,4 @@
+import { observationShopLabel } from "@/data/observation";
 import MapView, { Marker } from "react-native-maps";
 import { View, Text } from "react-native";
 import { ShopMapProps } from "./shop-map.types";
@@ -27,7 +28,7 @@ export function ShopMap({ observations, selectedId, onSelect }: ShopMapProps) {
           key={item.id}
           identifier={item.id}
           coordinate={item.coordinate}
-          title={`${index + 1}. ${item.shop} · illustrative pin`}
+          title={`${index + 1}. ${observationShopLabel(item.shop)} · illustrative pin`}
           description="Not a verified branch location"
           pinColor={item.id === selectedId ? color.green : "#A17234"}
           onPress={() => onSelect(item.id)}
