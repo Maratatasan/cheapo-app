@@ -10,8 +10,10 @@ flowchart TD
     Home --> Scan
     Scan --> CurrentShop{"Current shop?"}
     CurrentShop -->|No| ChooseShop["Select or add a shop"]
-    ChooseShop --> Permission["Camera permission"]
-    CurrentShop -->|Yes| Permission
+    ChooseShop --> Source["Take or choose a photo"]
+    CurrentShop -->|Yes| Source
+    Source --> Permission["Camera permission"]
+    Source --> Crop
     Permission -->|Granted| Capture
     Capture --> Crop["Adjust crop or keep original"]
     Crop --> Review["Review photo and edit details"]
@@ -42,5 +44,5 @@ flowchart TD
 ## Experiments and planned boundaries
 
 - **Development AI.** [Analyse photo](../apps/mobile/component/mobile-draft.tsx) sends the selected image to a paired [Mac companion](../tools/route1-demo/server.mjs) and shows a [separate AI draft card](../apps/mobile/component/results/ai-draft-card.tsx). The manual form and local save use the shopper’s edits.
-- **Android sign-in.** In the opt-in auth test build, Home links to [Developer tools](../apps/mobile/app/developer-tools.tsx). The [direct auth screen](../apps/mobile/app/direct-auth.tsx) exercises sign-in and protected session storage. Direct phone photo analysis is unintegrated.
-- **Planned.** See the [architecture principles](architecture-principles.md) for intended camera, photo, AI-provider, and persistence boundaries. AI field assignment and cloud storage remain future work.
+- **Android field analysis.** The [sign-in screen](../apps/mobile/app/direct-auth.tsx) and [photo analysis control](../apps/mobile/component/direct-photo-analysis.tsx) share one protected phone session. The [provider adapter](../apps/mobile/lib/direct-auth/photo-analysis.ts) checks account model availability, sends only the selected JPEG, and accepts a validated completed draft. The shopper applies suggestions to the manual review before saving. The separate auth test build retains its diagnostic controls.
+- **Planned.** See the [architecture principles](architecture-principles.md) for intended camera, photo, AI-provider, and persistence boundaries. Cloud storage remains future work.

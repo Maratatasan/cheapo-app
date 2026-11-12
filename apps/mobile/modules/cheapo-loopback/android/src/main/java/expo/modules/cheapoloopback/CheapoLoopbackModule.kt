@@ -17,7 +17,8 @@ class CheapoLoopbackModule : Module() {
     Name("CheapoLoopback")
     AsyncFunction("startReceiver") { state: String ->
       receiver?.close()
-      val active = LoopbackReceiver(state)
+      val fieldApp = appContext.reactContext?.packageName == "com.maratatasan.cheapo.field"
+      val active = LoopbackReceiver(state, fieldApp)
       receiver = active
       mapOf("port" to active.port())
     }

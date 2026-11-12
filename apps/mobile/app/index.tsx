@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Button } from "react-native";
+import { Button, Platform } from "react-native";
 import { Stack, useRouter } from "expo-router";
 import Constants from "expo-constants";
 import { ShopChooser, ShopLoadFeedback } from "@/component/shop/shop-chooser";
@@ -12,6 +12,7 @@ export default function Index() {
   const [choosing, setChoosing] = useState(false);
   const { shops, setShops, readError, retry } = useSavedShops();
   const showDeveloperTools = Constants.expoConfig?.extra?.directAuthTest === true;
+  const fieldTest = Platform.OS === "android" && Constants.expoConfig?.extra?.fieldTest === true;
 
   return (
     <>
@@ -20,6 +21,7 @@ export default function Index() {
           title: "Cheapo",
           headerRight: showDeveloperTools
             ? () => <Button title="Developer tools" onPress={() => router.push("/developer-tools")} />
+            : fieldTest ? () => <Button title="ChatGPT" onPress={() => router.push("/direct-auth")} />
             : undefined,
         }}
       />

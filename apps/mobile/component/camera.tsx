@@ -19,6 +19,9 @@ import { PhotoReview } from "./photo-review";
 import { PhotoCrop } from "./photo-crop";
 import { emptyReview, loadLocalPhotos, saveLocalPhoto, type DraftShop, type LocalPhotoDraft, type PhotoAsset } from "@/data/local-photo";
 import { MobileDraft } from "./mobile-draft";
+import { DirectPhotoAnalysis } from "./direct-photo-analysis";
+import { fieldPhotoAnalysisEnabled } from "@/lib/direct-auth/phone-session";
+import { choosePhoto } from "@/lib/choose-photo";
 
 export const CameraComponent = ({ currentShop }: { currentShop?: DraftShop }) => {
   const [captureStage, setCaptureStage] = useState(() => Dimensions.get("window"));
@@ -83,6 +86,32 @@ export const CameraComponent = ({ currentShop }: { currentShop?: DraftShop }) =>
       <Text style={styles.buttonText}>Use test photo</Text>
     </TouchableOpacity>
   ) : null;
+  const choosePhotoButton = Platform.OS !== "web" ? (
+    <TouchableOpacity
+      style={styles.button}
+      onPress={async () => {
+        if (isTakingPhotoRef.current) return;
+        isTakingPhotoRef.current = true;
+        setIsTakingPhoto(true);
+        try {
+          const photo = await choosePhoto();
+          if (!photo) return;
+          setCameraReady(false);
+          selectPhoto(photo, fullPhoto);
+          setCropping(true);
+        } catch {
+          Alert.alert("Photo unavailable", "Choose a different photo and try again.");
+        } finally {
+          isTakingPhotoRef.current = false;
+          setIsTakingPhoto(false);
+        }
+      }}
+      disabled={isTakingPhoto}
+      accessibilityRole="button"
+    >
+      <Text style={styles.buttonText}>Choose photo</Text>
+    </TouchableOpacity>
+  ) : null;
 
   if (!permission.granted && !photoUri) {
     return (
@@ -96,6 +125,7 @@ export const CameraComponent = ({ currentShop }: { currentShop?: DraftShop }) =>
         >
           <Text style={styles.permissionText}>Grant Permission</Text>
         </TouchableOpacity>
+        {choosePhotoButton}
         {testPhotoButton}
         {savedPhotoButtons}
       </View>
@@ -148,7 +178,23 @@ export const CameraComponent = ({ currentShop }: { currentShop?: DraftShop }) =>
               Alert.alert('Photo unavailable', 'The photo could not be loaded. For the test photo, check the local fixture server and try again.');
             }}
           >
-            {__DEV__ ? <MobileDraft key={photoUri} photoUri={photoUri} /> : null}
+            {fieldPhotoAnalysisEnabled ? (
+              <DirectPhotoAnalysis key={photoUri} photo={draft.selected} busy={busy} onApply={(suggestion) => {
+                const review = draft.review ?? emptyReview(draft.shop?.displayName);
+                setDraft({
+                  ...draft,
+                  review: {
+                    ...review,
+                    productName: suggestion.product ?? review.productName,
+                    price: suggestion.price?.toString() ?? review.price,
+                    currency: suggestion.currency ?? review.currency,
+                    unitPrice: suggestion.unit_price?.amount.toString() ?? review.unitPrice,
+                    unit: suggestion.unit_price?.unit ?? review.unit,
+                  },
+                });
+                setSaved(false);
+              }} />
+            ) : __DEV__ ? <MobileDraft key={photoUri} photoUri={photoUri} /> : null}
           </PhotoReview> : null}
           {cropping && draft ? <PhotoCrop original={draft.original} initialBox={draft.cropBox} onCancel={() => setCropping(false)} onApply={(photo, cropBox) => { setDraft({ ...draft, selected: photo, cropBox }); setSaved(false); setCropping(false); }} /> : null}
         </>
@@ -190,6 +236,7 @@ export const CameraComponent = ({ currentShop }: { currentShop?: DraftShop }) =>
             >
               <Text style={styles.buttonText}>Flip Camera</Text>
             </TouchableOpacity>
+            {choosePhotoButton}
             {testPhotoButton}
             {savedPhotoButtons}
           </SafeAreaView>

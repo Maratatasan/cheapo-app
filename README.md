@@ -53,8 +53,11 @@ unit-price fields. **Save on this phone** stores a local photo draft.
 **Copy to phone gallery** is a separate action after saving.
 Saved drafts reopen from Scan. This path requires no account or cloud backend.
 
-In development, **Analyse photo** can still use the paired Mac companion. That is
-separate from local saving and does not establish direct phone AI support.
+The Android field build can connect a ChatGPT account on the phone. In that
+build, **Analyse photo** sends the selected photo directly to OpenAI when the
+account has granted eligible plan usage. Apply suggestions and review them before
+saving. Manual review and local saving also work without a ChatGPT connection.
+The paired Mac companion remains available in the separate development flow.
 See [local photo review](docs/local-photo-review.md) for behavior and verification.
 
 ## Expo upgrades
