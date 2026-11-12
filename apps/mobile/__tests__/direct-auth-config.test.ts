@@ -14,7 +14,7 @@ it('isolates the Android auth experiment and preserves existing configuration',(
 it('uses the existing field-test package without enabling auth-test UI',()=>{
   process.env.CHEAPO_FIELD_TEST='1';
   const field=configure(context);
-  expect(field).toMatchObject({name:'Cheapo Field',scheme:'cheapofield',version:'0.1.3',android:{package:'com.maratatasan.cheapo.field',versionCode:5},extra:{fieldTest:true},plugins:['expo-router','expo-secure-store']});
+  expect(field).toMatchObject({name:'Cheapo Field',scheme:'cheapofield',version:'0.1.4',android:{package:'com.maratatasan.cheapo.field',versionCode:6},extra:{fieldTest:true},plugins:['expo-router','expo-secure-store']});
   expect(field.extra?.directAuthTest).toBeUndefined();
 });
 it('rejects conflicting test-app choices',()=>{
