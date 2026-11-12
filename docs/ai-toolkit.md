@@ -128,7 +128,8 @@ maestro --udid emulator-5554 test .maestro/scan-permission.yaml
 ```
 
 `10.0.2.2` in the flow is the Android emulator's route to the host Mac. It is not a
-physical-phone address. The flow opens the real app, navigates to Scan, and checks
+physical-phone address. The flow opens the real app, navigates to Scan, adds a
+local `Camera smoke shop` if it needs a current shop, and checks
 permission UI or already-authorized camera controls. It does not capture/upload
 photos, grant new permissions, clear Expo Go data, or verify camera hardware.
 
