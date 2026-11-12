@@ -78,6 +78,14 @@ it('skips malformed metadata without hiding other saved photos',async()=>{
   expect((await loadLocalPhotos()).map(value=>value.id)).toEqual(['capture-1']);
 });
 
+it('requires every saved capture and photo for a complete export', async () => {
+  const saved = await saveLocalPhoto(draft);
+  await expect(loadLocalPhotos({ requireAll: true })).resolves.toEqual([saved]);
+  mockFiles.delete(saved.selected.uri);
+  await expect(loadLocalPhotos({ requireAll: true })).rejects.toThrow('could not export the full collection');
+  await expect(loadLocalPhotos()).resolves.toEqual([]);
+});
+
 it('restores the last good saved record after an interrupted edit, including repeated retries',async()=>{
   const saved=await saveLocalPhoto({...draft,review:{...emptyReview('Original shop'),productName:'Rice',price:'1.25'}});
   mockPartialWrite=true;
