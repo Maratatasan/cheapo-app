@@ -6,7 +6,6 @@
     "erasableSyntaxOnly": true,
     "verbatimModuleSyntax": true,
     "types": [],
-    "allowImportingTsExtensions": true,
     "noEmit": true
   },
   "include": ["index.ts"]

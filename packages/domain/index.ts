@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { normalizeName } from './names.ts';
+import { normalizeName } from '@cheapo/domain/names';
 
 const stableId = z.string().regex(/^\S+$/u);
 const nonblankText = z.string().trim().min(1);
