@@ -24,7 +24,7 @@ EXPO_PUBLIC_CHEAPO_TEST_PHOTO_URL=http://10.0.2.2:8767/test-photo.jpg pnpm start
 The fixture server binds only to Mac loopback on port 8767 and serves only the
 chosen JPEG. Nothing is copied into app assets or committed. `10.0.2.2` routes
 from the Android emulator to the Mac; it is not a physical-phone address. Open
-`exp://10.0.2.2:8082` in SDK58-compatible Expo Go, then **Scan price → Use test
+`exp://10.0.2.2:8082` in SDK58-compatible Expo Go, then **Scan item → Use test
 photo**. This requires an explicit tap; opening Scan does not load the photo.
 A missing URL or stopped fixture server produces a visible alert. **Retake**
 returns to the ordinary permission/camera flow. The fixture action is absent in
