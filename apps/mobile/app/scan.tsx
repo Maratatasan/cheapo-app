@@ -3,6 +3,7 @@ import { useRouter } from "expo-router";
 import { shopDisplayName } from "@cheapo/domain/names";
 import { CameraComponent } from "@/component/camera";
 import { ShopChooser, ShopLoadFeedback } from "@/component/shop/shop-chooser";
+import * as localShopActions from "@/data/local-shops";
 import { useSavedShops } from "@/hooks/use-saved-shops";
 
 export default function ScanScreen() {
@@ -17,6 +18,7 @@ export default function ScanScreen() {
     return (
       <ShopChooser
         state={shops}
+        actions={localShopActions}
         onSelected={setShops}
         onCancel={() => router.canGoBack() ? router.back() : router.replace("/")}
       />

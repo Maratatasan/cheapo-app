@@ -3,19 +3,20 @@ import { Button, Text, View } from "react-native";
 import { normalizeName } from "@cheapo/domain/names";
 
 import { ui } from "@/component/results/theme";
-import { saveShop, selectShop, type SavedShopState } from "@/data/local-shops";
+import type { SavedShopState, saveShop, selectShop } from "@/data/local-shops";
 import { ShopForm, type ShopFormValues } from "./shop-form";
 import { ShopPicker } from "./shop-picker";
 
 type ShopChooserProps = {
   state: SavedShopState;
+  actions: { saveShop: typeof saveShop; selectShop: typeof selectShop };
   onSelected: (state: SavedShopState) => void;
   onCancel: () => void;
 };
 
 const emptyForm = { nickname: "", name: "", address: "" };
 
-export function ShopChooser({ state, onSelected, onCancel }: ShopChooserProps) {
+export function ShopChooser({ state, actions, onSelected, onCancel }: ShopChooserProps) {
   const [form, setForm] = useState<ShopFormValues>();
   const [error, setError] = useState<string>();
   const [saving, setSaving] = useState(false);
@@ -43,7 +44,7 @@ export function ShopChooser({ state, onSelected, onCancel }: ShopChooserProps) {
         isSubmitting={saving}
         error={error}
         onChange={(values) => { setError(undefined); setForm(values); }}
-        onSubmit={(values) => choose(() => saveShop({
+        onSubmit={(values) => choose(() => actions.saveShop({
           ...values,
           address: normalizeName(values.address),
         }, { select: true }))}
@@ -59,7 +60,7 @@ export function ShopChooser({ state, onSelected, onCancel }: ShopChooserProps) {
         shops={state.shops}
         selectedShopId={state.currentShop?.id}
         isLoading={saving}
-        onSelect={({ id }) => choose(() => selectShop(id))}
+        onSelect={({ id }) => choose(() => actions.selectShop(id))}
         onAddShop={() => {
           if (pending.current) return;
           setError(undefined);

@@ -4,6 +4,7 @@ import { Stack, useRouter } from "expo-router";
 import Constants from "expo-constants";
 import { ShopChooser, ShopLoadFeedback } from "@/component/shop/shop-chooser";
 import { ShopHome } from "@/component/shop/shop-home";
+import * as localShopActions from "@/data/local-shops";
 import { useSavedShops } from "@/hooks/use-saved-shops";
 
 export default function Index() {
@@ -25,6 +26,7 @@ export default function Index() {
       {choosing && shops ? (
         <ShopChooser
           state={shops}
+          actions={localShopActions}
           onSelected={(state) => { setShops(state); setChoosing(false); }}
           onCancel={() => setChoosing(false)}
         />
