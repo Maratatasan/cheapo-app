@@ -10,8 +10,10 @@ flowchart TD
     Home --> Scan
     Scan --> CurrentShop{"Current shop?"}
     CurrentShop -->|No| ChooseShop["Select or add a shop"]
-    ChooseShop --> Permission["Camera permission"]
-    CurrentShop -->|Yes| Permission
+    ChooseShop --> Source["Take or choose a photo"]
+    CurrentShop -->|Yes| Source
+    Source --> Permission["Camera permission"]
+    Source --> Crop
     Permission -->|Granted| Capture
     Capture --> Crop["Adjust crop or keep original"]
     Crop --> Review["Review photo and edit details"]
