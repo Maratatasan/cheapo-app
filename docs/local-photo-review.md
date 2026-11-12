@@ -46,7 +46,7 @@ copy the selected crop to the gallery. Confirm the original remains available.
 
 Set `CHEAPO_FIELD_TEST=1` for prebuild, build and export commands. This uses the
 existing field-test package `com.maratatasan.cheapo.field`, scheme `cheapofield`,
-version `0.1.4` / Android version code `6`. Keep the existing local debug signing
+version `0.1.5` / Android version code `7`. Keep the existing local debug signing
 key and use install-update (`adb install -r`), never uninstall/reset, to retain
 private drafts from the previous field test. Normal app identity is unchanged.
 Do not set `CHEAPO_AUTH_TEST` at the same time.
