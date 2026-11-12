@@ -47,7 +47,7 @@ type Story = StoryObj<typeof meta>;
 
 export const Results: Story = {
   play: async ({ canvas }) => {
-    await expect(canvas.getAllByText(/£[\d.]+ \/ kg/).map((price) => price.textContent)).toEqual([
+    await expect(canvas.getAllByLabelText(/£[\d.]+ \/ kg/).map((price) => price.getAttribute("aria-label"))).toEqual([
       "£1.24 / kg", "£1.27 / kg", "£1.31 / kg", "£1.35 / kg", "£1.42 / kg", "£1.47 / kg",
     ]);
   },
@@ -93,7 +93,7 @@ export const ProductFilters: Story = {
     const brand = canvas.getByRole("checkbox", { name: "Same brand" });
     const sameBrandOnly = "Maris Piper potatoes 2 kg";
     const sameVarietyOnly = "Brand B Rooster potatoes 2 kg";
-    await expect(canvas.getByText("£1.40 / kg")).toBeVisible();
+    await expect(canvas.getByLabelText("£1.40 / kg")).toBeVisible();
     await expect(canvas.getByText(sameBrandOnly)).toBeVisible();
     await expect(canvas.getByText(sameVarietyOnly)).toBeVisible();
     await expect(canvas.queryByText("Frozen chips 2 kg")).not.toBeInTheDocument();
@@ -183,7 +183,7 @@ export const EditSavedComparison: Story = {
     await expect(canvas.getByLabelText("Unit price (optional)")).toHaveValue("0.124");
     await expect(canvas.getByLabelText("Unit (for example kg or litre)")).toHaveValue("100g");
     await userEvent.click(canvas.getByRole("button", { name: "Cancel" }));
-    await expect(canvas.getByText("£1.24 / kg")).toBeVisible();
+    await expect(canvas.getByLabelText("£1.24 / kg")).toBeVisible();
     await userEvent.click(canvas.getByRole("button", { name: editOffer }));
     const update = async (name: string, value: string) => {
       const field = canvas.getByLabelText(name);
@@ -195,7 +195,7 @@ export const EditSavedComparison: Story = {
     await update("Unit (for example kg or litre)", "kg");
     await userEvent.click(canvas.getByRole("button", { name: "Save changes" }));
     await expect(canvas.getByRole("checkbox", { name: "Same brand" })).toBeChecked();
-    await expect(canvas.getAllByText(/£[\d.]+ \/ kg/).map(price => price.textContent)).toEqual([
+    await expect(canvas.getAllByLabelText(/£[\d.]+ \/ kg/).map(price => price.getAttribute("aria-label"))).toEqual([
       "£1.40 / kg", "£1.35 / kg", "£1.42 / kg", "£1.75 / kg",
     ]);
   },

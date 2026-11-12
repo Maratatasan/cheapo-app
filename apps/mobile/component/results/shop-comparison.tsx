@@ -1,7 +1,7 @@
 import { Fragment, useState } from "react";
 import { Image, Pressable, StyleSheet, Text, View, type ImageSourcePropType } from "react-native";
 import { comparePrices, normalizedUnitPrice, type ComparisonPrice } from "@/data/comparison-prices";
-import { dateLabel, knownUnitPrice, observationShopLabel, priceLabel, type PriceValues } from "@/data/observation";
+import { dateLabel, knownUnitPrice, observationShopLabel, priceLabel, unitPriceLabel, type PriceValues } from "@/data/observation";
 import { DisplayState } from "./display-state";
 import { SampleNotice } from "./sample-notice";
 import type { ShopCardProps } from "./shop-card";
@@ -23,7 +23,7 @@ function ComparisonPrices({ prices, cheapest = false }: { prices: PriceValues; c
   const unit = knownUnitPrice(prices.unit_price);
   return (
     <View style={styles.prices}>
-      {unit ? <Text style={styles.unitPrice}>{priceLabel({ price: unit.amount, currency: prices.currency })} <Text style={styles.small}>/ {unit.unit.trim()}</Text></Text>
+      {unit ? <Text style={styles.unitPrice} accessibilityLabel={unitPriceLabel(prices)}>{priceLabel({ price: unit.amount, currency: prices.currency })} <Text style={styles.small}>/ {unit.unit.trim()}</Text></Text>
         : <Text style={styles.small}>Unit price unavailable</Text>}
       <View style={styles.packPrice}><Text style={styles.small}>{priceLabel(prices)}</Text><Text style={styles.small}>pack</Text></View>
       {cheapest ? <Text style={styles.cheapest}>Lowest unit price</Text> : null}
