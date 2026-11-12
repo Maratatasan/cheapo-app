@@ -53,7 +53,7 @@ function validSavedDraft(value: unknown): value is LocalPhotoDraft {
   if (draft.review !== undefined) {
     const review = draft.review;
     if (!review || !Object.keys(emptyReview()).every(key => typeof review[key as keyof ManualReview] === 'string')) return false;
-    if ([review.productType, review.variety, review.brand].some(value => value !== undefined && typeof value !== 'string')) return false;
+    if ([review.productType, review.variety, review.brand, review.packSize].some(value => value !== undefined && typeof value !== 'string')) return false;
   }
   if (draft.shop !== undefined && (!draft.shop || typeof draft.shop.id !== 'string' || !/^\S+$/u.test(draft.shop.id) || !normalizeName(draft.shop.displayName))) return false;
   const box = draft.cropBox;

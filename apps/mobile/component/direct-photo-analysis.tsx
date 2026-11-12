@@ -7,6 +7,7 @@ import type { AiPriceDraft } from '@/data/ai-observation';
 import type { PhotoAsset } from '@/data/local-photo';
 import { requestPhotoDraft } from '@/lib/direct-auth/photo-analysis';
 import { phoneAuth } from '@/lib/direct-auth/phone-session';
+import { marketColor } from './results/theme';
 import { AiDraftCard } from './results/ai-draft-card';
 
 async function photoDataUrl(photo: PhotoAsset): Promise<string> {
@@ -95,5 +96,5 @@ export function DirectPhotoAnalysis({ photo, busy, onApply }: {
 
 const styles = StyleSheet.create({
   panel: { gap: 8, marginBottom: 8 },
-  text: { color: '#ddd', fontSize: 13 },
+  text: { color: marketColor.muted, fontSize: 13 },
 });

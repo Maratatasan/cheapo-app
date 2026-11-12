@@ -5,6 +5,7 @@ import { isAvailableAsync, shareAsync } from 'expo-sharing';
 import { Zip, ZipPassThrough } from 'fflate/browser';
 
 import { loadLocalPhotos, reviewComplete, savedPhotoDirectory, type LocalPhotoDraft, type PhotoAsset } from '@/data/local-photo';
+import { reviewUnitPrice } from '@/data/photo-review';
 import { loadSavedShops } from '@/data/local-shops';
 
 const CHUNK_BYTES = 128 * 1024;
@@ -41,9 +42,10 @@ function describeRecord(draft: LocalPhotoDraft, index: number) {
     status: reviewComplete(review, shop?.displayName) ? 'complete' : 'draft',
     review: review ? {
       productName: review.productName, price: review.price, currency: review.currency,
-      shop: review.shop, unitPrice: review.unitPrice, unit: review.unit,
+      packSize: normalizeName(review.packSize), shop: review.shop, unitPrice: review.unitPrice, unit: review.unit,
       productType: normalizeName(review.productType), variety: normalizeName(review.variety), brand: normalizeName(review.brand),
     } : null,
+    unitPrice: review ? reviewUnitPrice(review) : null,
     cropBox: cropBox ? { left: cropBox.left, top: cropBox.top, right: cropBox.right, bottom: cropBox.bottom } : null,
     photos: {
       original: describePhoto(original, originalPath),

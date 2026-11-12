@@ -1,13 +1,11 @@
 import { Fragment, useState } from "react";
 import { Image, Pressable, StyleSheet, Text, View, type ImageSourcePropType } from "react-native";
 import { comparePrices, normalizedUnitPrice, type ComparisonPrice } from "@/data/comparison-prices";
-import { dateLabel, observationShopLabel } from "@/data/observation";
-import { EditPriceButton } from "./edit-price-button";
+import { dateLabel, knownUnitPrice, observationShopLabel, priceLabel, type PriceValues } from "@/data/observation";
 import { DisplayState } from "./display-state";
-import { PriceDisplay } from "./price-display";
 import { SampleNotice } from "./sample-notice";
-import { ShopCard, type ShopCardProps } from "./shop-card";
-import { color, radius, spacing, typography, ui } from "./theme";
+import type { ShopCardProps } from "./shop-card";
+import { marketColor as color, spacing, typography } from "./theme";
 
 export type ComparisonRow = ComparisonPrice & Pick<ShopCardProps, "shop" | "product" | "area" | "capturedOn">;
 
@@ -20,6 +18,46 @@ export type ShopComparisonProps = {
   onEdit?: (id: string) => void;
   sample?: boolean;
 };
+
+function ComparisonPrices({ prices, cheapest = false }: { prices: PriceValues; cheapest?: boolean }) {
+  const unit = knownUnitPrice(prices.unit_price);
+  return (
+    <View style={styles.prices}>
+      {unit ? <Text style={styles.unitPrice}>{priceLabel({ price: unit.amount, currency: prices.currency })} <Text style={styles.small}>/ {unit.unit.trim()}</Text></Text>
+        : <Text style={styles.small}>Unit price unavailable</Text>}
+      <View style={styles.packPrice}><Text style={styles.small}>{priceLabel(prices)}</Text><Text style={styles.small}>pack</Text></View>
+      {cheapest ? <Text style={styles.cheapest}>Lowest unit price</Text> : null}
+    </View>
+  );
+}
+
+function ComparisonEdit({ label, onPress }: { label: string; onPress: () => void }) {
+  return (
+    <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} style={styles.edit}>
+      <Text style={styles.editText}>Edit</Text>
+    </Pressable>
+  );
+}
+
+function OfferRow({ row, unitPrice, cheapest, onEdit }: {
+  row: ComparisonRow; unitPrice?: PriceValues['unit_price']; cheapest?: boolean; onEdit?: (id: string) => void;
+}) {
+  const shop = observationShopLabel(row.shop);
+  const date = row.capturedOn ? dateLabel(row.capturedOn) : undefined;
+  const label = `Edit ${row.product ? `${row.product} at ` : 'price at '}${shop}${date ? `, recorded ${date}` : ''}`;
+  return (
+    <View style={[styles.offer, cheapest && styles.lowest]}>
+      <ComparisonPrices prices={{ price: row.price, currency: row.currency, unit_price: unitPrice ?? null }} cheapest={cheapest} />
+      <View style={styles.details}>
+        <Text style={styles.shop}>{shop}</Text>
+        {date ? <Text style={styles.small}>Recorded {date}</Text> : null}
+        {row.product ? <Text style={styles.small}>{row.product}</Text> : null}
+        {row.area ? <Text style={styles.small}>{row.area}</Text> : null}
+      </View>
+      {onEdit ? <ComparisonEdit label={label} onPress={() => onEdit(row.id)} /> : null}
+    </View>
+  );
+}
 
 function FilterPill({ label, checked, onPress }: { label: string; checked: boolean; onPress: () => void }) {
   return (
@@ -48,10 +86,14 @@ export function ShopComparison({
   const [sameBrand, setSameBrand] = useState(false);
   const ranked = comparePrices(comparisons, reference, { sameVariety, sameBrand });
   const referenceUnitPrice = normalizedUnitPrice(reference?.unit_price);
+  const lowestAlternative = ranked.groups.length === 1 ? ranked.groups[0].entries[0]?.unitPrice.amount : undefined;
+  const lowest = referenceUnitPrice && lowestAlternative !== undefined ? Math.min(referenceUnitPrice.amount, lowestAlternative) : undefined;
+  const referenceLowest = lowest !== undefined && referenceUnitPrice?.amount === lowest;
+  const referenceShop = reference && observationShopLabel(reference.shop);
 
   return (
     <View style={styles.content}>
-      <View style={ui.card}>
+      <View style={[styles.reference, referenceLowest && styles.lowest]}>
         {photo && photo !== failedPhoto ? (
           <Image
             accessibilityLabel={`Scan photo for ${product.name}`}
@@ -63,20 +105,24 @@ export function ShopComparison({
           />
         ) : (
           <View style={[styles.photo, styles.placeholder]}>
-            <Text style={ui.body}>Photo unavailable</Text>
+            <Text style={styles.small}>Photo unavailable</Text>
           </View>
         )}
-        <Text accessibilityRole="header" style={styles.product}>{product.name}</Text>
-        {product.pack ? <Text style={ui.body}>{product.pack}</Text> : null}
-        {reference ? (
-          <>
-            <Text style={ui.body}>{observationShopLabel(reference.shop)}</Text>
-            {reference.capturedOn ? <Text style={ui.small}>Recorded {dateLabel(reference.capturedOn)}</Text> : null}
-            <Text style={ui.small}>{[reference.productType, reference.variety, reference.brand].filter(Boolean).join(" · ")}</Text>
-            <PriceDisplay price={reference.price} currency={reference.currency} unit_price={referenceUnitPrice ?? reference.unit_price ?? null} showPackLabel />
-            {onEdit ? <EditPriceButton label={`Edit ${product.name} at ${observationShopLabel(reference.shop)}`} onPress={() => onEdit(reference.id)} /> : null}
-          </>
-        ) : null}
+        <View style={styles.details}>
+          <Text accessibilityRole="header" style={styles.product}>{product.name}</Text>
+          {product.pack ? <Text style={styles.small}>{product.pack}</Text> : null}
+          {reference ? (
+            <>
+              <Text style={styles.small}>{referenceShop}</Text>
+              {reference.capturedOn ? <Text style={styles.small}>Recorded {dateLabel(reference.capturedOn)}</Text> : null}
+              <Text style={styles.small}>{[reference.productType, reference.variety, reference.brand].filter(Boolean).join(" · ")}</Text>
+              <View style={styles.referenceActions}>
+                <ComparisonPrices prices={{ price: reference.price, currency: reference.currency, unit_price: referenceUnitPrice ?? reference.unit_price ?? null }} cheapest={referenceLowest} />
+                {onEdit ? <ComparisonEdit label={`Edit ${product.name} at ${referenceShop}`} onPress={() => onEdit(reference.id)} /> : null}
+              </View>
+            </>
+          ) : null}
+        </View>
       </View>
 
       {sample ? <SampleNotice /> : null}
@@ -84,12 +130,12 @@ export function ShopComparison({
       <Text accessibilityRole="header" style={styles.heading}>Compare shop prices</Text>
       {reference && state === "ready" ? (
         <>
-          {!sample ? <Text style={ui.small}>Saved prices · Check when each price was recorded.</Text> : null}
+          {!sample ? <Text style={styles.small}>Saved prices · Check when each price was recorded.</Text> : null}
           <View style={styles.filters}>
             <FilterPill label="Same variety" checked={sameVariety} onPress={() => setSameVariety(!sameVariety)} />
             <FilterPill label="Same brand" checked={sameBrand} onPress={() => setSameBrand(!sameBrand)} />
           </View>
-          {!sameVariety && !sameBrand ? <Text style={ui.small}>Price first · Any variety or brand within the same product type</Text> : null}
+          {!sameVariety && !sameBrand ? <Text style={styles.small}>Price first · Any variety or brand within the same product type</Text> : null}
         </>
       ) : null}
       {state === "loading" ? (
@@ -114,30 +160,32 @@ export function ShopComparison({
       ) : (
         <>
           {ranked.groups.length > 0 ? (
-            <Text style={ui.body}>
+            <Text style={styles.small}>
               {ranked.groups.length > 1 ? "Lowest unit price first within each unit" : "Lowest unit price first"}
             </Text>
           ) : null}
-          {onEdit && ranked.groups.length > 0 ? <Text style={ui.small}>Comparison uses a common unit. Edit opens the saved amount and unit.</Text> : null}
+          {onEdit && ranked.groups.length > 0 ? <Text style={styles.small}>Comparison uses a common unit. Edit opens the saved amount and unit.</Text> : null}
           {ranked.groups.map(({ unit, currency, entries }) => (
             <Fragment key={`${unit}-${currency}`}>
               {ranked.groups.length > 1 ? (
                 <Text accessibilityRole="header" style={styles.group}>Per {unit}{ranked.groups.some(group => group.currency !== currency) ? ` (${currency})` : ""}</Text>
               ) : null}
-              {entries.map(({ row, unitPrice }) => (
-                <ShopCard key={row.id} shop={row.shop} product={row.product} area={row.area} capturedOn={row.capturedOn} price={row.price} currency={row.currency} unit_price={unitPrice} onEdit={onEdit ? () => onEdit(row.id) : undefined} />
-              ))}
+              <View style={styles.offers}>
+                {entries.map(({ row, unitPrice }) => (
+                  <OfferRow key={row.id} row={row} unitPrice={unitPrice} cheapest={unitPrice.amount === lowest} onEdit={onEdit} />
+                ))}
+              </View>
             </Fragment>
           ))}
           {ranked.unranked.length > 0 ? (
             <>
               <Text accessibilityRole="header" style={styles.group}>Unranked prices</Text>
-              <Text style={ui.small}>{reference && !referenceUnitPrice
+              <Text style={styles.small}>{reference && !referenceUnitPrice
                 ? "The selected product has no comparable unit price."
                 : "These prices have no comparable unit price."}</Text>
-              {ranked.unranked.map(({ id, shop, product, area, capturedOn, price, currency, unit_price }) => (
-                <ShopCard key={id} shop={shop} product={product} area={area} capturedOn={capturedOn} price={price} currency={currency} unit_price={unit_price} onEdit={onEdit ? () => onEdit(id) : undefined} />
-              ))}
+              <View style={styles.offers}>
+                {ranked.unranked.map(row => <OfferRow key={row.id} row={row} unitPrice={row.unit_price} onEdit={onEdit} />)}
+              </View>
             </>
           ) : null}
         </>
@@ -148,20 +196,29 @@ export function ShopComparison({
 
 const styles = StyleSheet.create({
   content: { width: "100%", maxWidth: 620, alignSelf: "center", gap: spacing.md },
-  photo: {
-    width: "100%",
-    height: 180,
-    borderRadius: radius.control,
-    backgroundColor: color.cream,
-  },
-  placeholder: { height: 104, alignItems: "center", justifyContent: "center" },
-  product: { color: color.ink, fontSize: typography.price, fontWeight: "800" },
+  reference: { flexDirection: 'row', gap: spacing.md, padding: spacing.md, borderWidth: 1, borderColor: color.border, borderRadius: 12, backgroundColor: color.surface },
+  photo: { width: 80, height: 104, borderRadius: 8, backgroundColor: color.mint, alignSelf: 'center' },
+  placeholder: { alignItems: 'center', justifyContent: 'center', padding: 4 },
+  details: { flex: 1, minWidth: 0, gap: 3 },
+  referenceActions: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' },
+  product: { color: color.ink, fontSize: typography.card, fontWeight: '700' },
+  prices: { width: 112, flexShrink: 1, gap: 2 },
+  packPrice: { flexDirection: 'row', gap: 4, flexWrap: 'wrap' },
+  unitPrice: { color: color.ink, fontSize: 22, fontWeight: '800', fontVariant: ['tabular-nums'] },
+  small: { color: color.muted, fontSize: 12 },
+  shop: { color: color.ink, fontSize: 15, fontWeight: '700' },
+  offers: { borderColor: color.border, borderWidth: 1, borderRadius: 12, backgroundColor: color.surface, overflow: 'hidden' },
+  offer: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm, padding: 10, borderBottomColor: color.border, borderBottomWidth: StyleSheet.hairlineWidth },
+  lowest: { backgroundColor: color.mint },
+  cheapest: { color: color.green, fontSize: 11, fontWeight: '700' },
+  edit: { minHeight: 44, minWidth: 44, justifyContent: 'center', alignItems: 'flex-end' },
+  editText: { color: color.green, fontSize: 14, fontWeight: '700', textDecorationLine: 'underline' },
   heading: { color: color.ink, fontSize: typography.section, fontWeight: "700" },
   filters: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
   filter: {
     flexDirection: "row", alignItems: "center", gap: spacing.sm, minHeight: 48,
-    paddingHorizontal: spacing.md, borderRadius: radius.pill, borderWidth: 1,
-    borderColor: color.line, backgroundColor: color.white,
+    paddingHorizontal: spacing.md, borderRadius: 30, borderWidth: 1,
+    borderColor: color.border, backgroundColor: color.surface,
   },
   checkedFilter: { borderColor: color.green, backgroundColor: color.mint },
   checkbox: {
@@ -169,7 +226,7 @@ const styles = StyleSheet.create({
     borderRadius: 4, alignItems: "center", justifyContent: "center",
   },
   checkedBox: { backgroundColor: color.green },
-  checkmark: { color: color.white, fontWeight: "800" },
+  checkmark: { color: color.surface, fontWeight: "800" },
   filterLabel: { color: color.ink, fontWeight: "700" },
   group: { color: color.ink, fontSize: typography.label, fontWeight: "700" },
 });

@@ -77,6 +77,9 @@ test('compares completed saved reviews and toggles variety and brand independent
   await render(<SavedComparison />);
 
   expect(await screen.findByRole('header', { name: 'Compare shop prices' })).toBeOnTheScreen();
+  expect(screen.getByRole('button', { name: 'Scan product barcode, coming next' })).toBeDisabled();
+  await fireEvent.press(screen.getByRole('button', { name: 'Scan label' }));
+  expect(mockPush).toHaveBeenLastCalledWith('/scan');
   expect(screen.getByText('£2.50 / kg')).toBeOnTheScreen();
   expect(screen.getByText('Saved prices · Check when each price was recorded.')).toBeOnTheScreen();
   expect(screen.getAllByText('Recorded 12 Nov 2026')).toHaveLength(4);
