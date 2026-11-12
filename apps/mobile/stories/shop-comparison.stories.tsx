@@ -39,7 +39,13 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const Results: Story = {};
+export const Results: Story = {
+  play: async ({ canvas }) => {
+    await expect(canvas.getAllByText(/£[\d.]+ \/ kg/).map((price) => price.textContent)).toEqual([
+      "£1.24 / kg", "£1.27 / kg", "£1.31 / kg", "£1.35 / kg", "£1.42 / kg", "£1.47 / kg",
+    ]);
+  },
+};
 export const Loading: Story = { args: { state: "loading" } };
 export const NoSavedPrices: Story = { args: { comparisons: [] } };
 export const MissingPhotoAndUnitPrice: Story = {

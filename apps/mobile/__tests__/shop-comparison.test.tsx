@@ -59,3 +59,40 @@ test("shows an error and delegates retry to the supplied callback", async () => 
   await fireEvent.press(screen.getByRole("button", { name: "Retry" }));
   expect(retry).toHaveBeenCalledTimes(1);
 });
+
+test("sorts by unit price, keeps equal prices stable, and puts missing unit prices last", async () => {
+  const supplied = Object.freeze([
+    { id: "unknown", shop: "Unknown unit price shop", price: 0.5, currency: "GBP" },
+    { id: "higher", shop: "Higher unit price shop", price: 1, currency: "GBP", unit_price: { amount: 2, unit: "kg" } },
+    { id: "tie1", shop: "First equal unit price shop", price: 4, currency: "GBP", unit_price: { amount: 1, unit: "kg" } },
+    { id: "tie2", shop: "Second equal unit price shop", price: 3, currency: "GBP", unit_price: { amount: 1, unit: "kg" } },
+  ] as const);
+
+  await render(<ShopComparison product={product} comparisons={supplied} />);
+
+  expect(screen.getAllByText(/unit price shop$/).map((label) => label.props.children)).toEqual([
+    "First equal unit price shop",
+    "Second equal unit price shop",
+    "Higher unit price shop",
+    "Unknown unit price shop",
+  ]);
+});
+
+test("shows separate rankings for different units", async () => {
+  await render(
+    <ShopComparison
+      product={product}
+      comparisons={[
+        { id: "kg-higher", shop: "Higher kg shop", price: 4, currency: "GBP", unit_price: { amount: 2, unit: "kg" } },
+        { id: "item", shop: "Per item shop", price: 0.25, currency: "GBP", unit_price: { amount: 0.25, unit: "item" } },
+        { id: "kg-lower", shop: "Lower kg shop", price: 2, currency: "GBP", unit_price: { amount: 1, unit: "kg" } },
+      ]}
+    />,
+  );
+
+  expect(screen.getByRole("header", { name: "Per kg" })).toBeOnTheScreen();
+  expect(screen.getByRole("header", { name: "Per item" })).toBeOnTheScreen();
+  expect(screen.getAllByText(/shop$/).map((label) => label.props.children)).toEqual([
+    "Lower kg shop", "Higher kg shop", "Per item shop",
+  ]);
+});
