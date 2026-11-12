@@ -1,12 +1,26 @@
-import type { CropBox } from './crop-geometry';
+import { normalizeName } from '@cheapo/domain/names';
 import { Directory, File, Paths } from 'expo-file-system';
+
+import type { CropBox } from './crop-geometry';
 
 export type PhotoAsset = { uri: string; width: number; height: number; mimeType: 'image/jpeg'; size?: number };
 export type ManualReview = { productName: string; price: string; currency: string; shop: string; unitPrice: string; unit: string };
 export const emptyReview = (shop = ''): ManualReview => ({ productName: '', price: '', currency: 'GBP', shop, unitPrice: '', unit: '' });
 const validPrice = (value: string, fraction = 2) => new RegExp(`^\\d+(\\.\\d{1,${fraction}})?$`).test(value.trim()) && value.length <= 24 && Number(value) > 0 && Number(value) <= 9999999.99;
+
 export function reviewComplete(review?: ManualReview): boolean {
-  return !!review && !!review.productName.trim() && review.productName.trim().length <= 200 && !!review.shop.trim() && review.shop.trim().length <= 150 && validPrice(review.price) && /^[A-Z]{3}$/.test(review.currency) && ((!review.unitPrice.trim() && !review.unit.trim()) || (validPrice(review.unitPrice, 6) && !!review.unit.trim() && review.unit.trim().length <= 30));
+  if (!review) return false;
+  const productName = normalizeName(review.productName);
+  const shopName = normalizeName(review.shop);
+
+  return !!productName && productName.length <= 200
+    && !!shopName && shopName.length <= 150
+    && validPrice(review.price)
+    && /^[A-Z]{3}$/.test(review.currency)
+    && (
+      (!review.unitPrice.trim() && !review.unit.trim())
+      || (validPrice(review.unitPrice, 6) && !!review.unit.trim() && review.unit.trim().length <= 30)
+    );
 }
 export type LocalPhotoDraft = { id: string; capturedAt: string; original: PhotoAsset; selected: PhotoAsset; review?: ManualReview; cropBox?: CropBox };
 export async function localPhotoSource(asset: PhotoAsset): Promise<PhotoAsset> {

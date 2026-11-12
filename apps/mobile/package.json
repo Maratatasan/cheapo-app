@@ -22,6 +22,7 @@
     "watchman": false
   },
   "dependencies": {
+    "@cheapo/domain": "workspace:*",
     "@expo/dom-webview": "~58.0.2",
     "@expo/metro-runtime": "~58.0.17",
     "@expo/vector-icons": "^15.1.1",

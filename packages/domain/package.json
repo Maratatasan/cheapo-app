@@ -1,0 +1,19 @@
+{
+  "name": "@cheapo/domain",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./index.ts",
+    "./names": "./names.ts"
+  },
+  "scripts": {
+    "test": "node --test domain.test.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "typescript": "6.0.3"
+  }
+}
