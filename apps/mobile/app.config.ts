@@ -9,9 +9,9 @@ export default function configure({ config }: ConfigContext): ExpoConfig {
     ...config,
     name: 'Cheapo Field',
     slug: config.slug ?? 'cheapo-app',
-    version: '0.1.3',
+    version: '0.1.4',
     scheme: 'cheapofield',
-    android: { ...config.android, package: 'com.maratatasan.cheapo.field', versionCode: 5 },
+    android: { ...config.android, package: 'com.maratatasan.cheapo.field', versionCode: 6 },
     plugins: [...(config.plugins ?? []), 'expo-secure-store'],
     extra: { ...config.extra, fieldTest: true },
   };

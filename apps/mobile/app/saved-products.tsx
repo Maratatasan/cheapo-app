@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from 'react';
-import { Stack, useFocusEffect } from 'expo-router';
+import { Stack, useFocusEffect, useRouter } from 'expo-router';
 import { Button, FlatList, Image, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { normalizeName } from '@cheapo/domain/names';
 
@@ -35,6 +35,7 @@ function SavedDetails({ draft }: { draft: LocalPhotoDraft }) {
 }
 
 export default function SavedProducts() {
+  const router = useRouter();
   const [drafts, setDrafts] = useState<LocalPhotoDraft[]>();
   const [error, setError] = useState(false);
   const focus = useRef<AbortController | null>(null);
@@ -85,6 +86,9 @@ export default function SavedProducts() {
         <ScrollView style={ui.page} contentContainerStyle={ui.content}>
           <Button title="Back to saved products" onPress={() => setOpened(undefined)} />
           <SavedDetails draft={opened} />
+          {reviewComplete(opened.review, opened.shop?.displayName) ? (
+            <Button title="Compare saved prices" onPress={() => router.push({ pathname: '/compare/[id]', params: { id: opened.id } })} />
+          ) : null}
           <Image
             accessibilityLabel="Saved photo"
             resizeMode="contain"
