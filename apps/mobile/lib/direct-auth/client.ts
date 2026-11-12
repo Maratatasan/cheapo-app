@@ -122,6 +122,27 @@ export function createPhoneAuth(deps:Dependencies) {
     catch(error){update({message:error instanceof AuthFailure?error.message:'Phone authentication could not complete. Retry from this screen.',planAllowed:false});}
     finally{update({busy:false});}
   }
+  async function readySession() {
+    const session=pendingSession??await savedSession();
+    if(pendingSession)await persist(pendingSession);
+    if(!session||session.expires-now()>60000)return session;
+
+    update({message:'Renewing the saved phone sign-in…'});
+    let tokens;
+    try{tokens=await request(TOKEN,new URLSearchParams({grant_type:'refresh_token',client_id:session.clientId,refresh_token:session.refreshToken,resource:RESOURCE}));}
+    catch(error){if(error instanceof AuthFailure&&TERMINAL.has(error.code)){await deps.deleteItem(SESSION);update({signedIn:false,savedLogin:false,planAllowed:false});throw new AuthFailure('The renewable phone session ended. Sign in again.');}throw error;}
+    const renewed=sessionFrom(tokens,session.clientId,session.subject,session.nonce,session);
+    if(tokens.id_token){
+      try{await identity(tokens.id_token,session.clientId,session.nonce,session.subject,true);}
+      catch(error){
+        if(error instanceof AuthFailure&&error.code==='temporary')await persist({...session,refreshToken:renewed.refreshToken});
+        else{await deps.deleteItem(SESSION);update({signedIn:false,savedLogin:false,planAllowed:false});}
+        throw error;
+      }
+    }
+    await persist(renewed);
+    return renewed;
+  }
   return {
     getState:()=>view,
     subscribe(listener:(state:PhoneAuthState)=>void){listeners.add(listener);return()=>{listeners.delete(listener);};},
@@ -141,7 +162,7 @@ export function createPhoneAuth(deps:Dependencies) {
       try{
         ensureActive();
         const url=authorizeUrl({port,hostId:host,clientId:registration?.clientId,state,nonce,challenge:await deps.challenge(verifier)});
-        update({message:'Complete sign-in in the phone browser, then tap Return to Cheapo Auth Test.'});
+        update({message:'Complete sign-in in the phone browser, then return to Cheapo.'});
         const callback=deps.native.waitForCallback();
         // Observe an early native timeout without an unhandled rejection while the browser opens.
         void callback.catch(()=>{});
@@ -171,27 +192,26 @@ export function createPhoneAuth(deps:Dependencies) {
     },
     async cancel(){flow++;continuation?.(new AuthFailure('Phone sign-in cancelled.'));await deps.native.stopReceiver().catch(()=>{});update({message:'Phone sign-in cancelled.'});},
     restore:()=>operation(async()=>{
-      let session=pendingSession??await savedSession();
-      if(pendingSession)await persist(pendingSession);
+      const session=await readySession();
       if(!session){update({signedIn:false,savedLogin:false,planAllowed:false,message:'Not signed in on this phone.'});return;}
-      if(session.expires-now()<=60000){
-        update({message:'Renewing the saved phone sign-in…'});
-        let tokens;
-        try{tokens=await request(TOKEN,new URLSearchParams({grant_type:'refresh_token',client_id:session.clientId,refresh_token:session.refreshToken,resource:RESOURCE}));}
-        catch(error){if(error instanceof AuthFailure&&TERMINAL.has(error.code)){await deps.deleteItem(SESSION);update({signedIn:false,savedLogin:false});throw new AuthFailure('The renewable phone session ended. Sign in again.');}throw error;}
-        const renewed=sessionFrom(tokens,session.clientId,session.subject,session.nonce,session);
-        if(tokens.id_token){
-          try{await identity(tokens.id_token,session.clientId,session.nonce,session.subject,true);}
-          catch(error){
-            if(error instanceof AuthFailure&&error.code==='temporary')await persist({...session,refreshToken:renewed.refreshToken});
-            else{await deps.deleteItem(SESSION);update({signedIn:false,savedLogin:false});}
-            throw error;
-          }
-        }
-        await persist(renewed);session=renewed;
-      }
       publish(session,'Saved phone sign-in restored from Android protected storage.');
     }),
+    async withPlanAccess<T>(requestWithToken:(accessToken:string)=>Promise<T>):Promise<T>{
+      if(view.busy)throw new AuthFailure('Wait for the current ChatGPT action to finish.');
+      update({busy:true});
+      try{
+        const session=await readySession();
+        if(!session){
+          update({signedIn:false,savedLogin:false,planAllowed:false});
+          throw new AuthFailure('Connect ChatGPT on this phone first.');
+        }
+        const planAllowed=session.scopes.includes('resource.invoke')&&session.scopes.includes('chatgpt.tokens.use.direct');
+        update({signedIn:true,savedLogin:true,planAllowed,message:planAllowed?'Saved ChatGPT sign-in is ready.':'ChatGPT plan permission was not granted.'});
+        if(!planAllowed)throw new AuthFailure('Allow ChatGPT plan usage before analysing a photo.');
+        if(!deps.isAppActive())throw new AuthFailure('Return to Cheapo before analysing a photo.');
+        return await requestWithToken(session.accessToken);
+      }finally{update({busy:false});}
+    },
     signOut:()=>operation(async()=>{
       let session:Session|null|undefined;let invalidSavedState=false;
       try{await readRegistration();session=pendingSession??await savedSession();}catch{invalidSavedState=true;}

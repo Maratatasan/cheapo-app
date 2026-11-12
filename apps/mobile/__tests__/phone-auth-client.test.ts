@@ -42,6 +42,36 @@ it('retries saving a rotated token without another refresh request',async()=>{
   const calls=(s.native.requestJson as jest.Mock).mock.calls.filter(([,form])=>form&&new URLSearchParams(form).get('grant_type')==='refresh_token');expect(calls).toHaveLength(1);
 });
 
+it('requires a foreground session and both plan scopes before supplying a token for analysis', async () => {
+  const s = setup();
+  const request = jest.fn(async (token: string) => token);
+  await expect(s.client.withPlanAccess(request)).rejects.toThrow('Connect ChatGPT');
+  await s.client.signIn();
+  const background = createPhoneAuth({ ...s.dependencies, isAppActive: () => false });
+  await expect(background.withPlanAccess(request)).rejects.toThrow('Return to Cheapo');
+
+  const session = JSON.parse(s.storage.get('direct-auth.session')!);
+  s.storage.set('direct-auth.session', JSON.stringify({ ...session, scopes: ['resource.invoke'] }));
+  await expect(s.client.withPlanAccess(request)).rejects.toThrow('Allow ChatGPT plan usage');
+  expect(request).not.toHaveBeenCalled();
+});
+
+it('uses the refreshed saved credential for one active analysis and leaves storage intact', async () => {
+  const s = setup();
+  await s.client.signIn();
+  s.expire();
+  let finish!: () => void;
+  const held = new Promise<void>((resolve) => { finish = resolve; });
+  const request = jest.fn(async () => held);
+  const analysis = s.client.withPlanAccess(request);
+  await expect(s.client.withPlanAccess(request)).rejects.toThrow('Wait for the current ChatGPT action');
+  finish();
+  await analysis;
+  expect(request).toHaveBeenCalledTimes(1);
+  expect(request).toHaveBeenCalledWith('new-access');
+  expect(JSON.parse(s.storage.get('direct-auth.session')!).refreshToken).toBe('rotated-refresh');
+});
+
 it('allows local sign-out when saved credentials are malformed',async()=>{
   const s=setup();s.storage.set('direct-auth.session','{broken');s.storage.set('direct-auth.registration','{broken');
   await s.client.restore();await s.client.signOut();

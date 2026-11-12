@@ -12,6 +12,7 @@ export default function configure({ config }: ConfigContext): ExpoConfig {
     version: '0.1.2',
     scheme: 'cheapofield',
     android: { ...config.android, package: 'com.maratatasan.cheapo.field', versionCode: 4 },
+    plugins: [...(config.plugins ?? []), 'expo-secure-store'],
     extra: { ...config.extra, fieldTest: true },
   };
   if (!authTest) return config as ExpoConfig;
