@@ -7,6 +7,7 @@ import { EditPriceButton } from '@/component/results/edit-price-button';
 import { PriceDisplay } from '@/component/results/price-display';
 import { color, radius, spacing, typography, ui } from '@/component/results/theme';
 import { loadLocalPhotos, reviewComplete, type LocalPhotoDraft } from '@/data/local-photo';
+import { reviewUnitPrice } from '@/data/photo-review';
 
 function SavedDetails({ draft }: { draft: LocalPhotoDraft }) {
   const { review } = draft;
@@ -17,6 +18,7 @@ function SavedDetails({ draft }: { draft: LocalPhotoDraft }) {
     ['Type', normalizeName(review?.productType)],
     ['Variety', normalizeName(review?.variety)],
     ['Brand', normalizeName(review?.brand)],
+    ['Pack', normalizeName(review?.packSize)],
   ].flatMap(([label, value]) => value ? [`${label}: ${value}`] : []).join(' · ');
 
   return (
@@ -28,7 +30,7 @@ function SavedDetails({ draft }: { draft: LocalPhotoDraft }) {
         <PriceDisplay
           price={Number(review.price)}
           currency={review.currency}
-          unit_price={review.unitPrice.trim() ? { amount: Number(review.unitPrice), unit: review.unit.trim() } : null}
+          unit_price={reviewUnitPrice(review)}
         />
       ) : name ? <Text style={ui.small}>Photo draft</Text> : null}
     </View>

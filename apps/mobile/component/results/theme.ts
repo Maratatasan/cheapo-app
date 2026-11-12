@@ -79,3 +79,9 @@ export const ui = StyleSheet.create({
     gap: 12,
   },
 });
+
+// Market Green palette for comparison and photo review.
+export const marketColor = {
+  background: '#F8F7F4', surface: '#FFFFFF', border: '#E6E3DC', ink: '#1E2220', muted: '#5F6360',
+  green: '#2D6A4F', mint: '#E9F2EE', orange: '#A94E13', marigold: '#E07A2E',
+};

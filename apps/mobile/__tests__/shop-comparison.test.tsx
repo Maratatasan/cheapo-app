@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react-native";
+import { fireEvent, render, screen, within } from "@testing-library/react-native";
 import { ShopComparison, type ShopComparisonProps } from "@/component/results/shop-comparison";
 
 const product = { name: "Rooster Potatoes", pack: "2 kg bag" };
@@ -95,4 +95,15 @@ test("shows separate rankings for different units", async () => {
   expect(screen.getAllByText(/shop$/).map((label) => label.props.children)).toEqual([
     "Lower kg shop", "Higher kg shop", "Per item shop",
   ]);
+});
+
+
+test("only marks the actual cheapest eligible price, including the reference", async () => {
+  const reference = { id: "anchor", shop: "Reference shop", productType: "Fresh potatoes", price: 2.2, currency: "GBP", unit_price: { amount: 1.1, unit: "kg" } };
+  const candidate = { ...comparisons[0], productType: "Fresh potatoes" };
+  await render(<ShopComparison product={product} reference={reference} comparisons={[candidate]} />);
+  const first = screen.getByText("Lowest unit price");
+  expect(within(first.parent!).getByText("£1.10 / kg")).toBeOnTheScreen();
+  await screen.rerender(<ShopComparison product={product} reference={{ ...reference, unit_price: { amount: 1.24, unit: "kg" } }} comparisons={[candidate]} />);
+  expect(screen.getAllByText("Lowest unit price")).toHaveLength(2);
 });
