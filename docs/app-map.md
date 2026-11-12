@@ -33,5 +33,5 @@ flowchart TD
 ## Experiments and planned boundaries
 
 - **Development AI.** [Analyse photo](../apps/mobile/component/mobile-draft.tsx) sends the selected image to a paired [Mac companion](../tools/route1-demo/server.mjs) and shows a [separate AI draft card](../apps/mobile/component/results/ai-draft-card.tsx). The manual form and local save use the shopper’s edits.
-- **Android sign-in.** The opt-in [direct auth screen](../apps/mobile/app/direct-auth.tsx) exercises sign-in and protected session storage. Direct phone photo analysis is unintegrated.
+- **Android sign-in.** In the opt-in auth test build, Home links to [Developer tools](../apps/mobile/app/developer-tools.tsx). The [direct auth screen](../apps/mobile/app/direct-auth.tsx) exercises sign-in and protected session storage. Direct phone photo analysis is unintegrated.
 - **Planned.** See the [architecture principles](architecture-principles.md) for intended camera, photo, AI-provider, and persistence boundaries. AI field assignment and cloud storage remain future work.

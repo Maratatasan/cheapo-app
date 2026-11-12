@@ -1,32 +1,26 @@
-import { Text, View, Button } from "react-native";
-import { useRouter } from "expo-router";
+import { Button } from "react-native";
+import { Stack, useRouter } from "expo-router";
 import Constants from "expo-constants";
+import { ShopHome } from "@/component/shop/shop-home";
 
 export default function Index() {
   const router = useRouter();
+  const showDeveloperTools = Constants.expoConfig?.extra?.directAuthTest === true;
 
   return (
-    <View
-      style={{
-        flex: 1,
-        justifyContent: "center",
-        alignItems: "center",
-      }}
-    >
-      <Text>Edit app/index.tsx to edit this screen. it works. iPhone.</Text>
-      {Constants.expoConfig?.extra?.directAuthTest === true && (
-        <Button title="Direct phone sign-in test" onPress={() => router.push('/direct-auth')} />
-      )}
-      <Button
-        title="Explore sample prices"
-        color="#196747"
-        onPress={() => router.push("/results")}
+    <>
+      <Stack.Screen
+        options={{
+          title: "Cheapo",
+          headerRight: showDeveloperTools
+            ? () => <Button title="Developer tools" onPress={() => router.push("/developer-tools")} />
+            : undefined,
+        }}
       />
-      <Button
-        title="Scan price"
-        color="black"
-        onPress={() => router.push("/scan")}
+      <ShopHome
+        onScan={() => router.push("/scan")}
+        onExploreSamples={() => router.push("/results")}
       />
-    </View>
+    </>
   );
 }
