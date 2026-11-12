@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { priceLabel } from '../../data/observation';
-import { scanUnitPrice } from './market-scan-calculation';
+import { calculatePackUnitPrice as scanUnitPrice } from '../../data/photo-review';
 import './cozy-comparison-preview.css';
 
 export const previewPhoto = import.meta.env.DEV ? import.meta.env.VITE_COMPARISON_SAMPLE_PHOTO : undefined;

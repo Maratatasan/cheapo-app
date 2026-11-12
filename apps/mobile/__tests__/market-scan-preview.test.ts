@@ -1,4 +1,4 @@
-import { scanUnitPrice } from '../stories/previews/market-scan-calculation';
+import { calculatePackUnitPrice as scanUnitPrice } from '@/data/photo-review';
 
 test.each([
   ['2.50', '2 kg', 1.25, 'kg'],
