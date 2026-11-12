@@ -182,9 +182,13 @@ describe("CameraComponent", () => {
     await fireEvent.press(screen.getByText("Crop photo"));
     await fireEvent.press(screen.getByText("Apply crop"));
     expect(screen.getByLabelText("Price photo preview")).toHaveProp("source", { uri: "file:///cropped.jpg" });
+    await fireEvent.changeText(screen.getByLabelText("Product type"), "Dry rice");
+    await fireEvent.changeText(screen.getByLabelText("Variety"), "Basmati");
+    await fireEvent.changeText(screen.getByLabelText("Brand"), "Example brand");
     await fireEvent.press(screen.getByText("Save on this phone"));
     expect(await screen.findByText("On this phone")).toBeOnTheScreen();
     expect(mockSaveLocalPhoto).toHaveBeenCalledWith(expect.objectContaining({ original: expect.objectContaining({ uri: "file:///original.jpg" }), selected: { uri: "file:///cropped.jpg", width: 200, height: 100, mimeType: "image/jpeg" } }));
+    expect(mockSaveLocalPhoto).toHaveBeenCalledWith(expect.objectContaining({ review: expect.objectContaining({ productType: "Dry rice", variety: "Basmati", brand: "Example brand" }) }));
     await fireEvent.press(screen.getByText("Use original"));
     expect(screen.getByLabelText("Price photo preview")).toHaveProp("source", { uri: "file:///original.jpg" });
   });

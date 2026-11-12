@@ -12,11 +12,17 @@ function SavedDetails({ draft }: { draft: LocalPhotoDraft }) {
   const shop = draft.shop?.displayName ?? normalizeName(review?.shop);
   const complete = reviewComplete(review, draft.shop?.displayName);
   const name = normalizeName(review?.productName);
+  const metadata = [
+    ['Type', normalizeName(review?.productType)],
+    ['Variety', normalizeName(review?.variety)],
+    ['Brand', normalizeName(review?.brand)],
+  ].flatMap(([label, value]) => value ? [`${label}: ${value}`] : []).join(' · ');
 
   return (
     <View style={styles.details}>
       <Text style={styles.name}>{name ?? 'Photo draft'}</Text>
       <Text style={ui.body}>{shop ?? 'Shop not recorded'}</Text>
+      {metadata ? <Text style={ui.small}>{metadata}</Text> : null}
       {complete && review ? (
         <PriceDisplay
           price={Number(review.price)}

@@ -2,9 +2,10 @@ import { normalizeName } from '@cheapo/domain/names';
 import { Directory, File, Paths } from 'expo-file-system';
 
 import type { CropBox } from './crop-geometry';
+import type { ProductMetadata } from './product-metadata';
 
 export type PhotoAsset = { uri: string; width: number; height: number; mimeType: 'image/jpeg'; size?: number };
-export type ManualReview = { productName: string; price: string; currency: string; shop: string; unitPrice: string; unit: string };
+export type ManualReview = ProductMetadata & { productName: string; price: string; currency: string; shop: string; unitPrice: string; unit: string };
 export const emptyReview = (shop = ''): ManualReview => ({ productName: '', price: '', currency: 'GBP', shop, unitPrice: '', unit: '' });
 const validPrice = (value: string, fraction = 2) => new RegExp(`^\\d+(\\.\\d{1,${fraction}})?$`).test(value.trim()) && value.length <= 24 && Number(value) > 0 && Number(value) <= 9999999.99;
 
@@ -61,7 +62,11 @@ function validSavedDraft(value: unknown): value is LocalPhotoDraft {
   const draft = value as LocalPhotoDraft;
   const asset = (photo: PhotoAsset) => photo && typeof photo.uri === 'string' && photo.uri.startsWith('file:') && photo.mimeType === 'image/jpeg' && Number.isFinite(photo.width) && photo.width > 0 && Number.isFinite(photo.height) && photo.height > 0;
   if (typeof draft.id !== 'string' || !/^[A-Za-z0-9_-]+$/.test(draft.id) || typeof draft.capturedAt !== 'string' || !Number.isFinite(Date.parse(draft.capturedAt)) || !asset(draft.original) || !asset(draft.selected)) return false;
-  if (draft.review !== undefined && (!draft.review || !Object.keys(emptyReview()).every(key => typeof draft.review?.[key as keyof ManualReview] === 'string'))) return false;
+  if (draft.review !== undefined) {
+    const review = draft.review;
+    if (!review || !Object.keys(emptyReview()).every(key => typeof review[key as keyof ManualReview] === 'string')) return false;
+    if ([review.productType, review.variety, review.brand].some(value => value !== undefined && typeof value !== 'string')) return false;
+  }
   if (draft.shop !== undefined && (!draft.shop || typeof draft.shop.id !== 'string' || !/^\S+$/u.test(draft.shop.id) || !normalizeName(draft.shop.displayName))) return false;
   const box = draft.cropBox;
   if (box !== undefined && (!box || ![box.left, box.top, box.right, box.bottom].every(value => Number.isFinite(value) && value >= 0 && value <= 1) || box.left >= box.right || box.top >= box.bottom)) return false;

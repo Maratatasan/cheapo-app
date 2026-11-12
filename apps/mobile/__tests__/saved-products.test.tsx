@@ -21,7 +21,7 @@ const complete: LocalPhotoDraft = {
   original,
   selected,
   shop: { id: 'lidl-1', displayName: 'Tandem Centre Lidl' },
-  review: { ...emptyReview('Tandem Centre Lidl'), productName: 'Basmati rice', price: '1.25' },
+  review: { ...emptyReview('Tandem Centre Lidl'), productName: 'Basmati rice', price: '1.25', productType: 'Dry rice', variety: 'Basmati', brand: 'Example brand' },
 };
 
 test('reopens a saved product with its shop, price, and original photo', async () => {
@@ -30,6 +30,7 @@ test('reopens a saved product with its shop, price, and original photo', async (
 
   await fireEvent.press(await screen.findByRole('button', { name: 'Open Basmati rice' }));
   expect(screen.getByText('Tandem Centre Lidl')).toBeOnTheScreen();
+  expect(screen.getByText('Type: Dry rice · Variety: Basmati · Brand: Example brand')).toBeOnTheScreen();
   expect(screen.getByText('£1.25')).toBeOnTheScreen();
   expect(screen.getByLabelText('Saved photo')).toHaveProp('source', { uri: selected.uri });
   await fireEvent.press(screen.getByRole('button', { name: 'View original' }));
