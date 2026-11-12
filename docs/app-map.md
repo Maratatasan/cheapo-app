@@ -3,7 +3,10 @@
 ## Current user flow
 
 The [Home route](../apps/mobile/app/index.tsx) shows the current shop and opens
-Scan or the sample price browser. Home restores the saved selection when focused.
+Scan or the sample price browser. Home restores the saved selection when focused. Use **Change shop → Edit** to
+update a shop's name, nickname, or address, or remove it from the saved shop list.
+Removal clears the current selection if that shop was selected. Previous price
+records and photos keep their saved shop details.
 
 ```mermaid
 flowchart TD

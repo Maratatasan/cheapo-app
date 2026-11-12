@@ -29,6 +29,11 @@ export default function Index() {
         <ShopChooser
           state={shops}
           actions={localShopActions}
+          management={{
+            updateShop: localShopActions.updateShop,
+            removeShop: localShopActions.removeShop,
+            onChanged: setShops,
+          }}
           onSelected={(state) => { setShops(state); setChoosing(false); }}
           onCancel={() => setChoosing(false)}
         />

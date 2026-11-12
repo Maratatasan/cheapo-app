@@ -108,6 +108,17 @@ test('shares an extractable ZIP with reviewed records, older drafts, and portabl
   expect(mockDelete).not.toHaveBeenCalled();
 });
 
+test('exports historical shop identity and photos after a shop leaves the catalogue', async () => {
+  jest.mocked(loadSavedShops).mockResolvedValue({ shops: [] });
+  await exportShoppingData(new AbortController().signal);
+  const [[uri]] = jest.mocked(shareAsync).mock.calls;
+  const archive = unzipSync(Buffer.concat(mockWrites.get(uri)!));
+  const manifest = JSON.parse(new TextDecoder().decode(archive['manifest.json']));
+  expect(manifest.savedShops).toEqual([]);
+  expect(manifest.records[0].shop).toEqual(complete.shop);
+  expect(archive['photos/1/crop.jpg']).toEqual(mockFiles.get(crop.uri));
+});
+
 test('does not share an incomplete archive or read outside the saved photo directory', async () => {
   const outside = { ...original, uri: 'file:///documents/private/other.jpg' };
   mockFiles.set(outside.uri, Uint8Array.of(1));

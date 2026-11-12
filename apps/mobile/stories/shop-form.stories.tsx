@@ -53,3 +53,8 @@ export const NicknameOnly: Story = {
     });
   },
 };
+
+export const EditAddress: Story = {
+  args: { editing: true, values: { nickname: "Example Market", name: "", address: "12 Example Road" }, onRemove: fn() },
+  render: (args) => <EditableShopForm {...args} />,
+};
