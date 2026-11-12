@@ -1,0 +1,25 @@
+{
+  "$schema": "https://turborepo.com/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    "build": {
+      "inputs": ["$TURBO_DEFAULT$", ".env*", "!__tests__/**", "!.storybook/**", "!stories/**"],
+      "env": ["CHEAPO_AUTH_TEST", "CHEAPO_FIELD_TEST", "EXPO_*", "NODE_ENV"],
+      "outputs": ["dist/**"]
+    },
+    "dev": {
+      "passThroughEnv": ["CHEAPO_AUTH_TEST", "CHEAPO_FIELD_TEST", "EXPO_*", "REACT_NATIVE_PACKAGER_HOSTNAME"]
+    },
+    "typecheck": {
+      "inputs": ["$TURBO_DEFAULT$", ".expo/types/**/*.ts", "expo-env.d.ts"]
+    },
+    "test": {
+      "inputs": ["$TURBO_DEFAULT$", "!.storybook/**", "!stories/**"]
+    },
+    "ui:storybook:build": {
+      "inputs": ["$TURBO_DEFAULT$", ".env*", "!__tests__/**"],
+      "env": ["NODE_ENV", "STORYBOOK_*", "VITE_*"],
+      "outputs": ["storybook-static/**"]
+    }
+  }
+}

@@ -43,6 +43,22 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Identify Turbo cache toolchain
+        id: turbo-toolchain
+        run: |
+          prefix="turbo-v1-${RUNNER_OS}-${RUNNER_ARCH}-node-$(node --version)-pnpm-$(pnpm --version)-turbo-$(pnpm exec turbo --version)"
+          echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
+
+      - name: Restore Turbo task cache
+        id: turbo-cache
+        uses: actions/cache/restore@v6
+        continue-on-error: true
+        with:
+          path: .turbo/cache
+          key: ${{ steps.turbo-toolchain.outputs.prefix }}-${{ github.sha }}
+          restore-keys: |
+            ${{ steps.turbo-toolchain.outputs.prefix }}-
+
       - name: Check TypeScript
         run: pnpm typecheck
 
@@ -69,3 +85,11 @@ jobs:
 
       - name: Export Android, iOS, and web bundles
         run: pnpm build
+
+      - name: Save Turbo task cache from main
+        if: github.ref == 'refs/heads/main' && steps.turbo-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        continue-on-error: true
+        with:
+          path: .turbo/cache
+          key: ${{ steps.turbo-toolchain.outputs.prefix }}-${{ github.sha }}

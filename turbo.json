@@ -5,23 +5,27 @@
     "enabled": false
   },
   "tasks": {
+    "transit": {
+      "dependsOn": ["^transit"]
+    },
     "build": {
-      "inputs": ["$TURBO_DEFAULT$", ".env*"],
-      "env": ["CHEAPO_AUTH_TEST", "CHEAPO_FIELD_TEST", "EXPO_*", "NODE_ENV"],
-      "outputs": ["dist/**"]
+      "dependsOn": ["^build", "^transit"]
     },
     "dev": {
       "cache": false,
-      "persistent": true,
-      "passThroughEnv": ["CHEAPO_AUTH_TEST", "CHEAPO_FIELD_TEST", "EXPO_*", "REACT_NATIVE_PACKAGER_HOSTNAME"]
+      "persistent": true
     },
     "typecheck": {
-      "inputs": ["$TURBO_DEFAULT$", ".expo/types/**/*.ts", "expo-env.d.ts"]
+      "dependsOn": ["^transit"]
     },
-    "lint": {},
-    "test": {},
+    "lint": {
+      "dependsOn": ["^transit"]
+    },
+    "test": {
+      "dependsOn": ["^transit"]
+    },
     "ui:storybook:build": {
-      "outputs": ["storybook-static/**"]
+      "dependsOn": ["^build", "^transit"]
     }
   }
 }

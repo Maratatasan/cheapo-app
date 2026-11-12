@@ -8,6 +8,9 @@
 - Run `pnpm typecheck`, `pnpm lint`, and `pnpm test` after code changes. These commands
   and `pnpm build` use Turbo. For dependency changes, also run
   `pnpm expo install --check`, `pnpm expo:doctor`, and `pnpm build`.
+- Follow the [CI and Turbo cache standard](docs/ci.md) for new packages and tasks.
+  Keep cache inputs, outputs, and environment scoped to their consumers. Declare and
+  verify workspace dependency edges so shared changes invalidate dependent tasks.
 - Use `pnpm expo <command>` for app-specific Expo CLI calls from the root.
   Interactive platform commands, native generation/builds, device checks and live
   service tests run directly without Turbo caching. Run Gradle inside the generated
