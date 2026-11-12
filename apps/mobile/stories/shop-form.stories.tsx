@@ -43,9 +43,8 @@ export const Submitting: Story = {
   args: { values: { nickname: "Tandem Centre Lidl", name: "", address: "" }, isSubmitting: true },
 };
 export const NicknameOnly: Story = {
-  render: (args) => <EditableShopForm {...args} />,
+  args: { values: { nickname: "Tandem Centre Lidl", name: "", address: "" } },
   play: async ({ canvas, userEvent, args }) => {
-    await userEvent.type(canvas.getByRole("textbox", { name: "Nickname" }), "Tandem Centre Lidl");
     await userEvent.click(canvas.getByRole("button", { name: "Save shop" }));
     await expect(args.onSubmit).toHaveBeenCalledWith({
       nickname: "Tandem Centre Lidl",
