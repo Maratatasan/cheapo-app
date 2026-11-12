@@ -3,7 +3,15 @@
 - This checkout belongs to `Maratatasan/cheapo-app`. The old `cheapo-ui` starter is unrelated; do not copy its screens over this app.
 - Plan single-purpose PRs before implementation and aim for fewer than 700 handwritten lines changed. Follow the [Cheapo PR guidance](https://docs.google.com/document/d/1SJUGxANp46SqcsACD3Si8RQ1RbpBAAcxl9q8IAK7sQA/edit#heading=h.pnpk0hmujgnp).
 - Read README.md for setup and platform limitations. Use the Node version in `.nvmrc` and pnpm version in `package.json`; maintain only `pnpm-lock.yaml`.
-- Run `pnpm typecheck`, `pnpm lint`, and `pnpm test` after code changes. For dependency upgrades, also run `pnpm exec expo install --check`, `pnpm dlx expo-doctor`, and `pnpm exec expo export --platform all`.
+- Run install, development, and checks from the repository root. Expo lives in
+  `apps/mobile`; keep its dependencies there and use the root pnpm workspace and lockfile.
+- Run `pnpm typecheck`, `pnpm lint`, and `pnpm test` after code changes. These commands
+  and `pnpm build` use Turbo. For dependency changes, also run
+  `pnpm expo install --check`, `pnpm expo:doctor`, and `pnpm build`.
+- Use `pnpm expo <command>` for app-specific Expo CLI calls from the root.
+  Interactive platform commands, native generation/builds, device checks and live
+  service tests run directly without Turbo caching. Run Gradle inside the generated
+  `apps/mobile/android` project when following the Android build instructions.
 - See the [app map](docs/app-map.md) for the current flow and responsibility boundaries. Preserve the scan-to-local-save flow and update the map when a flow or responsibility boundary changes.
 - Camera tests mock hardware. Report simulator, browser, physical-device, and bundle checks separately; a bundle export is not a native build.
 - Follow official Expo release notes and upgrade one SDK at a time. Keep React, React Native, TypeScript, and Expo modules within the supported SDK versions.

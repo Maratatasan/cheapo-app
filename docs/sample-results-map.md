@@ -55,5 +55,5 @@ Official references (checked 10 November 2026):
 Run `pnpm typecheck`, `pnpm lint`, and `pnpm test`. Tests cover separate sorting,
 search/empty states, uncertain prices, currency rounding and pin/list selection.
 Native map APIs are mocked at the hardware boundary in tests. After dependency
-changes run `pnpm exec expo install --check`, `pnpm dlx expo-doctor`, and
-`pnpm exec expo export --platform all`.
+changes run `pnpm expo install --check`, `pnpm expo:doctor`, and
+`pnpm build` from the repository root.

@@ -11,10 +11,12 @@ The project targets Expo SDK 58, React Native 0.88.1, React 19.3, and TypeScript
 ```sh
 nvm use
 pnpm install --frozen-lockfile
-pnpm start
+pnpm dev
 ```
 
-Open the Expo development server and choose a platform, or run a platform command directly:
+Run these commands from the repository root. `pnpm dev` starts Expo through
+Turbo. Use `pnpm start` for Expo's direct interactive terminal or to pass Expo
+options, such as `pnpm start --localhost --port 8082`. To open a platform directly:
 
 ```sh
 pnpm ios
@@ -29,7 +31,15 @@ pnpm typecheck
 pnpm lint
 pnpm test
 pnpm test:watch
+pnpm test:route1
+pnpm test:auth-native
+pnpm build
 ```
+
+`pnpm test:auth-native` requires JDK 17. `pnpm build` exports Android, iOS, and
+web bundles to `apps/mobile/dist/`. Turbo caches deterministic checks and build
+outputs locally. Use `pnpm expo <command>` to run Expo CLI in the mobile package
+for direct operations such as prebuild.
 
 The camera tests mock the native camera and permission APIs; they cover app behavior, not device camera hardware. Real photo capture should be checked on a physical device. iOS Simulator does not provide a working camera for this flow.
 
@@ -47,14 +57,15 @@ See [local photo review](docs/local-photo-review.md) for behavior and verificati
 
 ## Expo upgrades
 
-Upgrade one Expo SDK at a time. For each SDK, follow the Expo upgrade guide, install the matching package versions with `npx expo install --fix`, then run `npx expo-doctor` and the project checks above. Review the SDK release notes for breaking changes before moving to the next SDK. Rebuild native development clients after changes to native modules or app configuration.
+Upgrade one Expo SDK at a time. For each SDK, follow the Expo upgrade guide, install the matching package versions with `pnpm expo install --fix`, then run `pnpm expo:doctor` and the project checks above. Review the SDK release notes for breaking changes before moving to the next SDK. Rebuild native development clients after changes to native modules or app configuration.
 
 ## Project layout
 
-- `app/index.tsx` — home screen and link to scanning
-- `app/scan.tsx` — scan route
-- `component/camera.tsx` — permissions, camera, crop, review and local saving
-- `__tests__/` — mocked component tests
+- `apps/mobile/app/` — Expo Router screens, including Home and Scan
+- `apps/mobile/component/camera.tsx` — permissions, camera, crop, review and local saving
+- `apps/mobile/__tests__/` — mocked component and app tests
+- `apps/mobile/modules/` — local Expo native modules
+- `tools/` — local Route 1 companion and test-photo server
 
 Repository: [Maratatasan/cheapo-app](https://github.com/Maratatasan/cheapo-app)
 

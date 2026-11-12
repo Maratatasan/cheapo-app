@@ -15,7 +15,7 @@ pnpm ui:storybook:build
 ```
 
 Open <http://127.0.0.1:6006/?path=/story/cheapo-library--overview>. The development
-server binds to loopback. The build is written to ignored `storybook-static/`.
+server binds to loopback. The build is written to ignored `apps/mobile/storybook-static/`.
 Telemetry is disabled. No Chromatic account, cloud publishing or deployment is
 configured. CI builds Storybook alongside the existing app checks without changing
 workflow triggers.
@@ -31,9 +31,9 @@ workflow triggers.
 | `DisplayState` | Empty, loading and error states with an optional retry action |
 | `ResultsBrowser` | The real search/sort composition; empty search, loading, error and independent price/distance sorting |
 
-Source components live in `component/results/`. `theme.ts` contains the existing
+Source components live in `apps/mobile/component/results/`. `theme.ts` contains the existing
 colors and a small spacing/radius/type scale, shared by app components and stories.
-`data/observation.ts` owns data types and formatting, with no fixture imports.
+Within `apps/mobile/`, `data/observation.ts` owns data types and formatting.
 `data/sample-observations.ts` and `stories/fixtures.ts` hold fictional data separately
 from rendering. Component callbacks accept user actions; they do not access camera,
 storage, navigation, authentication or a backend.

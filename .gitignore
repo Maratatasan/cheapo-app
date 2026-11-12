@@ -2,6 +2,7 @@
 
 # dependencies
 node_modules/
+.turbo/
 
 # Expo
 .expo/
@@ -43,7 +44,13 @@ app-example
 # Local component-library build
 storybook-static/
 
-# Generated native project and local module build outputs
+# Generated native projects and local module build outputs
+/apps/mobile/android/
+/apps/mobile/ios/
+/apps/mobile/modules/**/android/build/
+/apps/mobile/modules/**/android/.gradle/
+
+# Generated Android files from checkouts before the workspace move
 /android/
 /modules/**/android/build/
 /modules/**/android/.gradle/
