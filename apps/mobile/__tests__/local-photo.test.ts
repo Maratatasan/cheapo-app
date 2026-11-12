@@ -44,6 +44,11 @@ it('requires valid manual details before a draft is complete', () => {
   expect(reviewComplete(emptyReview())).toBe(false);
   const review = { ...emptyReview('Tesco Borough Road'), productName: 'Milk 2 litres', price: '1.65' };
   expect(reviewComplete(review)).toBe(true);
+  expect(reviewComplete({ ...review, productName: '   ' })).toBe(false);
+  expect(reviewComplete({ ...review, shop: '   ' })).toBe(false);
+  expect(reviewComplete({ ...review, productName: '  ' + 'a'.repeat(200), shop: 'b'.repeat(150) + '  ' })).toBe(true);
+  expect(reviewComplete({ ...review, productName: 'a'.repeat(201) })).toBe(false);
+  expect(reviewComplete({ ...review, shop: 'b'.repeat(151) })).toBe(false);
   expect(reviewComplete({ ...review, price: '-1' })).toBe(false);
   expect(reviewComplete({ ...review, price: '1,65' })).toBe(false);
   expect(reviewComplete({ ...review, currency: '' })).toBe(false);
@@ -92,4 +97,21 @@ it('leaves the primary unchanged if its safety copy cannot be written',async()=>
   await expect(saveLocalPhoto(saved)).rejects.toThrow();
   expect(mockFiles.get('file:///documents/price-photos/capture-1.json')).toBe(original);
   expect(await loadLocalPhotos()).toHaveLength(1);
+});
+
+it('reads a previous draft with free-text review fields and both photo references', async () => {
+  const legacyDraft = {
+    id: 'old-draft',
+    capturedAt: '2026-11-10T12:00:00Z',
+    original: { uri: 'file:///documents/price-photos/old-original.jpg', width: 1000, height: 500, mimeType: 'image/jpeg' },
+    selected: { uri: 'file:///documents/price-photos/old-selected.jpg', width: 500, height: 250, mimeType: 'image/jpeg' },
+    review: { productName: '  Basmati rice  ', shop: ' My Tesco ', price: '', currency: 'GBP', unitPrice: '', unit: '' },
+  };
+  mockFiles.set(legacyDraft.original.uri, 'original JPEG');
+  mockFiles.set(legacyDraft.selected.uri, 'cropped JPEG');
+  mockFiles.set('file:///documents/price-photos/old-draft.json', JSON.stringify(legacyDraft));
+
+  const restored = await loadLocalPhotos();
+  expect(restored).toEqual([legacyDraft]);
+  expect(reviewComplete(restored[0].review)).toBe(false);
 });

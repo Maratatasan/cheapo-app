@@ -26,7 +26,7 @@ flowchart TD
 | --- | --- |
 | Camera | The [Scan route](../apps/mobile/app/scan.tsx) mounts the [camera component](../apps/mobile/component/camera.tsx), which owns permissions, preview, capture, retake, and the photo workflow. |
 | Photos | The [crop editor](../apps/mobile/component/photo-crop.tsx) uses [crop geometry](../apps/mobile/data/crop-geometry.ts) and [image manipulation](../apps/mobile/lib/photo-crop.ts). It derives a JPEG from the original and keeps both available in the draft. |
-| Review | The [review form](../apps/mobile/component/photo-review.tsx) edits product, price, currency, shop, and optional unit-price details. [Manual review validation](../apps/mobile/data/local-photo.ts) checks completeness. Incomplete details can still be saved as a draft. |
+| Review | The [review form](../apps/mobile/component/photo-review.tsx) edits product, price, currency, shop, and optional unit-price details. [Manual review validation](../apps/mobile/data/local-photo.ts) checks completeness using the name rules from [shared domain contracts](../packages/domain/README.md). Incomplete details can still be saved as a draft. |
 | Storage | The [local photo store](../apps/mobile/data/local-photo.ts) writes JPEGs and a JSON manifest in the app’s private directory. Scan reopens saved drafts. The [gallery helper](../apps/mobile/lib/photo-gallery.ts) copies the selected image only on request after saving. |
 | Sample browsing | [Results](../apps/mobile/app/results.tsx) and [Shops](../apps/mobile/app/shops.tsx) use [fictional sample data](../apps/mobile/data/sample-observations.ts). This browse flow is independent of local drafts. |
 
