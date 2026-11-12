@@ -3,9 +3,11 @@
 import React from "react";
 import { Alert, Image } from "react-native";
 import {
+  act,
   fireEvent,
   render,
   screen,
+  userEvent,
   waitFor,
 } from "@testing-library/react-native";
 import { CameraComponent } from "../component/camera";
@@ -62,7 +64,7 @@ describe("CameraComponent", () => {
     mockPermission = { granted: false };
     await render(<CameraComponent />);
 
-    await fireEvent.press(screen.getByText("Grant Permission"));
+    await fireEvent.press(screen.getByRole("button", { name: "Grant Permission" }));
 
     expect(mockRequestPermission).toHaveBeenCalledTimes(1);
   });
@@ -79,6 +81,26 @@ describe("CameraComponent", () => {
     expect(screen.getByLabelText("Confirmed shop: Test shop")).toHaveTextContent("Test shop");
     expect(screen.getByLabelText("Price photo preview")).toHaveProp("source", { uri: "file:///cropped.jpg" });
     expect(mockRequestPermission).not.toHaveBeenCalled();
+  });
+
+  it("keeps capture controls disabled while the photo picker is open", async () => {
+    mockPermission = { granted: true };
+    const user = userEvent.setup();
+    let cancelPicker!: () => void;
+    mockChoosePhoto.mockReturnValue(new Promise<void>(resolve => { cancelPicker = resolve; }));
+    await render(<CameraComponent />);
+    await fireEvent(screen.getByTestId("camera-preview"), "cameraReady");
+
+    await user.press(screen.getByRole("button", { name: "Choose photo" }));
+
+    const opening = screen.getByRole("button", { name: "Opening photos…" });
+    expect(opening).toBeBusy();
+    expect(opening).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Take Picture of Price" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Flip Camera" })).toBeDisabled();
+    await act(() => cancelPicker());
+    expect(screen.getByRole("button", { name: "Take Picture of Price" })).toBeEnabled();
+    expect(mockTakePictureAsync).not.toHaveBeenCalled();
   });
 
   it("shows no camera controls while the permission response is loading", async () => {

@@ -3,17 +3,14 @@ import {
   View,
   Text,
   StyleSheet,
-  TouchableOpacity,
   Dimensions,
   Image,
   Alert,
-  Button,
-  ScrollView,
   Platform,
 } from "react-native";
 import { captureGuide, fittedCameraFrame, seedGuideCrop, fullPhoto, type CropBox } from "@/data/crop-geometry";
 import { CameraView, CameraType, useCameraPermissions } from "expo-camera";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { CameraActionButton, CameraCaptureActions, CameraPermissionActions, CameraSavedDraftActions } from "./camera-actions";
 import { GalleryCopy } from "./gallery-copy";
 import { PhotoReview } from "./photo-review";
 import { PhotoCrop } from "./photo-crop";
@@ -57,10 +54,19 @@ export const CameraComponent = ({ currentShop }: { currentShop?: DraftShop }) =>
   async function savePhoto() {
     try { await persistPhoto(); } catch { Alert.alert('Photo not saved', 'Your preview is kept. Check free storage and try Save on this phone again.'); }
   }
-  const savedPhotoButtons = savedPhotos.length ? <ScrollView style={{ maxHeight: 90, marginTop: 12 }}><Text style={styles.buttonText}>Saved in Cheapo ({savedPhotos.length})</Text>{savedPhotos.map(item => <Button key={item.id} title={`Review ${new Date(item.capturedAt).toLocaleString()}`} onPress={() => { setDraft({ ...item, review: item.review ?? emptyReview() }); setVisitShop(item.review?.shop ?? ""); setSaved(true); setCameraReady(false); }} />)}</ScrollView> : null;
   const [cameraReady, setCameraReady] = useState(false);
-  const [isTakingPhoto, setIsTakingPhoto] = useState(false);
-  const isTakingPhotoRef = useRef(false);
+  const [photoAction, setPhotoAction] = useState<"capture" | "choose" | null>(null);
+  const photoPending = useRef(false);
+  const savedPhotoButtons = <CameraSavedDraftActions
+    drafts={savedPhotos}
+    disabled={photoAction !== null}
+    onReview={item => {
+      setDraft({ ...item, review: item.review ?? emptyReview() });
+      setVisitShop(item.review?.shop ?? "");
+      setSaved(true);
+      setCameraReady(false);
+    }}
+  />;
 
   if (!permission) return <View key="loading" style={styles.container} />;
 
@@ -77,22 +83,17 @@ export const CameraComponent = ({ currentShop }: { currentShop?: DraftShop }) =>
     Image.getSize(uri, (width, height) => selectPhoto({ uri, width, height, mimeType: 'image/jpeg' }), () => Alert.alert('Test photo unavailable', 'Check the local fixture server and try again.'));
   };
   const testPhotoButton = __DEV__ ? (
-    <TouchableOpacity
-      style={[styles.button, { marginTop: 12 }]}
-      onPress={useTestPhoto}
-      disabled={isTakingPhoto}
-      accessibilityRole="button"
-    >
-      <Text style={styles.buttonText}>Use test photo</Text>
-    </TouchableOpacity>
+    <CameraActionButton label="Use test photo" onPress={useTestPhoto} disabled={photoAction !== null} />
   ) : null;
   const choosePhotoButton = Platform.OS !== "web" ? (
-    <TouchableOpacity
-      style={styles.button}
+    <CameraActionButton
+      label={photoAction === "choose" ? "Opening photos…" : "Choose photo"}
+      disabled={photoAction !== null}
+      busy={photoAction === "choose"}
       onPress={async () => {
-        if (isTakingPhotoRef.current) return;
-        isTakingPhotoRef.current = true;
-        setIsTakingPhoto(true);
+        if (photoPending.current) return;
+        photoPending.current = true;
+        setPhotoAction("choose");
         try {
           const photo = await choosePhoto();
           if (!photo) return;
@@ -101,41 +102,29 @@ export const CameraComponent = ({ currentShop }: { currentShop?: DraftShop }) =>
         } catch {
           Alert.alert("Photo unavailable", "Choose a different photo and try again.");
         } finally {
-          isTakingPhotoRef.current = false;
-          setIsTakingPhoto(false);
+          photoPending.current = false;
+          setPhotoAction(null);
         }
       }}
-      disabled={isTakingPhoto}
-      accessibilityRole="button"
-    >
-      <Text style={styles.buttonText}>Choose photo</Text>
-    </TouchableOpacity>
+    />
   ) : null;
 
   if (!permission.granted && !draft) {
     return (
       <View key="permission" collapsable={false} style={styles.permissionContainer}>
-        <Text style={styles.message}>
-          We need your permission to show the camera
-        </Text>
-        <TouchableOpacity
-          style={styles.permissionButton}
-          onPress={requestPermission}
-        >
-          <Text style={styles.permissionText}>Grant Permission</Text>
-        </TouchableOpacity>
-        {choosePhotoButton}
-        {testPhotoButton}
-        {savedPhotoButtons}
+        <CameraPermissionActions onGrant={requestPermission} disabled={photoAction !== null} choosePhoto={choosePhotoButton}>
+          {testPhotoButton}
+          {savedPhotoButtons}
+        </CameraPermissionActions>
       </View>
     );
   }
 
   const takePhoto = async () => {
-    if (!cameraReady || isTakingPhotoRef.current || !cameraRef.current) return;
+    if (!cameraReady || photoPending.current || !cameraRef.current) return;
 
-    isTakingPhotoRef.current = true;
-    setIsTakingPhoto(true);
+    photoPending.current = true;
+    setPhotoAction("capture");
 
     try {
       const photo = await cameraRef.current.takePictureAsync();
@@ -146,8 +135,8 @@ export const CameraComponent = ({ currentShop }: { currentShop?: DraftShop }) =>
     } catch {
       Alert.alert("Unable to take photo", "Please try again.");
     } finally {
-      isTakingPhotoRef.current = false;
-      setIsTakingPhoto(false);
+      photoPending.current = false;
+      setPhotoAction(null);
     }
   };
 
@@ -221,37 +210,20 @@ export const CameraComponent = ({ currentShop }: { currentShop?: DraftShop }) =>
               <View pointerEvents="none" style={[styles.captureFrame, { position: 'absolute', left: `${captureGuide.left * 100}%`, top: `${captureGuide.top * 100}%`, width: `${(captureGuide.right - captureGuide.left) * 100}%`, height: `${(captureGuide.bottom - captureGuide.top) * 100}%` }]} />
             </View>
           </View>
-          <SafeAreaView edges={['bottom']} style={styles.captureFooter}>
-            <Text style={styles.captureGuideText}>Fit product name, price and weight/size inside the frame.</Text>
-            <Text style={styles.captureGuideText}>The full original is kept. Adjust the crop after capture.</Text>
-            <TouchableOpacity
-              style={styles.button}
-              onPress={takePhoto}
-              disabled={!cameraReady || isTakingPhoto}
-            >
-              <Text style={styles.buttonText}>
-                {!cameraReady
-                  ? "Preparing camera…"
-                  : isTakingPhoto
-                    ? "Taking picture…"
-                    : "Take Picture of Price"}
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.button, { marginTop: 12 }]}
-              disabled={isTakingPhoto}
-              onPress={() => {
-                setCameraReady(false);
-                setFacing((current) => (current === "back" ? "front" : "back"));
-              }}
-            >
-              <Text style={styles.buttonText}>Flip Camera</Text>
-            </TouchableOpacity>
-            {choosePhotoButton}
+          <CameraCaptureActions
+            ready={cameraReady}
+            capturing={photoAction === "capture"}
+            choosing={photoAction === "choose"}
+            onCapture={takePhoto}
+            onFlip={() => {
+              setCameraReady(false);
+              setFacing(current => current === "back" ? "front" : "back");
+            }}
+            choosePhoto={choosePhotoButton}
+          >
             {testPhotoButton}
             {savedPhotoButtons}
-          </SafeAreaView>
+          </CameraCaptureActions>
         </>
       )}
     </View>
@@ -270,37 +242,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 20,
   },
-  message: {
-    fontSize: 16,
-    marginBottom: 16,
-    textAlign: "center",
-    color: "#fff",
-  },
-  permissionButton: {
-    backgroundColor: "#fff",
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: 8,
-  },
-  permissionText: {
-    fontSize: 16,
-    fontWeight: "bold",
-    color: "#000",
-  },
-  button: {
-    backgroundColor: "rgba(0,0,0,0.6)",
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 8,
-  },
-  buttonText: {
-    fontSize: 18,
-    color: "white",
-    fontWeight: "bold",
-  },
   captureStage: { flex: 1, alignItems: "center", justifyContent: "center" },
-  captureFooter: { paddingHorizontal: 16, paddingTop: 8, alignItems: "center", gap: 6 },
   captureFrame: { borderWidth: 2, borderColor: "#fff", borderRadius: 14 },
-  captureGuideText: { color: "#fff", backgroundColor: "rgba(0,0,0,0.65)", padding: 8, borderRadius: 8, textAlign: "center", fontSize: 14 },
 
 });
