@@ -27,6 +27,8 @@ export type Shop = z.infer<typeof shopSchema>;
 export const productSchema = z.object({
   id: stableId,
   name,
+  productType: nonblankText.optional(),
+  variety: nonblankText.optional(),
   brand: nonblankText.optional(),
   barcode: z.string().regex(/^\d+$/u).optional(),
   pack: z.object({
