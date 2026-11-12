@@ -227,6 +227,39 @@ describe("CameraComponent", () => {
     expect(screen.getByRole("button", { name: "Save on this phone" })).toBeEnabled();
   });
 
+  it("keeps a draft's original shop through save and uses the new shop on the next capture", async () => {
+    const firstShop = { id: "lidl", displayName: "Tandem Centre Lidl" };
+    const nextShop = { id: "tesco", displayName: "Tesco Borough Road" };
+    mockPermission = { granted: true };
+    mockTakePictureAsync.mockResolvedValue({ uri: "file:///price.jpg", width: 1200, height: 800 });
+    mockSaveLocalPhoto.mockImplementation(async value => value);
+    await render(<CameraComponent currentShop={firstShop} />);
+
+    await fireEvent(screen.getByTestId("camera-preview"), "cameraReady");
+    await fireEvent.press(screen.getByText("Take Picture of Price"));
+    await fireEvent.press(await screen.findByText("Apply crop"));
+    expect(screen.getByLabelText(`Confirmed shop: ${firstShop.displayName}`)).toHaveTextContent(firstShop.displayName);
+
+    await screen.rerender(<CameraComponent currentShop={nextShop} />);
+    await fireEvent.press(screen.getByText("Save on this phone"));
+    expect(mockSaveLocalPhoto).toHaveBeenLastCalledWith(expect.objectContaining({
+      shop: firstShop,
+      review: expect.objectContaining({ shop: firstShop.displayName }),
+    }));
+
+    await fireEvent.press(screen.getByText("Retake"));
+    await fireEvent(screen.getByTestId("camera-preview"), "cameraReady");
+    await fireEvent.press(screen.getByText("Take Picture of Price"));
+    await fireEvent.press(await screen.findByText("Apply crop"));
+    expect(screen.getByLabelText(`Confirmed shop: ${nextShop.displayName}`)).toHaveTextContent(nextShop.displayName);
+    await fireEvent.press(screen.getByText("Save on this phone"));
+    expect(mockSaveLocalPhoto).toHaveBeenLastCalledWith(expect.objectContaining({ shop: nextShop }));
+
+    await fireEvent.press(screen.getByText("Retake"));
+    await fireEvent.press(screen.getAllByRole("button", { name: /^Review / })[1]);
+    expect(screen.getByLabelText(`Confirmed shop: ${firstShop.displayName}`)).toHaveTextContent(firstShop.displayName);
+  });
+
   it("opens an editable crop after capture without saving or replacing the original", async () => {
     mockPermission = { granted: true };
     mockTakePictureAsync.mockResolvedValue({ uri: "file:///full-original.jpg", width: 3000, height: 4000 });

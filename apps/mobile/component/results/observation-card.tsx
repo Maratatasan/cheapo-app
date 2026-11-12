@@ -1,5 +1,5 @@
 import { Pressable, Text, View, StyleSheet } from "react-native";
-import { Observation, dateLabel, priceLabel } from "@/data/observation";
+import { Observation, dateLabel, observationShopLabel, priceLabel } from "@/data/observation";
 import { PriceDisplay } from "./price-display";
 import { OfferNotice } from "./offer-notice";
 import { color, ui } from "./theme";
@@ -11,13 +11,14 @@ export function ObservationCard({
   item: ObservationCardItem;
   onShop?: () => void;
 }) {
+  const shop = observationShopLabel(item.shop);
   return (
     <View
       style={ui.card}
-      accessibilityLabel={`Observation: ${item.shop}, ${priceLabel(item)}`}
+      accessibilityLabel={`Observation: ${shop}, ${priceLabel(item)}`}
     >
       <View style={ui.between}>
-        <Text style={ui.eyebrow}>{item.shop.toUpperCase()}</Text>
+        <Text style={ui.eyebrow}>{shop.toUpperCase()}</Text>
         <Text
           style={[
             ui.pillText,
@@ -52,7 +53,7 @@ export function ObservationCard({
       {onShop && (
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={`See ${item.shop} on map`}
+          accessibilityLabel={`See ${shop} on map`}
           onPress={onShop}
           style={styles.link}
         >

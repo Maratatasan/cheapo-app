@@ -1,27 +1,30 @@
 import { Pressable, Text, View, StyleSheet } from "react-native";
-import { Observation, priceLabel } from "@/data/observation";
+import { Observation, observationShopLabel, priceLabel, unitPriceLabel } from "@/data/observation";
+import { PriceDisplay } from "./price-display";
 import { color, ui, spacing, typography } from "./theme";
 export type ShopCardProps = Pick<
   Observation,
-  "shop" | "area" | "price" | "currency"
-> & { number?: number; selected?: boolean; onSelect: () => void };
+  "shop" | "price" | "currency"
+> & Partial<Pick<Observation, "area" | "unit_price">> & {
+  number?: number;
+  selected?: boolean;
+  onSelect?: () => void;
+};
 export function ShopCard({
   shop,
   area,
   price,
   currency,
+  unit_price = null,
   number,
   selected = false,
   onSelect,
 }: ShopCardProps) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={`Select ${shop}`}
-      aria-selected={selected}
-      onPress={onSelect}
-      style={[ui.card, styles.container, selected && styles.selected]}
-    >
+  const label = observationShopLabel(shop);
+  const prices = { price, currency, unit_price };
+  const cardStyle = [ui.card, styles.container, selected && styles.selected];
+  const content = (
+    <>
       <View style={styles.identity}>
         {number !== undefined && (
           <View style={[ui.pill, styles.number]}>
@@ -29,11 +32,26 @@ export function ShopCard({
           </View>
         )}
         <View style={styles.copy}>
-          <Text style={styles.name}>{shop}</Text>
-          <Text style={ui.small}>{area}</Text>
+          <Text style={styles.name}>{label}</Text>
+          {area ? <Text style={ui.small}>{area}</Text> : null}
         </View>
       </View>
-      <Text style={styles.price}>{priceLabel({ price, currency })}</Text>
+      <PriceDisplay {...prices} showPackLabel />
+    </>
+  );
+
+  if (!onSelect) return <View style={cardStyle}>{content}</View>;
+
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`Select ${label}`}
+      accessibilityHint={`Pack price ${priceLabel(prices)}. ${unitPriceLabel(prices)}`}
+      aria-selected={selected}
+      onPress={onSelect}
+      style={cardStyle}
+    >
+      {content}
     </Pressable>
   );
 }
@@ -55,5 +73,4 @@ const styles = StyleSheet.create({
   number: { backgroundColor: color.white },
   copy: { flex: 1, gap: spacing.xs },
   name: { color: color.ink, fontWeight: "800", fontSize: typography.label },
-  price: { fontWeight: "800", color: color.ink },
 });

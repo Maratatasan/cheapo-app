@@ -11,6 +11,7 @@ const meta = {
     area: "Colliers Wood · branch unverified",
     price: 1.39,
     currency: "GBP",
+    unit_price: { amount: 0.695, unit: "litre" },
     number: 2,
     selected: false,
     onSelect: fn(),
@@ -19,12 +20,18 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 export const Default: Story = {};
+export const Nickname: Story = {
+  args: { shop: { id: "tandem", name: "Lidl", nickname: "Tandem Centre Lidl" } },
+};
+export const ShopName: Story = { args: { shop: { id: "lidl", name: "Lidl" } } };
+export const MissingUnitPrice: Story = { args: { unit_price: null } };
 export const Selected: Story = { args: { selected: true } };
 export const LongBranch: Story = {
   args: {
     shop: "Example neighbourhood supermarket and food hall",
     area: "Wimbledon · long example branch description, exact location unverified",
     price: null,
+    unit_price: null,
   },
 };
 function Selectable(props: ShopCardProps) {
@@ -35,7 +42,7 @@ function Selectable(props: ShopCardProps) {
       selected={selected}
       onSelect={() => {
         setSelected(true);
-        props.onSelect();
+        props.onSelect?.();
       }}
     />
   );
