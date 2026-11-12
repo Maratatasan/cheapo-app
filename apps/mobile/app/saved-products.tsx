@@ -3,6 +3,7 @@ import { Stack, useFocusEffect, useRouter } from 'expo-router';
 import { Button, FlatList, Image, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { normalizeName } from '@cheapo/domain/names';
 
+import { EditPriceButton } from '@/component/results/edit-price-button';
 import { PriceDisplay } from '@/component/results/price-display';
 import { color, radius, spacing, typography, ui } from '@/component/results/theme';
 import { loadLocalPhotos, reviewComplete, type LocalPhotoDraft } from '@/data/local-photo';
@@ -39,7 +40,8 @@ export default function SavedProducts() {
   const [drafts, setDrafts] = useState<LocalPhotoDraft[]>();
   const [error, setError] = useState(false);
   const focus = useRef<AbortController | null>(null);
-  const [opened, setOpened] = useState<LocalPhotoDraft>();
+  const [openedId, setOpenedId] = useState<string>();
+  const opened = drafts?.find(draft => draft.id === openedId);
   const [original, setOriginal] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string>();
@@ -84,10 +86,13 @@ export default function SavedProducts() {
       <Stack.Screen options={{ title: 'Saved products and photos' }} />
       {opened ? (
         <ScrollView style={ui.page} contentContainerStyle={ui.content}>
-          <Button title="Back to saved products" onPress={() => setOpened(undefined)} />
+          <Button title="Back to saved products" onPress={() => setOpenedId(undefined)} />
           <SavedDetails draft={opened} />
           {reviewComplete(opened.review, opened.shop?.displayName) ? (
-            <Button title="Compare saved prices" onPress={() => router.push({ pathname: '/compare/[id]', params: { id: opened.id } })} />
+            <View style={styles.actions}>
+              <Button title="Compare saved prices" onPress={() => router.push({ pathname: '/compare/[id]', params: { id: opened.id } })} />
+              <EditPriceButton label={`Edit ${opened.review?.productName.trim()}`} onPress={() => router.push({ pathname: '/edit-price/[id]', params: { id: opened.id } })} />
+            </View>
           ) : null}
           <Image
             accessibilityLabel="Saved photo"
@@ -126,7 +131,7 @@ export default function SavedProducts() {
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={`Open ${normalizeName(item.review?.productName) ?? 'Photo draft'}`}
-              onPress={() => { setOriginal(false); setOpened(item); }}
+              onPress={() => { setOriginal(false); setOpenedId(item.id); }}
               style={[ui.card, styles.card]}
             >
               <Image source={{ uri: item.selected.uri }} style={styles.thumbnail} />
@@ -142,6 +147,7 @@ export default function SavedProducts() {
 const styles = StyleSheet.create({
   card: { flexDirection: 'row', alignItems: 'center' },
   details: { flex: 1, gap: spacing.xs },
+  actions: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: spacing.sm },
   name: { color: color.ink, fontSize: typography.card, fontWeight: '700' },
   thumbnail: { width: 72, height: 72, borderRadius: radius.control, backgroundColor: color.mint },
   preview: { width: '100%', height: 360, backgroundColor: color.mint },

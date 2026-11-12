@@ -4,12 +4,13 @@ import SavedComparison from '../app/compare/[id]';
 import { emptyReview, loadLocalPhotos, type LocalPhotoDraft } from '../data/local-photo';
 
 const mockPush = jest.fn();
+let mockFocusRevision = 0;
 
 jest.mock('expo-router', () => ({
   useRouter: () => ({ push: mockPush }),
   useLocalSearchParams: () => ({ id: 'rice' }),
   Stack: { Screen: () => null },
-  useFocusEffect: (callback: () => void) => require('react').useEffect(callback, [callback]),
+  useFocusEffect: (callback: () => void) => require('react').useEffect(callback, [callback, mockFocusRevision]),
 }));
 
 jest.mock('expo-file-system', () => ({}));
@@ -42,6 +43,8 @@ test('reopens a saved product with its shop, price, and original photo', async (
   expect(screen.getByLabelText('Saved photo')).toHaveProp('source', { uri: original.uri });
   await fireEvent.press(screen.getByRole('button', { name: 'Compare saved prices' }));
   expect(mockPush).toHaveBeenCalledWith({ pathname: '/compare/[id]', params: { id: 'rice' } });
+  await fireEvent.press(screen.getByRole('button', { name: 'Edit Basmati rice' }));
+  expect(mockPush).toHaveBeenLastCalledWith({ pathname: '/edit-price/[id]', params: { id: 'rice' } });
 });
 
 test('shows an unfinished older photo as a draft with its original free-text shop', async () => {
@@ -87,4 +90,27 @@ test('compares completed saved reviews and toggles variety and brand independent
   await fireEvent.press(screen.getByRole('checkbox', { name: 'Same variety' }));
   expect(screen.getByText('Long Grain Shop')).toBeOnTheScreen();
   expect(screen.queryByText('Other Brand Shop')).not.toBeOnTheScreen();
+});
+
+
+test('returns to the comparison with its filter and reranks the edited saved record', async () => {
+  const reference = { ...complete, review: { ...complete.review!, unitPrice: '3.00', unit: 'kg' } };
+  const offer = (id: string, name: string, unitPrice: string) => ({
+    ...reference, id, review: { ...reference.review, productName: name, unitPrice },
+  });
+  const first = offer('offer-1', 'First saved offer', '1.00');
+  const edited = offer('offer-2', 'Edited saved offer', '2.00');
+  jest.mocked(loadLocalPhotos).mockResolvedValue([reference, first, edited]);
+  await render(<SavedComparison />);
+  await fireEvent.press(await screen.findByRole('checkbox', { name: 'Same variety' }));
+  await fireEvent.press(screen.getByRole('button', { name: /^Edit Edited saved offer at/ }));
+  expect(mockPush).toHaveBeenLastCalledWith({ pathname: '/edit-price/[id]', params: { id: 'offer-2' } });
+  expect(screen.getAllByText(/saved offer$/).map(label => label.props.children)).toEqual(['First saved offer', 'Edited saved offer']);
+
+  jest.mocked(loadLocalPhotos).mockResolvedValue([reference, first, offer('offer-2', 'Edited saved offer', '0.90')]);
+  mockFocusRevision++;
+  await screen.rerender(<SavedComparison />);
+  expect(await screen.findByText('£0.90 / kg')).toBeOnTheScreen();
+  expect(screen.getByRole('checkbox', { name: 'Same variety' })).toBeChecked();
+  expect(screen.getAllByText(/saved offer$/).map(label => label.props.children)).toEqual(['Edited saved offer', 'First saved offer']);
 });

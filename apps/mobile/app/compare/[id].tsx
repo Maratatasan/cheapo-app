@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from 'react';
-import { Stack, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { Platform, ScrollView } from 'react-native';
 
 import { DisplayState } from '@/component/results/display-state';
@@ -9,6 +9,7 @@ import { loadLocalPhotos, type LocalPhotoDraft } from '@/data/local-photo';
 import { comparisonRowFromDraft } from '@/data/saved-comparison';
 
 export default function SavedComparison() {
+  const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
   const [drafts, setDrafts] = useState<LocalPhotoDraft[]>();
   const [error, setError] = useState(false);
@@ -49,7 +50,8 @@ export default function SavedComparison() {
             description="Open a completed review from Saved products and photos to compare prices." />
         ) : (
           <ShopComparison key={draft.id} reference={reference} comparisons={comparisons}
-            product={{ name: reference.product, photo: { uri: draft.selected.uri } }} />
+            product={{ name: reference.product, photo: { uri: draft.selected.uri } }}
+            onEdit={recordId => router.push({ pathname: '/edit-price/[id]', params: { id: recordId } })} />
         )}
       </ScrollView>
     </>

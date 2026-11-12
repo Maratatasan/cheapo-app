@@ -1,5 +1,6 @@
 import { Pressable, Text, View, StyleSheet } from "react-native";
 import { Observation, dateLabel, observationShopLabel, priceLabel, unitPriceLabel, type PriceValues } from "@/data/observation";
+import { EditPriceButton } from "./edit-price-button";
 import { PriceDisplay } from "./price-display";
 import { color, ui, spacing, typography } from "./theme";
 export type ShopCardProps = Pick<
@@ -11,6 +12,7 @@ export type ShopCardProps = Pick<
   number?: number;
   selected?: boolean;
   onSelect?: () => void;
+  onEdit?: () => void;
 };
 export function ShopCard({
   shop,
@@ -23,6 +25,7 @@ export function ShopCard({
   number,
   selected = false,
   onSelect,
+  onEdit,
 }: ShopCardProps) {
   const label = observationShopLabel(shop);
   const prices = { price, currency, unit_price };
@@ -42,7 +45,12 @@ export function ShopCard({
           {capturedOn ? <Text style={ui.small}>Recorded {dateLabel(capturedOn)}</Text> : null}
         </View>
       </View>
-      <PriceDisplay {...prices} showPackLabel />
+      {onEdit && !onSelect ? (
+        <View style={styles.prices}>
+          <PriceDisplay {...prices} showPackLabel />
+          <EditPriceButton label={`Edit ${product ? `${product} at ` : "price at "}${label}${capturedOn ? `, recorded ${dateLabel(capturedOn)}` : ""}`} onPress={onEdit} />
+        </View>
+      ) : <PriceDisplay {...prices} showPackLabel />}
     </>
   );
 
@@ -76,6 +84,7 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 160,
   },
+  prices: { gap: spacing.xs, alignItems: "flex-end" },
   number: { backgroundColor: color.white },
   copy: { flex: 1, gap: spacing.xs },
   name: { color: color.ink, fontWeight: "800", fontSize: typography.label },
