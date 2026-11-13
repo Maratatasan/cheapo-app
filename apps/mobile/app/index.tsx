@@ -19,6 +19,7 @@ export default function Index() {
       <Stack.Screen
         options={{
           title: "Cheapo",
+          headerTransparent: { ios: false },
           headerRight: showDeveloperTools
             ? () => <Button title="Developer tools" onPress={() => router.push("/developer-tools")} />
             : fieldTest ? () => <Button title="ChatGPT" onPress={() => router.push("/direct-auth")} />
