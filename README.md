@@ -25,6 +25,9 @@ pnpm android
 pnpm web
 ```
 
+For a standalone build on a physical iPhone, see the
+[local iOS build guide](docs/ios-local-build.md).
+
 ## Checks
 
 ```sh
