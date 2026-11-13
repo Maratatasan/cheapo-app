@@ -1,15 +1,16 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { marketColor, spacing } from './theme';
 
-export function MarketScanActions({ onScanLabel }: { onScanLabel: () => void }) {
+export function MarketScanActions({ onScanLabel, onScanBarcode }: { onScanLabel: () => void; onScanBarcode?: () => void }) {
   return (
     <View style={styles.actions}>
       <Pressable accessibilityRole="button" onPress={onScanLabel} style={[styles.button, styles.label]}>
         <Text style={styles.labelText}>Scan label</Text>
       </Pressable>
-      <Pressable accessibilityRole="button" accessibilityLabel="Scan product barcode, coming next" accessibilityState={{ disabled: true }} disabled style={styles.button}>
+      <Pressable accessibilityRole="button" accessibilityLabel={onScanBarcode ? "Scan product barcode" : "Scan product barcode, coming next"}
+        accessibilityState={{ disabled: !onScanBarcode }} disabled={!onScanBarcode} onPress={onScanBarcode} style={styles.button}>
         <Text style={styles.barcodeText}>Scan product barcode</Text>
-        <Text style={styles.caption}>Coming next</Text>
+        {!onScanBarcode ? <Text style={styles.caption}>Coming next</Text> : null}
       </Pressable>
     </View>
   );

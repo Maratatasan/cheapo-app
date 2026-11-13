@@ -20,7 +20,7 @@ import { DirectPhotoAnalysis } from "./direct-photo-analysis";
 import { fieldPhotoAnalysisEnabled } from "@/lib/direct-auth/phone-session";
 import { choosePhoto } from "@/lib/choose-photo";
 
-export const CameraComponent = ({ currentShop }: { currentShop?: DraftShop }) => {
+export const CameraComponent = ({ currentShop, onScanBarcode }: { currentShop?: DraftShop; onScanBarcode?: () => void }) => {
   const [captureStage, setCaptureStage] = useState(() => Dimensions.get("window"));
   const captureFrame = fittedCameraFrame(captureStage);
   const [facing, setFacing] = useState<CameraType>("back");
@@ -85,6 +85,9 @@ export const CameraComponent = ({ currentShop }: { currentShop?: DraftShop }) =>
   const testPhotoButton = __DEV__ ? (
     <CameraActionButton label="Use test photo" onPress={useTestPhoto} disabled={photoAction !== null} />
   ) : null;
+  const barcodeButton = onScanBarcode ? (
+    <CameraActionButton label="Scan product barcode" disabled={photoAction !== null} onPress={onScanBarcode} />
+  ) : null;
   const choosePhotoButton = Platform.OS !== "web" ? (
     <CameraActionButton
       label={photoAction === "choose" ? "Opening photos…" : "Choose photo"}
@@ -113,6 +116,7 @@ export const CameraComponent = ({ currentShop }: { currentShop?: DraftShop }) =>
     return (
       <View key="permission" collapsable={false} style={styles.permissionContainer}>
         <CameraPermissionActions onGrant={requestPermission} disabled={photoAction !== null} choosePhoto={choosePhotoButton}>
+          {barcodeButton}
           {testPhotoButton}
           {savedPhotoButtons}
         </CameraPermissionActions>
@@ -222,6 +226,7 @@ export const CameraComponent = ({ currentShop }: { currentShop?: DraftShop }) =>
             }}
             choosePhoto={choosePhotoButton}
           >
+            {barcodeButton}
             {testPhotoButton}
             {savedPhotoButtons}
           </CameraCaptureActions>

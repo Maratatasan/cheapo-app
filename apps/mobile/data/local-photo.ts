@@ -8,7 +8,7 @@ export { emptyReview, reviewComplete, type ManualReview } from './photo-review';
 
 export type PhotoAsset = { uri: string; width: number; height: number; mimeType: 'image/jpeg'; size?: number };
 export type DraftShop = { id: string; displayName: string };
-export type LocalPhotoDraft = { id: string; capturedAt: string; original: PhotoAsset; selected: PhotoAsset; review?: ManualReview; cropBox?: CropBox; shop?: DraftShop };
+export type LocalPhotoDraft = { id: string; capturedAt: string; original: PhotoAsset; selected: PhotoAsset; review?: ManualReview; cropBox?: CropBox; shop?: DraftShop; productId?: string };
 export async function localPhotoSource(asset: PhotoAsset): Promise<PhotoAsset> {
   if (!/^https?:/.test(asset.uri)) return asset;
   // Explicit development fixture selection may start as a remote JPEG.
@@ -56,6 +56,7 @@ function validSavedDraft(value: unknown): value is LocalPhotoDraft {
     if ([review.productType, review.variety, review.brand, review.packSize].some(value => value !== undefined && typeof value !== 'string')) return false;
   }
   if (draft.shop !== undefined && (!draft.shop || typeof draft.shop.id !== 'string' || !/^\S+$/u.test(draft.shop.id) || !normalizeName(draft.shop.displayName))) return false;
+  if (draft.productId !== undefined && (typeof draft.productId !== 'string' || !/^\S+$/u.test(draft.productId))) return false;
   const box = draft.cropBox;
   if (box !== undefined && (!box || ![box.left, box.top, box.right, box.bottom].every(value => Number.isFinite(value) && value >= 0 && value <= 1) || box.left >= box.right || box.top >= box.bottom)) return false;
   return true;

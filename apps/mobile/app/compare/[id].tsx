@@ -57,7 +57,8 @@ export default function SavedComparison() {
               onEdit={recordId => router.push({ pathname: '/edit-price/[id]', params: { id: recordId } })} />
           )}
         </ScrollView>
-        {Platform.OS !== 'web' ? <SafeAreaView edges={['bottom']}><MarketScanActions onScanLabel={() => router.push('/scan')} /></SafeAreaView> : null}
+        {Platform.OS !== 'web' ? <SafeAreaView edges={['bottom']}><MarketScanActions onScanLabel={() => router.push('/scan')}
+          onScanBarcode={() => router.push({ pathname: '/scan', params: { mode: 'barcode' } })} /></SafeAreaView> : null}
       </View>
     </>
   );

@@ -2,6 +2,7 @@ import { Fragment, useState } from "react";
 import { Image, Pressable, StyleSheet, Text, View, type ImageSourcePropType } from "react-native";
 import { comparePrices, normalizedUnitPrice, type ComparisonPrice } from "@/data/comparison-prices";
 import { dateLabel, knownUnitPrice, observationShopLabel, priceLabel, unitPriceLabel, type PriceValues } from "@/data/observation";
+import type { ProductMetadata } from "@/data/product-metadata";
 import { DisplayState } from "./display-state";
 import { SampleNotice } from "./sample-notice";
 import type { ShopCardProps } from "./shop-card";
@@ -13,6 +14,7 @@ export type ShopComparisonProps = {
   product: { name: string; pack?: string; photo?: ImageSourcePropType };
   comparisons: readonly ComparisonRow[];
   reference?: ComparisonRow;
+  catalogProduct?: ProductMetadata;
   state?: "ready" | "loading" | "error";
   onRetry?: () => void;
   onEdit?: (id: string) => void;
@@ -77,6 +79,7 @@ export function ShopComparison({
   product,
   comparisons,
   reference,
+  catalogProduct,
   state = "ready",
   onRetry,
   onEdit,
@@ -86,7 +89,8 @@ export function ShopComparison({
   const photo = product.photo;
   const [sameVariety, setSameVariety] = useState(false);
   const [sameBrand, setSameBrand] = useState(false);
-  const ranked = comparePrices(comparisons, reference, { sameVariety, sameBrand });
+  const ranked = comparePrices(comparisons, reference, { sameVariety, sameBrand }, catalogProduct);
+  const selection = catalogProduct ?? reference;
   const referenceUnitPrice = normalizedUnitPrice(reference?.unit_price);
   const lowestAlternative = ranked.groups.length === 1 ? ranked.groups[0].entries[0]?.unitPrice.amount : undefined;
   const lowest = referenceUnitPrice && lowestAlternative !== undefined ? Math.min(referenceUnitPrice.amount, lowestAlternative) : undefined;
@@ -113,11 +117,12 @@ export function ShopComparison({
         <View style={styles.details}>
           <Text accessibilityRole="header" style={styles.product}>{product.name}</Text>
           {product.pack ? <Text style={styles.small}>{product.pack}</Text> : null}
+          {catalogProduct ? <Text style={styles.small}>{[catalogProduct.productType, catalogProduct.variety, catalogProduct.brand].filter(Boolean).join(" · ")}</Text> : null}
           {reference ? (
             <>
               <Text style={styles.small}>{referenceShop}</Text>
               {reference.capturedOn ? <Text style={styles.small}>Recorded {dateLabel(reference.capturedOn)}</Text> : null}
-              <Text style={styles.small}>{[reference.productType, reference.variety, reference.brand].filter(Boolean).join(" · ")}</Text>
+              {!catalogProduct ? <Text style={styles.small}>{[reference.productType, reference.variety, reference.brand].filter(Boolean).join(" · ")}</Text> : null}
               <View style={styles.referenceActions}>
                 <ComparisonPrices prices={{ price: reference.price, currency: reference.currency, unit_price: referenceUnitPrice ?? reference.unit_price ?? null }}
                   savedUnit={reference.unit_price?.unit} cheapest={referenceLowest} />
@@ -131,7 +136,7 @@ export function ShopComparison({
       {sample ? <SampleNotice /> : null}
 
       <Text accessibilityRole="header" style={styles.heading}>Compare shop prices</Text>
-      {reference && state === "ready" ? (
+      {selection && state === "ready" ? (
         <>
           {!sample ? <Text style={styles.small}>Saved prices · Check when each price was recorded.</Text> : null}
           <View style={styles.filters}>
@@ -157,8 +162,8 @@ export function ShopComparison({
       ) : ranked.groups.length === 0 && ranked.unranked.length === 0 && ranked.differentBasis.length === 0 ? (
         <DisplayState
           kind="empty"
-          title={reference ? "No matching saved prices" : "No saved prices yet"}
-          description={reference ? "Save another product of the same type with a compatible price and unit, or change the filters." : "Saved prices for this item will appear here."}
+          title={selection ? "No matching saved prices" : "No saved prices yet"}
+          description={selection ? "Save another product of the same type with a compatible price and unit, or change the filters." : "Saved prices for this item will appear here."}
         />
       ) : (
         <>

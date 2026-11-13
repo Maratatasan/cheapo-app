@@ -43,12 +43,14 @@ function matchName(value?: string) {
 export function comparePrices<T extends ComparisonPrice>(
   prices: readonly T[], reference?: ComparisonPrice,
   filters: ComparisonFilters = { sameVariety: false, sameBrand: false },
+  catalogProduct?: ProductMetadata,
 ) {
-  const type = matchName(reference?.productType);
-  const variety = matchName(reference?.variety);
-  const brand = matchName(reference?.brand);
+  const selection = catalogProduct ?? reference;
+  const type = matchName(selection?.productType);
+  const variety = matchName(selection?.variety);
+  const brand = matchName(selection?.brand);
   const missing: string[] = [];
-  if (reference) {
+  if (selection) {
     if (!type) missing.push('product type');
     else {
       if (filters.sameVariety && !variety) missing.push('variety');
@@ -62,10 +64,11 @@ export function comparePrices<T extends ComparisonPrice>(
   if (missing.length) return { groups: [], unranked, differentBasis, missing };
 
   for (const row of prices) {
-    if (reference && (row.id === reference.id || matchName(row.productType) !== type || row.currency !== reference.currency ||
+    if (reference && (row.id === reference.id || row.currency !== reference.currency)) continue;
+    if (selection && (matchName(row.productType) !== type ||
       (filters.sameVariety && matchName(row.variety) !== variety) || (filters.sameBrand && matchName(row.brand) !== brand))) continue;
     const unitPrice = normalizedUnitPrice(row.unit_price);
-    if (!unitPrice || !row.currency || !/^[A-Z]{3}$/.test(row.currency) || (reference && !referenceUnit)) {
+    if (!unitPrice || !row.currency || !/^[A-Z]{3}$/.test(row.currency) || (reference && !referenceUnit && !catalogProduct)) {
       unranked.push(row);
       continue;
     }

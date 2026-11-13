@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { ScrollView, Text, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { expect } from 'storybook/test';
+import { expect, fn } from 'storybook/test';
 import type { Meta, StoryObj } from '@storybook/react-native-web-vite';
 import { MarketScanActions } from '../component/results/market-scan-actions';
 import { ShopComparison } from '../component/results/shop-comparison';
@@ -44,5 +44,16 @@ export const CompareAndScan: StoryObj = {
     await userEvent.click(canvas.getByRole('button', { name: 'Retake' }));
     await expect(canvas.getByRole('button', { name: 'Scan label' })).toBeVisible();
     window.scrollTo(0, 0);
+  },
+};
+
+export const ScanChoices: StoryObj<typeof MarketScanActions> = {
+  render: args => <MarketScanActions {...args} />,
+  args: { onScanBarcode: fn(), onScanLabel: fn() },
+  play: async ({ canvas, userEvent, args }) => {
+    await userEvent.click(canvas.getByRole('button', { name: 'Scan product barcode' }));
+    await expect(args.onScanBarcode).toHaveBeenCalledTimes(1);
+    await userEvent.click(canvas.getByRole('button', { name: 'Scan label' }));
+    await expect(args.onScanLabel).toHaveBeenCalledTimes(1);
   },
 };
