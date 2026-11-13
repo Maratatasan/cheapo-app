@@ -22,5 +22,18 @@ Verify changed camera, OS permission, keyboard and navigation behavior on the
 relevant native target. Check real camera capture on a physical device. Record
 browser Storybook, bundle exports, simulators and physical devices separately.
 
+## Pull request screenshots
+
+For every pull request that changes UI, embed representative screenshots in the
+PR description. Show the changed states with sample or sanitized data, and label
+whether each image is from Storybook/browser or a native target. Identify the
+source commit rendered; include before/after images when they clarify the change.
+Refresh screenshots after material UI changes. If capture is blocked, state why
+and what remains unverified instead of omitting the evidence silently.
+
+Screenshots help review visible changes; they do not replace automated tests,
+CI, or platform checks. Report browser, simulator, physical-device, and bundle
+results separately.
+
 In the handoff, link the PR, relevant stories and test evidence. Name the target
 for each device check and call out any verification gaps.
