@@ -1,10 +1,19 @@
 import { fireEvent, render, screen } from '@testing-library/react-native';
+import { ShopRepositoryProvider } from '../component/shop/shop-repository-provider';
+import type { ShopRepository } from '../data/shop-repository';
 import SavedProducts from '../app/saved-products';
 import SavedComparison from '../app/compare/[id]';
 import { emptyReview, loadSavedPriceRecords, type LocalPhotoDraft, type ManualPriceRecord } from '../data/local-photo';
 
 const mockPush = jest.fn();
 let mockFocusRevision = 0;
+const shopRepository = {
+  loadSavedShops: jest.fn(),
+  saveShop: jest.fn(),
+  selectShop: jest.fn(),
+  updateShop: jest.fn(),
+  removeShop: jest.fn(),
+} satisfies ShopRepository;
 
 jest.mock('expo-router', () => ({
   useRouter: () => ({ push: mockPush }),
@@ -32,7 +41,7 @@ const complete: LocalPhotoDraft = {
 
 test('reopens a saved product with its shop, price, and original photo', async () => {
   jest.mocked(loadSavedPriceRecords).mockResolvedValue([complete]);
-  await render(<SavedProducts />);
+  await render(<ShopRepositoryProvider repository={shopRepository}><SavedProducts /></ShopRepositoryProvider>);
 
   await fireEvent.press(await screen.findByRole('button', { name: 'Open Basmati rice' }));
   expect(screen.getByText('Tandem Centre Lidl')).toBeOnTheScreen();
@@ -53,7 +62,7 @@ test('shows an unfinished older photo as a draft with its original free-text sho
     shop: undefined,
     review: emptyReview('Previous shop'),
   }]);
-  await render(<SavedProducts />);
+  await render(<ShopRepositoryProvider repository={shopRepository}><SavedProducts /></ShopRepositoryProvider>);
 
   expect(await screen.findByRole('button', { name: 'Open Photo draft' })).toBeOnTheScreen();
   expect(screen.getByText('Previous shop')).toBeOnTheScreen();
@@ -64,7 +73,7 @@ test('opens a manual price and retains its edit and comparison actions without p
   const manual: ManualPriceRecord = { id: 'manual-rice', capturedAt: complete.capturedAt,
     productId: 'product-rice', shop: complete.shop!, review: complete.review! };
   jest.mocked(loadSavedPriceRecords).mockResolvedValue([manual]);
-  await render(<SavedProducts />);
+  await render(<ShopRepositoryProvider repository={shopRepository}><SavedProducts /></ShopRepositoryProvider>);
   await fireEvent.press(await screen.findByRole('button', { name: 'Open Basmati rice' }));
 
   expect(screen.getByText('£1.25')).toBeOnTheScreen();

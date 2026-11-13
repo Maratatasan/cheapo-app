@@ -1,16 +1,18 @@
 import { useCallback, useState } from "react";
 import { useFocusEffect } from "expo-router";
 
-import { loadSavedShops, type SavedShopState } from "@/data/local-shops";
+import { useShopRepository } from "@/component/shop/shop-repository-provider";
+import type { SavedShopState } from "@/data/shop-repository";
 
 export function useSavedShops() {
+  const shopRepository = useShopRepository();
   const [shops, setShops] = useState<SavedShopState>();
   const [readError, setReadError] = useState<string>();
   const [attempt, setAttempt] = useState(0);
 
   useFocusEffect(useCallback(() => {
     let focused = true;
-    loadSavedShops().then((state) => {
+    shopRepository.loadSavedShops().then((state) => {
       if (!focused) return;
       setShops(state);
       setReadError(undefined);
@@ -18,9 +20,10 @@ export function useSavedShops() {
       if (focused) setReadError("Could not read saved shops. Try again.");
     });
     return () => { focused = false; };
-  }, [attempt]));
+  }, [attempt, shopRepository]));
 
   return {
+    shopRepository,
     shops,
     setShops,
     readError,

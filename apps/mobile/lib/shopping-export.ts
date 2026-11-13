@@ -6,7 +6,7 @@ import { Zip, ZipPassThrough } from 'fflate/browser';
 
 import { loadSavedPriceRecords, reviewComplete, savedPhotoDirectory, type SavedPriceRecord, type PhotoAsset } from '@/data/local-photo';
 import { reviewUnitPrice } from '@/data/photo-review';
-import { loadSavedShops } from '@/data/local-shops';
+import type { ShopRepository } from '@/data/shop-repository';
 
 const CHUNK_BYTES = 128 * 1024;
 const ZIP32_LIMIT = 0xffffffff;
@@ -110,7 +110,7 @@ async function writeArchive(
   }
 }
 
-export async function exportShoppingData(signal: AbortSignal): Promise<void> {
+export async function exportShoppingData(signal: AbortSignal, shopRepository: Pick<ShopRepository, 'loadSavedShops'>): Promise<void> {
   let archive: File | undefined;
   let created = false;
   try {
@@ -120,7 +120,7 @@ export async function exportShoppingData(signal: AbortSignal): Promise<void> {
       throw new ExportError('A saved record or photo is unreadable. The full collection could not be exported.');
     });
     if (!drafts.length) throw new ExportError('There are no saved products or photos to export.');
-    const { shops } = await loadSavedShops();
+    const { shops } = await shopRepository.loadSavedShops();
     ensureActive(signal);
     const exportedAt = new Date().toISOString();
     const records = drafts.map(describeRecord);

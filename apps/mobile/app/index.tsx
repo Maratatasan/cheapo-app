@@ -4,13 +4,12 @@ import { Stack, useRouter } from "expo-router";
 import Constants from "expo-constants";
 import { ShopChooser, ShopLoadFeedback } from "@/component/shop/shop-chooser";
 import { ShopHome } from "@/component/shop/shop-home";
-import * as localShopActions from "@/data/local-shops";
 import { useSavedShops } from "@/hooks/use-saved-shops";
 
 export default function Index() {
   const router = useRouter();
   const [choosing, setChoosing] = useState(false);
-  const { shops, setShops, readError, retry } = useSavedShops();
+  const { shopRepository, shops, setShops, readError, retry } = useSavedShops();
   const showDeveloperTools = Constants.expoConfig?.extra?.directAuthTest === true;
   const fieldTest = Platform.OS === "android" && Constants.expoConfig?.extra?.fieldTest === true;
 
@@ -29,10 +28,10 @@ export default function Index() {
       {choosing && shops ? (
         <ShopChooser
           state={shops}
-          actions={localShopActions}
+          actions={shopRepository}
           management={{
-            updateShop: localShopActions.updateShop,
-            removeShop: localShopActions.removeShop,
+            updateShop: (id, details) => shopRepository.updateShop(id, details),
+            removeShop: id => shopRepository.removeShop(id),
             onChanged: setShops,
           }}
           onSelected={(state) => { setShops(state); setChoosing(false); }}
