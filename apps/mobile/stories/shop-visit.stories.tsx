@@ -7,7 +7,7 @@ import { shopDisplayName } from "@cheapo/domain/names";
 import { ui } from "../component/results/theme";
 import { ShopChooser } from "../component/shop/shop-chooser";
 import { ShopHome } from "../component/shop/shop-home";
-import type { SavedShopState } from "../data/local-shops";
+import type { SavedShopState } from "../data/shop-repository";
 
 const sampleShops = [
   { id: "colliers-sainsburys", name: "Sainsbury’s", nickname: "Colliers Wood Sainsbury’s" },

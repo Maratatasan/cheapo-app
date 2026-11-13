@@ -1,12 +1,29 @@
 import type { ReactNode } from "react";
-import { fireEvent, render, screen } from "@testing-library/react-native";
+import { fireEvent, render as renderScreen, screen } from "@testing-library/react-native";
 import DeveloperTools from "../app/developer-tools";
 import HomeScreen from "../app/index";
 import ScanScreen from "../app/scan";
-import { loadSavedShops, removeShop, saveShop, updateShop } from "../data/local-shops";
+import { ShopRepositoryProvider } from "../component/shop/shop-repository-provider";
+import type { ShopRepository } from "../data/shop-repository";
 
 const mockPush = jest.fn();
 const mockExtra = { directAuthTest: false };
+const testShopRepository = {
+  loadSavedShops: jest.fn<ReturnType<ShopRepository["loadSavedShops"]>, []>(),
+  saveShop: jest.fn(),
+  selectShop: jest.fn(),
+  updateShop: jest.fn(),
+  removeShop: jest.fn(),
+} satisfies ShopRepository;
+const { loadSavedShops, saveShop, updateShop, removeShop } = testShopRepository;
+
+function WithShopRepository({ children }: { children: ReactNode }) {
+  return <ShopRepositoryProvider repository={testShopRepository}>{children}</ShopRepositoryProvider>;
+}
+
+function render(ui: Parameters<typeof renderScreen>[0]) {
+  return renderScreen(ui, { wrapper: WithShopRepository });
+}
 
 jest.mock("expo-router", () => ({
   useRouter: () => ({ push: mockPush }),
@@ -17,7 +34,6 @@ jest.mock("expo-router", () => ({
 }));
 
 jest.mock("expo-constants", () => ({ expoConfig: { get extra() { return mockExtra; } } }));
-jest.mock("../data/local-shops", () => ({ loadSavedShops: jest.fn(), saveShop: jest.fn(), selectShop: jest.fn(), updateShop: jest.fn(), removeShop: jest.fn() }));
 jest.mock("../component/camera", () => ({
   CameraComponent: ({ currentShop }: { currentShop?: { displayName: string } }) => {
     const { Text } = require("react-native");

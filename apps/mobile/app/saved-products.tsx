@@ -8,6 +8,7 @@ import { PriceDisplay } from '@/component/results/price-display';
 import { color, radius, spacing, typography, ui } from '@/component/results/theme';
 import { loadSavedPriceRecords, reviewComplete, type SavedPriceRecord } from '@/data/local-photo';
 import { reviewUnitPrice } from '@/data/photo-review';
+import { useShopRepository } from '@/component/shop/shop-repository-provider';
 
 function SavedDetails({ draft }: { draft: SavedPriceRecord }) {
   const { review } = draft;
@@ -39,6 +40,7 @@ function SavedDetails({ draft }: { draft: SavedPriceRecord }) {
 
 export default function SavedProducts() {
   const router = useRouter();
+  const shops = useShopRepository();
   const [drafts, setDrafts] = useState<SavedPriceRecord[]>();
   const [error, setError] = useState(false);
   const focus = useRef<AbortController | null>(null);
@@ -74,7 +76,7 @@ export default function SavedProducts() {
       const { exportShoppingData } = await import('@/lib/shopping-export').catch(() => {
         throw Error('Sharing is unavailable in this build.');
       });
-      await exportShoppingData(signal);
+      await exportShoppingData(signal, shops);
     } catch (error) {
       if (!signal.aborted) setExportError(error instanceof Error ? error.message : 'Could not prepare the export.');
     } finally {

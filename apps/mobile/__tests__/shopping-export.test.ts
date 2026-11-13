@@ -2,7 +2,7 @@ import { shareAsync, isAvailableAsync } from 'expo-sharing';
 import { unzipSync } from 'fflate/browser';
 
 import { emptyReview, loadSavedPriceRecords, type LocalPhotoDraft } from '@/data/local-photo';
-import { loadSavedShops } from '@/data/local-shops';
+import type { ShopRepository } from '@/data/shop-repository';
 import { exportShoppingData } from '@/lib/shopping-export';
 
 const mockFiles = new Map<string, Uint8Array>();
@@ -52,7 +52,7 @@ jest.mock('expo-file-system', () => {
   return { Directory, File, FileMode: { ReadOnly: 'r', WriteOnly: 'w' }, Paths: { document: 'file:///documents', cache: 'file:///cache' } };
 });
 jest.mock('../data/local-photo', () => ({ ...jest.requireActual('../data/local-photo'), loadSavedPriceRecords: jest.fn() }));
-jest.mock('../data/local-shops', () => ({ loadSavedShops: jest.fn() }));
+const shopRepository = { loadSavedShops: jest.fn<ReturnType<ShopRepository['loadSavedShops']>, []>() };
 
 const original = { uri: 'file:///documents/price-photos/rice-original.jpg', width: 1000, height: 600, mimeType: 'image/jpeg' } as const;
 const crop = { ...original, uri: 'file:///documents/price-photos/rice-crop.jpg', width: 500, height: 300 };
@@ -73,11 +73,11 @@ beforeEach(() => {
   jest.mocked(isAvailableAsync).mockResolvedValue(true);
   jest.mocked(shareAsync).mockResolvedValue(undefined);
   jest.mocked(loadSavedPriceRecords).mockResolvedValue([complete, old]);
-  jest.mocked(loadSavedShops).mockResolvedValue({ shops: [{ id: 'test-shop-id', nickname: 'Test shop' }] });
+  shopRepository.loadSavedShops.mockResolvedValue({ shops: [{ id: 'test-shop-id', nickname: 'Test shop' }] });
 });
 
 test('shares an extractable ZIP with reviewed records, older drafts, and portable photo references', async () => {
-  await exportShoppingData(new AbortController().signal);
+  await exportShoppingData(new AbortController().signal, shopRepository);
   expect(loadSavedPriceRecords).toHaveBeenCalledWith({ requireAll: true });
   expect(shareAsync).toHaveBeenCalledTimes(1);
   const [uri, options] = jest.mocked(shareAsync).mock.calls[0];
@@ -109,8 +109,8 @@ test('shares an extractable ZIP with reviewed records, older drafts, and portabl
 });
 
 test('exports historical shop identity and photos after a shop leaves the catalogue', async () => {
-  jest.mocked(loadSavedShops).mockResolvedValue({ shops: [] });
-  await exportShoppingData(new AbortController().signal);
+  shopRepository.loadSavedShops.mockResolvedValue({ shops: [] });
+  await exportShoppingData(new AbortController().signal, shopRepository);
   const [[uri]] = jest.mocked(shareAsync).mock.calls;
   const archive = unzipSync(Buffer.concat(mockWrites.get(uri)!));
   const manifest = JSON.parse(new TextDecoder().decode(archive['manifest.json']));
@@ -123,7 +123,7 @@ test('exports manual prices as dated records without creating image entries', as
   const manual = { id: 'manual-price', productId: 'catalog-rice', capturedAt: complete.capturedAt,
     shop: complete.shop!, review: complete.review! };
   jest.mocked(loadSavedPriceRecords).mockResolvedValue([manual, complete]);
-  await exportShoppingData(new AbortController().signal);
+  await exportShoppingData(new AbortController().signal, shopRepository);
   const [[uri]] = jest.mocked(shareAsync).mock.calls;
   const archive = unzipSync(Buffer.concat(mockWrites.get(uri)!));
   expect(Object.keys(archive).sort()).toEqual(['manifest.json', 'photos/2/crop.jpg', 'photos/2/original.jpg']);
@@ -138,14 +138,14 @@ test('does not share an incomplete archive or read outside the saved photo direc
   const outside = { ...original, uri: 'file:///documents/private/other.jpg' };
   mockFiles.set(outside.uri, Uint8Array.of(1));
   jest.mocked(loadSavedPriceRecords).mockResolvedValue([{ ...complete, original: outside }]);
-  await expect(exportShoppingData(new AbortController().signal)).rejects.toThrow('saved photo is missing or unreadable');
+  await expect(exportShoppingData(new AbortController().signal, shopRepository)).rejects.toThrow('saved photo is missing or unreadable');
   expect(mockRead).not.toHaveBeenCalled();
   expect(shareAsync).not.toHaveBeenCalled();
 });
 
 test('deletes only the failed temporary archive when writing fails', async () => {
   mockFailWrite = true;
-  await expect(exportShoppingData(new AbortController().signal)).rejects.toThrow('Could not export');
+  await expect(exportShoppingData(new AbortController().signal, shopRepository)).rejects.toThrow('Could not export');
   expect(shareAsync).not.toHaveBeenCalled();
   expect(mockDelete).toHaveBeenCalledTimes(1);
   expect(mockDelete).toHaveBeenCalledWith(expect.stringMatching(/^file:\/\/\/cache\/cheapo-shopping-exports\//));
@@ -155,7 +155,7 @@ test('deletes only the failed temporary archive when writing fails', async () =>
 test('never opens sharing after cancellation', async () => {
   const controller = new AbortController();
   mockRead.mockImplementationOnce(() => controller.abort());
-  await expect(exportShoppingData(controller.signal)).rejects.toThrow('Export cancelled');
+  await expect(exportShoppingData(controller.signal, shopRepository)).rejects.toThrow('Export cancelled');
   expect(shareAsync).not.toHaveBeenCalled();
   expect(mockDelete).toHaveBeenCalledTimes(1);
 });
