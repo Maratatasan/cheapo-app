@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { BarcodeScan } from '@/component/barcode-scan';
-import { findLocalProductByBarcode } from '@/data/local-products';
+import { addLocalProduct, findLocalProductByBarcode } from '@/data/local-products';
 import { emptyReview } from '@/data/photo-review';
 import { loadLocalPhotos, type LocalPhotoDraft } from '@/data/local-photo';
 
@@ -16,7 +16,8 @@ jest.mock('expo-camera', () => ({
     return <View testID="barcode-preview" onBarcodeScanned={onBarcodeScanned} />;
   },
 }));
-jest.mock('@/data/local-products', () => ({ findLocalProductByBarcode: jest.fn() }));
+jest.mock('@/data/local-products', () => ({ addLocalProduct: jest.fn(), findLocalProductByBarcode: jest.fn() }));
+jest.mock('expo-crypto', () => ({ randomUUID: () => 'catalog-product-id' }));
 jest.mock('@/data/local-photo', () => ({ loadLocalPhotos: jest.fn() }));
 
 const product = { id: 'exact-rice', name: 'Example Basmati Rice', productType: 'Dry rice',
@@ -97,4 +98,39 @@ test('ignores invalid and repeated scans, then lets the shopper scan again after
   expect(loadLocalPhotos).not.toHaveBeenCalled();
   await fireEvent.press(screen.getByRole('button', { name: 'Scan another barcode' }));
   expect(screen.getByTestId('barcode-preview')).toBeOnTheScreen();
+});
+
+test('returns to scanning after save and finds the same product on rescan', async () => {
+  const saved = { ...product, id: 'catalog-product-id', barcode: '00012345678905' };
+  jest.mocked(findLocalProductByBarcode).mockResolvedValueOnce(undefined).mockResolvedValueOnce(saved);
+  jest.mocked(addLocalProduct).mockResolvedValue(saved);
+  jest.mocked(loadLocalPhotos).mockResolvedValue([]);
+  await render(<BarcodeScan onScanLabel={jest.fn()} />);
+  await scan();
+  await fireEvent.press(screen.getByRole('button', { name: 'Add product' }));
+  await fireEvent.press(screen.getByRole('button', { name: 'Save product' }));
+  expect(screen.getByRole('alert')).toHaveTextContent('Enter a product name and type.');
+  expect(addLocalProduct).not.toHaveBeenCalled();
+
+  await fireEvent.changeText(screen.getByLabelText('Product name'), product.name);
+  await fireEvent.changeText(screen.getByLabelText('Product type'), product.productType);
+  await fireEvent.changeText(screen.getByLabelText('Pack size (optional)'), '8 × 500 mL');
+  await fireEvent.press(screen.getByRole('button', { name: 'Save product' }));
+  expect(addLocalProduct).toHaveBeenCalledWith(expect.objectContaining({
+    id: saved.id, barcode: saved.barcode, name: product.name, productType: product.productType,
+    pack: { quantity: 4000, unit: 'mL', label: '8 × 500 mL' },
+  }));
+  await scan('0012345678905');
+  expect(await screen.findByRole('header', { name: product.name })).toBeOnTheScreen();
+});
+
+test('cancels product entry and resumes scanning without saving', async () => {
+  jest.mocked(findLocalProductByBarcode).mockResolvedValue(undefined);
+  await render(<BarcodeScan onScanLabel={jest.fn()} />);
+  await scan();
+  await fireEvent.press(screen.getByRole('button', { name: 'Add product' }));
+  await fireEvent.changeText(screen.getByLabelText('Product name'), 'Unsaved product');
+  await fireEvent.press(screen.getByRole('button', { name: 'Cancel' }));
+  expect(screen.getByTestId('barcode-preview')).toBeOnTheScreen();
+  expect(addLocalProduct).not.toHaveBeenCalled();
 });

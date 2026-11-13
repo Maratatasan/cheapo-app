@@ -17,7 +17,8 @@ flowchart TD
     CurrentShop -->|Yes| Source
     Source --> Barcode["Scan product barcode"]
     Barcode -->|Known product| Compare
-    Barcode -->|Unknown product| Source
+    Barcode -->|Unknown product| AddProduct["Review and save product details"]
+    AddProduct -->|Save or cancel| Barcode
     Source --> Permission["Camera permission"]
     Source --> Crop
     Permission -->|Granted| Capture
@@ -50,7 +51,7 @@ flowchart TD
 | Storage | The [local photo store](../apps/mobile/data/local-photo.ts) writes JPEGs and a JSON manifest in the app’s private directory. Scan reopens saved drafts. The [gallery helper](../apps/mobile/lib/photo-gallery.ts) copies the selected image only on request after saving. |
 | Export | On Android, **Saved products and photos → Export saved products and photos** prepares a private ZIP and opens the Android share sheet. Choose an app or save destination there. The archive contains `manifest.json` (version 1), saved shop details and capture snapshots, manual review values and status, and original and cropped JPEGs linked by relative paths. It excludes sign-in credentials, sessions, logs and device-local paths. Cheapo makes no upload and keeps saved records intact. If a record or photo cannot be read, the export stops. Completed archives stay in Android-managed cache so the chosen app can read them after the share sheet closes. |
 | Saved price comparison | [Compare](../apps/mobile/app/compare/%5Bid%5D.tsx) opens from a completed saved review. It compares other completed local reviews of the same type and currency. The variety and brand filters can be used independently or together. Compatible unit prices are normalized and sorted ascending. The lowest comparable price is highlighted, including the selected reference where it is cheapest. Scan label opens the existing camera flow, and Scan product barcode opens barcode scanning. Records without a comparable unit price are shown separately. **Edit** opens the original price and unit in the shared review form. Saving updates only the existing record’s review and refreshes the comparison. |
-| Product barcode | [Scan](../apps/mobile/app/scan.tsx) requires a selected shop for both label and [barcode capture](../apps/mobile/component/barcode-scan.tsx). The [local product lookup](../apps/mobile/data/local-products.ts) uses the canonical GTIN to find an exact product ID and its comparison category. The most recent completed observation explicitly linked to that ID can anchor the comparison. An unknown barcode can return to scanning. Existing reviews keep their recorded product types for category comparison. |
+| Product barcode | [Scan](../apps/mobile/app/scan.tsx) requires a selected shop for both label and [barcode capture](../apps/mobile/component/barcode-scan.tsx). The [local product lookup](../apps/mobile/data/local-products.ts) uses the canonical GTIN to find an exact product ID and its comparison category. The most recent completed observation explicitly linked to that ID can anchor the comparison. An unknown barcode can open [Add product](../apps/mobile/component/add-barcode-product.tsx) or return to scanning. Saving associates the reviewed product with its scanned code and returns to scanning. Cancelling creates no product. Existing reviews keep their recorded product types for category comparison. |
 | Sample browsing | [Results](../apps/mobile/app/results.tsx) and [Shops](../apps/mobile/app/shops.tsx) use [fictional sample data](../apps/mobile/data/sample-observations.ts). This browse flow is independent of local drafts. |
 
 ## Experiments and planned boundaries

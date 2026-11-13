@@ -34,6 +34,7 @@ export const productSchema = z.object({
   pack: z.object({
     quantity: z.number().positive(),
     unit: nonblankText,
+    label: nonblankText.optional(),
   }).optional(),
   photoIds: z.array(stableId).optional(),
   comparableGroupId: stableId.optional(),
