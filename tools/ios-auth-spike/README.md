@@ -102,6 +102,28 @@ xcrun devicectl device copy from --device '<iPhone UDID>' \
 Stop the private server when finished. If cleaning up the iPhone, remove only
 the separate mock app, whose container holds synthetic event logs.
 
+### Observed on iPhone 13 Pro Max
+
+Xcode 27.2, iOS 26.7.1, 2026-11-13. Test build 1.0 (1) came from
+`fd7788ceb8c9b6c394354234b7dec24ed6485f97` and its signed executable had
+SHA-256 `936b30a1ce55e95f0e5b182b5837bc665b8d81e55272be93b9f78579bec82995`.
+
+The app opened external Safari with `UIApplication.shared.open`. The initial
+remote launch was denied while the phone was locked. After the user opened the
+app, two Safari handoffs backgrounded it at 13:49:38 and 13:50:16 UTC. Safari
+reported that HTTPS-Only blocked the mock authorization page on the Mac's
+private address. The first attempt returned to the foreground at 13:50:10
+and was cancelled at 13:50:13. The second showed the same Safari error.
+The app recorded no accepted or rejected callback in either attempt.
+
+The next discriminating test needs a mock authorization page served over
+HTTPS with a certificate already trusted by the iPhone, while keeping the
+phone-local HTTP callback identical. A direct phone-local navigation could
+test listener reachability separately. It would not test the redirect from
+an HTTPS authorization origin. Keep Safari's protections enabled.
+[Apple Safari HTTP guidance](https://support.apple.com/guide/iphone/get-http-website-warnings-iphfba2ed790/ios)
+· [WebKit loopback HTTPS-Only change](https://github.com/WebKit/WebKit/pull/65222)
+
 ## Observed on iPhone 17 Pro Simulator
 
 Xcode 27.2, iOS 26.5, 2026-11-13. The first cold Safari launch timed out and a
