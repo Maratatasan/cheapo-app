@@ -28,6 +28,7 @@ test.each([
   expect(result.groups).toHaveLength(1);
   expect(result.groups[0].entries.map(({ row }) => row.id)).toEqual(expected);
   expect(result.unranked.map(({ id }) => id)).toEqual(['missing price', 'unknown unit']);
+  expect(result.differentBasis.map(({ id }) => id)).toEqual(['different dimension']);
 });
 
 test('explicitly reports missing reference metadata and a missing comparable reference unit', () => {
@@ -44,6 +45,24 @@ test('converts only known price bases without crossing dimensions', () => {
   expect(normalizedUnitPrice({ amount: 0.25, unit: '100 ml' })).toEqual({ amount: 2.5, unit: 'litre' });
   expect(normalizedUnitPrice({ amount: 2.5, unit: 'L' })).toEqual({ amount: 2.5, unit: 'litre' });
   expect(normalizedUnitPrice({ amount: 1, unit: 'each' })).toEqual({ amount: 1, unit: 'item' });
+  expect(normalizedUnitPrice({ amount: 0.35, unit: 'egg' })).toEqual({ amount: 0.35, unit: 'item' });
+  expect(normalizedUnitPrice({ amount: 0.6, unit: 'per 2 eggs' })).toEqual({ amount: 0.3, unit: 'item' });
+  expect(normalizedUnitPrice({ amount: 0.25, unit: 'per 100 mL' })).toEqual({ amount: 2.5, unit: 'litre' });
+  expect(normalizedUnitPrice({ amount: 2, unit: 'per litre' })).toEqual({ amount: 2, unit: 'litre' });
   expect(normalizedUnitPrice({ amount: 1, unit: '0 g' })).toBeNull();
   expect(normalizedUnitPrice({ amount: 1, unit: 'bag' })).toBeNull();
+});
+
+test('ranks eggs and each prices together and preserves other printed bases outside that ranking', () => {
+  const eggs = row('eggs', { productType: 'Eggs', unit_price: { amount: 0.35, unit: 'egg' } });
+  const each = { ...eggs, id: 'each', unit_price: { amount: 0.3, unit: 'each' } };
+  const dozen = { ...eggs, id: 'dozen', unit_price: { amount: 4.8, unit: '12 eggs' } };
+  const byWeight = { ...eggs, id: 'weight', unit_price: { amount: 0.1, unit: '100 g' } };
+
+  const result = comparePrices([dozen, byWeight, each], eggs);
+  expect(result.groups.map(({ unit, entries }) => [unit, entries.map(({ row }) => row.id)])).toEqual([
+    ['item', ['each', 'dozen']],
+  ]);
+  expect(result.groups[0].entries[1].row.unit_price).toEqual({ amount: 4.8, unit: '12 eggs' });
+  expect(result.differentBasis).toEqual([byWeight]);
 });

@@ -7,6 +7,7 @@ test('derives current pack price when the original unit fields are empty', () =>
   expect(reviewUnitPrice(review)).toEqual({ amount: 5, unit: 'kg' });
   expect(reviewUnitPrice({ ...review, price: '3.00' })).toEqual({ amount: 6, unit: 'kg' });
   expect(reviewUnitPrice({ ...review, packSize: '1 litre' })).toEqual({ amount: 2.5, unit: 'litre' });
+  expect(reviewUnitPrice({ ...review, price: '1.50', packSize: '6 eggs' })).toEqual({ amount: 0.25, unit: 'item' });
 });
 
 test('preserves supplied unit amount and basis and rejects partial or invalid entries', () => {
