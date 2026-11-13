@@ -1,10 +1,20 @@
 import type { ConfigContext, ExpoConfig } from 'expo/config';
 
-// Keep standalone Android build identities separate from the default app.
+// Keep standalone test build identities separate from the default app.
 export default function configure({ config }: ConfigContext): ExpoConfig {
   const authTest = process.env.CHEAPO_AUTH_TEST === '1';
   const fieldTest = process.env.CHEAPO_FIELD_TEST === '1';
-  if (authTest && fieldTest) throw new Error('Choose one Cheapo test app per build.');
+  const iosAuthTest = process.env.CHEAPO_IOS_AUTH_TEST === '1';
+  if ([authTest, fieldTest, iosAuthTest].filter(Boolean).length > 1) throw new Error('Choose one Cheapo test app per build.');
+  if (iosAuthTest) return {
+    ...config,
+    name: 'Cheapo iPhone Auth Test',
+    slug: config.slug ?? 'cheapo-app',
+    version: '1.0.0',
+    scheme: 'cheapo-ios-auth-test',
+    ios: { ...config.ios, bundleIdentifier: 'com.maratatasan.cheapo.ios-auth-test', buildNumber: '1' },
+    extra: { ...config.extra, iosDirectAuthTest: true },
+  };
   if (fieldTest) return {
     ...config,
     name: 'Cheapo Field',

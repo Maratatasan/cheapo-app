@@ -1,1 +1,16 @@
-{"platforms":["android"],"android":{"modules":["expo.modules.cheapoloopback.CheapoLoopbackModule"]}}
+{
+  "platforms": [
+    "android",
+    "apple"
+  ],
+  "android": {
+    "modules": [
+      "expo.modules.cheapoloopback.CheapoLoopbackModule"
+    ]
+  },
+  "apple": {
+    "modules": [
+      "CheapoLoopbackModule"
+    ]
+  }
+}
