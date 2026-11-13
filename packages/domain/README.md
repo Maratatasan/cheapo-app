@@ -25,7 +25,8 @@ tests.
 - `id` identifies the exact product. `name` is required. `brand` and
   `barcode` are optional. A barcode is a digit string and retains leading zeros.
 - `pack` is optional. When known, it contains a positive finite `quantity` and a
-  nonblank `unit`, such as `{ quantity: 500, unit: 'g' }`.
+  nonblank `unit`, such as `{ quantity: 500, unit: 'g' }`. An optional `label`
+  preserves the reviewed expression, such as `8 × 500 mL` for a total of 4000 mL.
 - `photoIds` optionally points to photo records by their IDs. Photo files,
   bytes, and storage details live at the photo boundary.
 - `comparableGroupId` is an optional reference shared by comparable products.

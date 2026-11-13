@@ -7,13 +7,26 @@ export const emptyReview = (shop = ''): ManualReview => ({ productName: '', pric
 export const packSizeMaxLength = 50;
 const validPrice = (value: string, fraction = 2) => new RegExp(`^\\d+(\\.\\d{1,${fraction}})?$`).test(value.trim()) && value.length <= 24 && Number(value) > 0 && Number(value) <= 9999999.99;
 
-export function calculatePackUnitPrice(total: string, pack: string) {
-  const basis = pack.trim().replace(/(items|litres|liters)$/i, unit => unit.slice(0, -1));
-  const match = /^(?:(\d+)\s*[x×]\s*)?(\d+(?:\.\d+)?\s*[a-z]+)$/i.exec(basis);
-  if (!validPrice(total) || !match) return null;
+function packParts(pack: string) {
+  const match = /^(?:(\d+)\s*[x×]\s*)?(\d+(?:\.\d+)?)\s*([a-z]+)$/i.exec(pack.trim());
+  if (!match) return null;
   const count = Number(match[1] ?? 1);
   if (!Number.isSafeInteger(count) || count < 1) return null;
-  return normalizedUnitPrice({ amount: Number(total) / count, unit: match[2] });
+  return { count, quantity: match[2], unit: match[3] };
+}
+
+export function calculatePackUnitPrice(total: string, pack: string) {
+  const parts = packParts(pack);
+  if (!validPrice(total) || !parts) return null;
+  return normalizedUnitPrice({ amount: Number(total) / parts.count, unit: `${parts.quantity} ${parts.unit}` });
+}
+
+export function productPackFromText(value: string) {
+  const label = value.trim();
+  const parts = packParts(label);
+  if (!parts || !calculatePackUnitPrice('1', label)) return undefined;
+  const quantity = Number(parts.quantity) * parts.count;
+  return Number.isFinite(quantity) ? { quantity, unit: parts.unit, label } : undefined;
 }
 
 export function reviewUnitPrice(review: ManualReview) {
