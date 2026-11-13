@@ -16,3 +16,28 @@ test('preserves supplied unit amount and basis and rejects partial or invalid en
   expect(calculatePackUnitPrice('1.23', '2 boxes')).toBeNull();
   expect(reviewComplete({ ...review, packSize: undefined })).toBe(true);
 });
+
+test.each([
+  ['8 × 500 mL', '3.20', 0.8, 'litre'],
+  ['8x500 ml', '3.20', 0.8, 'litre'],
+  ['3 X 0.5 kg', '6.00', 4, 'kg'],
+])('calculates unit price for an explicit multipack (%s)', (packSize, price, amount, unit) => {
+  const multipack = { ...review, packSize, price };
+  expect(reviewComplete(multipack)).toBe(true);
+  expect(reviewUnitPrice(multipack)).toEqual({ amount, unit });
+  expect(reviewUnitPrice({ ...multipack, unitPrice: '0.75', unit })).toEqual({ amount: 0.75, unit });
+});
+
+test.each([
+  '8 × 500',
+  '8 × ml',
+  '8 × 500 ml + 250 ml',
+  '0 × 500 ml',
+  '1.5 × 500 ml',
+  '8 × 0 ml',
+  '8 × 500 cans',
+])('keeps an invalid or ambiguous pack in review (%s)', packSize => {
+  const multipack = { ...review, packSize };
+  expect(reviewComplete(multipack)).toBe(false);
+  expect(reviewUnitPrice(multipack)).toBeNull();
+});
