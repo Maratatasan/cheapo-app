@@ -14,13 +14,24 @@ import { CameraActionButton, CameraCaptureActions, CameraPermissionActions, Came
 import { GalleryCopy } from "./gallery-copy";
 import { PhotoReview } from "./photo-review";
 import { PhotoCrop } from "./photo-crop";
-import { emptyReview, loadLocalPhotos, saveLocalPhoto, type DraftShop, type LocalPhotoDraft, type PhotoAsset } from "@/data/local-photo";
+import { emptyReview, loadLocalPhotos, reviewComplete, saveLocalPhoto, type DraftShop, type LocalPhotoDraft, type ManualReview, type PhotoAsset } from "@/data/local-photo";
 import { MobileDraft } from "./mobile-draft";
 import { DirectPhotoAnalysis } from "./direct-photo-analysis";
 import { fieldPhotoAnalysisEnabled } from "@/lib/direct-auth/phone-session";
 import { choosePhoto } from "@/lib/choose-photo";
 
-export const CameraComponent = ({ currentShop, onScanBarcode }: { currentShop?: DraftShop; onScanBarcode?: () => void }) => {
+type LinkedPriceCapture = {
+  productId: string;
+  initialReview: ManualReview;
+  onCancel: () => void;
+  onSaved: () => void;
+};
+
+export const CameraComponent = ({ currentShop, onScanBarcode, linkedPrice }: {
+  currentShop?: DraftShop;
+  onScanBarcode?: () => void;
+  linkedPrice?: LinkedPriceCapture;
+}) => {
   const [captureStage, setCaptureStage] = useState(() => Dimensions.get("window"));
   const captureFrame = fittedCameraFrame(captureStage);
   const [facing, setFacing] = useState<CameraType>("back");
@@ -34,10 +45,15 @@ export const CameraComponent = ({ currentShop, onScanBarcode }: { currentShop?: 
   const [savedPhotos, setSavedPhotos] = useState<LocalPhotoDraft[]>([]);
   const busy = saving;
   const savePending = useRef(false);
-  useEffect(() => { loadLocalPhotos().then(photos => { setSavedPhotos(photos); if (photos[0]?.review?.shop) setVisitShop(photos[0].review.shop); }).catch(() => Alert.alert('Saved photos unavailable', 'Your saved photos could not be read. Try reopening Scan.')); }, []);
+  useEffect(() => {
+    if (linkedPrice) return;
+    loadLocalPhotos().then(photos => { setSavedPhotos(photos); if (photos[0]?.review?.shop) setVisitShop(photos[0].review.shop); }).catch(() => Alert.alert('Saved photos unavailable', 'Your saved photos could not be read. Try reopening Scan.'));
+  }, [linkedPrice]);
   function selectPhoto(photo: PhotoAsset, cropBox?: CropBox) {
     setCropping(cropBox !== undefined);
-    setDraft({ id: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`, capturedAt: new Date().toISOString(), original: photo, selected: photo, review: emptyReview(currentShop?.displayName ?? visitShop), cropBox, shop: currentShop });
+    setDraft({ id: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`, capturedAt: new Date().toISOString(),
+      original: photo, selected: photo, review: linkedPrice?.initialReview ?? emptyReview(currentShop?.displayName ?? visitShop),
+      cropBox, shop: currentShop, productId: linkedPrice?.productId });
     setSaved(false);
   }
   async function persistPhoto(): Promise<LocalPhotoDraft> {
@@ -52,7 +68,8 @@ export const CameraComponent = ({ currentShop, onScanBarcode }: { currentShop?: 
     finally { savePending.current = false; setSaving(false); }
   }
   async function savePhoto() {
-    try { await persistPhoto(); } catch { Alert.alert('Photo not saved', 'Your preview is kept. Check free storage and try Save on this phone again.'); }
+    if (linkedPrice && !reviewComplete(draft?.review, currentShop?.displayName)) return;
+    try { await persistPhoto(); linkedPrice?.onSaved(); } catch { Alert.alert('Photo not saved', 'Your preview is kept. Check free storage and try Save on this phone again.'); }
   }
   const [cameraReady, setCameraReady] = useState(false);
   const [photoAction, setPhotoAction] = useState<"capture" | "choose" | null>(null);
@@ -82,11 +99,14 @@ export const CameraComponent = ({ currentShop, onScanBarcode }: { currentShop?: 
     setCameraReady(false);
     Image.getSize(uri, (width, height) => selectPhoto({ uri, width, height, mimeType: 'image/jpeg' }), () => Alert.alert('Test photo unavailable', 'Check the local fixture server and try again.'));
   };
-  const testPhotoButton = __DEV__ ? (
+  const testPhotoButton = __DEV__ && !linkedPrice ? (
     <CameraActionButton label="Use test photo" onPress={useTestPhoto} disabled={photoAction !== null} />
   ) : null;
   const barcodeButton = onScanBarcode ? (
     <CameraActionButton label="Scan product barcode" disabled={photoAction !== null} onPress={onScanBarcode} />
+  ) : null;
+  const linkedCancel = linkedPrice ? (
+    <CameraActionButton label="Back to price entry" disabled={photoAction !== null} onPress={linkedPrice.onCancel} />
   ) : null;
   const choosePhotoButton = Platform.OS !== "web" ? (
     <CameraActionButton
@@ -117,6 +137,7 @@ export const CameraComponent = ({ currentShop, onScanBarcode }: { currentShop?: 
       <View key="permission" collapsable={false} style={styles.permissionContainer}>
         <CameraPermissionActions onGrant={requestPermission} disabled={photoAction !== null} choosePhoto={choosePhotoButton}>
           {barcodeButton}
+          {linkedCancel}
           {testPhotoButton}
           {savedPhotoButtons}
         </CameraPermissionActions>
@@ -174,6 +195,8 @@ export const CameraComponent = ({ currentShop, onScanBarcode }: { currentShop?: 
           onReviewChange={review => { setDraft({ ...draft, review }); setSaved(false); setVisitShop(review.shop); }}
           galleryAction={<GalleryCopy key={draft.selected.uri} photo={draft.selected} />}
           onSave={savePhoto}
+          recordingPrice={!!linkedPrice}
+          onCancel={linkedPrice?.onCancel}
           onRetake={retakePhoto}
           onCrop={() => setCropping(true)}
           onOriginal={draft.selected.uri !== draft.original.uri ? () => { setDraft({ ...draft, selected: draft.original, cropBox: fullPhoto }); setSaved(false); } : undefined}
@@ -189,10 +212,10 @@ export const CameraComponent = ({ currentShop, onScanBarcode }: { currentShop?: 
                 ...draft,
                 review: {
                   ...review,
-                  productName: suggestion.product ?? review.productName,
-                  productType: suggestion.productType ?? review.productType,
-                  variety: suggestion.variety ?? review.variety,
-                  brand: suggestion.brand ?? review.brand,
+                  productName: linkedPrice ? review.productName : suggestion.product ?? review.productName,
+                  productType: linkedPrice ? review.productType : suggestion.productType ?? review.productType,
+                  variety: linkedPrice ? review.variety : suggestion.variety ?? review.variety,
+                  brand: linkedPrice ? review.brand : suggestion.brand ?? review.brand,
                   packSize: review.packSize ?? suggestion.packSize ?? undefined,
                   price: suggestion.price?.toString() ?? review.price,
                   currency: suggestion.currency ?? review.currency,
@@ -227,6 +250,7 @@ export const CameraComponent = ({ currentShop, onScanBarcode }: { currentShop?: 
             choosePhoto={choosePhotoButton}
           >
             {barcodeButton}
+            {linkedCancel}
             {testPhotoButton}
             {savedPhotoButtons}
           </CameraCaptureActions>
