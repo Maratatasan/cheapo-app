@@ -34,9 +34,9 @@ export function BarcodeEditor({ current, productName, proposed, manual, busy, er
           <TextInput accessibilityLabel="Proposed barcode" keyboardType="number-pad" maxLength={14}
             style={styles.input} value={proposed ?? ''} editable={!busy} onChangeText={onChange} />
         ) : proposed ? <Text style={ui.body} selectable>Proposed barcode {proposed}</Text> : null}
-        {error ? <Text accessibilityRole="alert" style={ui.body}>{error}</Text> : null}
       </ScrollView>
       <SafeAreaView edges={['bottom']} style={styles.footer}>
+        {error ? <Text accessibilityRole="alert" accessibilityLiveRegion="polite" style={ui.body}>{error}</Text> : null}
         <Pressable accessibilityRole="button" disabled={!proposed || busy} onPress={onSave}
           style={[ui.button, (!proposed || busy) && styles.disabled]}>
           <Text style={ui.buttonText}>{busy ? 'Saving…' : productName ? 'Save barcode' : 'Look up barcode'}</Text>

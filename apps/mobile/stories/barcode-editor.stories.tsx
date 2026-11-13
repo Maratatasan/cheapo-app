@@ -9,8 +9,8 @@ const meta = {
   title: 'Screens/Barcode editor', component: BarcodeEditor,
   args: { current: '00012345678905', productName: 'Example basmati rice', manual: false,
     onScan: fn(), onManual: fn(), onChange: fn(), onSave: fn(), onCancel: fn() },
-  decorators: [Story => <View style={{ width: '100%', height: 480 }}><SafeAreaProvider
-    initialMetrics={{ frame: { x: 0, y: 0, width: 412, height: 480 }, insets: { top: 0, bottom: 0, left: 0, right: 0 } }}>
+  decorators: [Story => <View style={{ width: '100%', height: 560 }}><SafeAreaProvider
+    initialMetrics={{ frame: { x: 0, y: 0, width: 412, height: 560 }, insets: { top: 0, bottom: 0, left: 0, right: 0 } }}>
     <Story />
   </SafeAreaProvider></View>],
 } satisfies Meta<typeof BarcodeEditor>;
