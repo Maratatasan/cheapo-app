@@ -123,6 +123,30 @@ export const MissingVariety: Story = {
   },
 };
 
+const appleReference = {
+  id: "apples-reference", shop: "Example loose produce shop", productType: "Apples",
+  price: 1.20, currency: "GBP", unit_price: { amount: 0.20, unit: "100 g" },
+};
+
+export const MixedPrintedBases: Story = {
+  args: {
+    product: { name: "Apples" },
+    reference: appleReference,
+    comparisons: [
+      { ...appleReference, id: "apples-count", shop: "Example per-item shop", unit_price: { amount: 0.15, unit: "each" } },
+      { ...appleReference, id: "apples-weight", shop: "Example by-weight shop", unit_price: { amount: 1.80, unit: "kg" } },
+    ],
+  },
+  play: async ({ canvas }) => {
+    await expect(canvas.getByLabelText("£2.00 / kg")).toBeVisible();
+    await expect(canvas.getByText("Saved basis · 100 g")).toBeVisible();
+    await expect(canvas.getByLabelText("£1.80 / kg")).toBeVisible();
+    await expect(canvas.getByRole("heading", { name: "Prices in other units" })).toBeVisible();
+    await expect(canvas.getByLabelText("£0.15 / each")).toBeVisible();
+    await expect(canvas.getAllByText("Lowest unit price")).toHaveLength(1);
+  },
+};
+
 
 function EditComparison({ saveFails = false }: { saveFails?: boolean }) {
   const [reference, setReference] = useState<ComparisonRow>(filterReference);

@@ -19,12 +19,13 @@ export type ShopComparisonProps = {
   sample?: boolean;
 };
 
-function ComparisonPrices({ prices, cheapest = false }: { prices: PriceValues; cheapest?: boolean }) {
+function ComparisonPrices({ prices, savedUnit, cheapest = false }: { prices: PriceValues; savedUnit?: string; cheapest?: boolean }) {
   const unit = knownUnitPrice(prices.unit_price);
   return (
     <View style={styles.prices}>
       {unit ? <Text style={styles.unitPrice} accessibilityLabel={unitPriceLabel(prices)}>{priceLabel({ price: unit.amount, currency: prices.currency })} <Text style={styles.small}>/ {unit.unit.trim()}</Text></Text>
         : <Text style={styles.small}>Unit price unavailable</Text>}
+      {unit && savedUnit && savedUnit.trim() !== unit.unit.trim() ? <Text style={styles.small}>Saved basis · {savedUnit.trim()}</Text> : null}
       <View style={styles.packPrice}><Text style={styles.small}>{priceLabel(prices)}</Text><Text style={styles.small}>pack</Text></View>
       {cheapest ? <Text style={styles.cheapest}>Lowest unit price</Text> : null}
     </View>
@@ -47,7 +48,8 @@ function OfferRow({ row, unitPrice, cheapest, onEdit }: {
   const label = `Edit ${row.product ? `${row.product} at ` : 'price at '}${shop}${date ? `, recorded ${date}` : ''}`;
   return (
     <View style={[styles.offer, cheapest && styles.lowest]}>
-      <ComparisonPrices prices={{ price: row.price, currency: row.currency, unit_price: unitPrice ?? null }} cheapest={cheapest} />
+      <ComparisonPrices prices={{ price: row.price, currency: row.currency, unit_price: unitPrice ?? null }}
+        savedUnit={row.unit_price?.unit} cheapest={cheapest} />
       <View style={styles.details}>
         <Text style={styles.shop}>{shop}</Text>
         {date ? <Text style={styles.small}>Recorded {date}</Text> : null}
@@ -117,7 +119,8 @@ export function ShopComparison({
               {reference.capturedOn ? <Text style={styles.small}>Recorded {dateLabel(reference.capturedOn)}</Text> : null}
               <Text style={styles.small}>{[reference.productType, reference.variety, reference.brand].filter(Boolean).join(" · ")}</Text>
               <View style={styles.referenceActions}>
-                <ComparisonPrices prices={{ price: reference.price, currency: reference.currency, unit_price: referenceUnitPrice ?? reference.unit_price ?? null }} cheapest={referenceLowest} />
+                <ComparisonPrices prices={{ price: reference.price, currency: reference.currency, unit_price: referenceUnitPrice ?? reference.unit_price ?? null }}
+                  savedUnit={reference.unit_price?.unit} cheapest={referenceLowest} />
                 {onEdit ? <ComparisonEdit label={`Edit ${product.name} at ${referenceShop}`} onPress={() => onEdit(reference.id)} /> : null}
               </View>
             </>
@@ -151,7 +154,7 @@ export function ShopComparison({
       ) : ranked.missing.length > 0 ? (
         <DisplayState kind="empty" title="More product details needed"
           description={`Add ${ranked.missing.join(" and ")} to this saved product in Scan to use this comparison.`} />
-      ) : ranked.groups.length === 0 && ranked.unranked.length === 0 ? (
+      ) : ranked.groups.length === 0 && ranked.unranked.length === 0 && ranked.differentBasis.length === 0 ? (
         <DisplayState
           kind="empty"
           title={reference ? "No matching saved prices" : "No saved prices yet"}
@@ -177,6 +180,14 @@ export function ShopComparison({
               </View>
             </Fragment>
           ))}
+          {ranked.differentBasis.length > 0 ? (
+            <>
+              <Text accessibilityRole="header" style={styles.group}>Prices in other units</Text>
+              <View style={styles.offers}>
+                {ranked.differentBasis.map(row => <OfferRow key={row.id} row={row} unitPrice={row.unit_price} onEdit={onEdit} />)}
+              </View>
+            </>
+          ) : null}
           {ranked.unranked.length > 0 ? (
             <>
               <Text accessibilityRole="header" style={styles.group}>Unranked prices</Text>
