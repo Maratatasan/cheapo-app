@@ -1,0 +1,928 @@
+{
+  "version": 1,
+  "seed": {
+    "households": [
+      {
+        "id": "00000001-0000-4000-8000-000000000001"
+      },
+      {
+        "id": "00000001-0000-4000-8000-000000000002"
+      }
+    ],
+    "shops": [
+      {
+        "id": "00000002-0000-4000-8000-000000000001",
+        "name": "Market Lane"
+      },
+      {
+        "id": "00000002-0000-4000-8000-000000000002",
+        "name": "Riverside"
+      },
+      {
+        "id": "00000002-0000-4000-8000-000000000003",
+        "name": "High Street"
+      },
+      {
+        "id": "00000002-0000-4000-8000-000000000004",
+        "name": "Outlet"
+      }
+    ],
+    "savedShops": [
+      {
+        "householdId": "00000001-0000-4000-8000-000000000001",
+        "shopId": "00000002-0000-4000-8000-000000000001",
+        "nickname": "Near home"
+      },
+      {
+        "householdId": "00000001-0000-4000-8000-000000000001",
+        "shopId": "00000002-0000-4000-8000-000000000002",
+        "nickname": "After work"
+      },
+      {
+        "householdId": "00000001-0000-4000-8000-000000000001",
+        "shopId": "00000002-0000-4000-8000-000000000003",
+        "nickname": "Weekend"
+      },
+      {
+        "householdId": "00000001-0000-4000-8000-000000000002",
+        "shopId": "00000002-0000-4000-8000-000000000001",
+        "nickname": "Mum’s shop"
+      },
+      {
+        "householdId": "00000001-0000-4000-8000-000000000002",
+        "shopId": "00000002-0000-4000-8000-000000000004",
+        "nickname": "Cheap stop"
+      }
+    ],
+    "products": [
+      {
+        "id": "00000003-0000-4000-8000-000000000001",
+        "barcode": "00012345678905",
+        "brand": "Field & Mill",
+        "variety": "Basmati",
+        "comparisonGroup": "rice",
+        "quantity": 1,
+        "unit": "kg"
+      },
+      {
+        "id": "00000003-0000-4000-8000-000000000002",
+        "barcode": "00012345678912",
+        "brand": "Field & Mill",
+        "variety": "Jasmine",
+        "comparisonGroup": "rice",
+        "quantity": 500,
+        "unit": "g"
+      },
+      {
+        "id": "00000003-0000-4000-8000-000000000003",
+        "barcode": "00012345678929",
+        "brand": "Grain House",
+        "variety": "Basmati",
+        "comparisonGroup": "rice",
+        "quantity": 2,
+        "unit": "kg"
+      },
+      {
+        "id": "00000003-0000-4000-8000-000000000004",
+        "barcode": null,
+        "brand": "Field & Mill",
+        "variety": "Basmati",
+        "comparisonGroup": "rice",
+        "quantity": 500,
+        "unit": "ml"
+      },
+      {
+        "id": "00000003-0000-4000-8000-000000000005",
+        "barcode": null,
+        "brand": "Field & Mill",
+        "variety": "Basmati",
+        "comparisonGroup": "rice",
+        "quantity": 1,
+        "unit": "unknown"
+      },
+      {
+        "id": "00000003-0000-4000-8000-000000000006",
+        "barcode": "00012345678936",
+        "brand": "Field & Mill",
+        "variety": "Basmati",
+        "comparisonGroup": "rice-flour",
+        "quantity": 1,
+        "unit": "kg"
+      },
+      {
+        "id": "00000003-0000-4000-8000-000000000007",
+        "barcode": "00012345678943",
+        "brand": "Field & Mill",
+        "variety": "Basmati",
+        "comparisonGroup": "rice",
+        "quantity": 500,
+        "unit": "g"
+      }
+    ],
+    "observations": [
+      {
+        "id": "00000004-0000-4000-8000-000000000001",
+        "productId": "00000003-0000-4000-8000-000000000001",
+        "shopId": "00000002-0000-4000-8000-000000000001",
+        "priceMinor": 260,
+        "currency": "GBP",
+        "observedAt": "2026-10-01T12:00:00.000Z",
+        "photoRef": null
+      },
+      {
+        "id": "00000004-0000-4000-8000-000000000002",
+        "productId": "00000003-0000-4000-8000-000000000001",
+        "shopId": "00000002-0000-4000-8000-000000000001",
+        "priceMinor": 230,
+        "currency": "GBP",
+        "observedAt": "2026-10-02T12:00:00.000Z",
+        "photoRef": null
+      },
+      {
+        "id": "00000004-0000-4000-8000-000000000003",
+        "productId": "00000003-0000-4000-8000-000000000001",
+        "shopId": "00000002-0000-4000-8000-000000000001",
+        "priceMinor": 220,
+        "currency": "GBP",
+        "observedAt": "2026-10-02T12:00:00.000Z",
+        "photoRef": "fixture://shelf/3"
+      },
+      {
+        "id": "00000004-0000-4000-8000-000000000004",
+        "productId": "00000003-0000-4000-8000-000000000001",
+        "shopId": "00000002-0000-4000-8000-000000000002",
+        "priceMinor": 210,
+        "currency": "GBP",
+        "observedAt": "2026-10-02T12:00:00.000Z",
+        "photoRef": null
+      },
+      {
+        "id": "00000004-0000-4000-8000-000000000005",
+        "productId": "00000003-0000-4000-8000-000000000002",
+        "shopId": "00000002-0000-4000-8000-000000000002",
+        "priceMinor": 80,
+        "currency": "GBP",
+        "observedAt": "2026-10-02T12:00:00.000Z",
+        "photoRef": null
+      },
+      {
+        "id": "00000004-0000-4000-8000-000000000006",
+        "productId": "00000003-0000-4000-8000-000000000003",
+        "shopId": "00000002-0000-4000-8000-000000000003",
+        "priceMinor": 320,
+        "currency": "GBP",
+        "observedAt": "2026-10-02T12:00:00.000Z",
+        "photoRef": null
+      },
+      {
+        "id": "00000004-0000-4000-8000-000000000007",
+        "productId": "00000003-0000-4000-8000-000000000001",
+        "shopId": "00000002-0000-4000-8000-000000000004",
+        "priceMinor": 100,
+        "currency": "GBP",
+        "observedAt": "2026-10-02T12:00:00.000Z",
+        "photoRef": null
+      },
+      {
+        "id": "00000004-0000-4000-8000-000000000008",
+        "productId": "00000003-0000-4000-8000-000000000004",
+        "shopId": "00000002-0000-4000-8000-000000000001",
+        "priceMinor": 5,
+        "currency": "GBP",
+        "observedAt": "2026-10-02T12:00:00.000Z",
+        "photoRef": null
+      },
+      {
+        "id": "00000004-0000-4000-8000-000000000009",
+        "productId": "00000003-0000-4000-8000-000000000005",
+        "shopId": "00000002-0000-4000-8000-000000000001",
+        "priceMinor": 10,
+        "currency": "GBP",
+        "observedAt": "2026-10-02T12:00:00.000Z",
+        "photoRef": null
+      },
+      {
+        "id": "00000004-0000-4000-8000-00000000000a",
+        "productId": "00000003-0000-4000-8000-000000000006",
+        "shopId": "00000002-0000-4000-8000-000000000001",
+        "priceMinor": 20,
+        "currency": "GBP",
+        "observedAt": "2026-10-02T12:00:00.000Z",
+        "photoRef": null
+      },
+      {
+        "id": "00000004-0000-4000-8000-00000000000b",
+        "productId": "00000003-0000-4000-8000-000000000007",
+        "shopId": "00000002-0000-4000-8000-000000000001",
+        "priceMinor": 110,
+        "currency": "GBP",
+        "observedAt": "2026-10-02T12:00:00.000Z",
+        "photoRef": null
+      }
+    ]
+  },
+  "scenarios": [
+    {
+      "name": "listSavedShops",
+      "householdId": "00000001-0000-4000-8000-000000000001",
+      "expected": [
+        {
+          "householdId": "00000001-0000-4000-8000-000000000001",
+          "shopId": "00000002-0000-4000-8000-000000000001",
+          "nickname": "Near home"
+        },
+        {
+          "householdId": "00000001-0000-4000-8000-000000000001",
+          "shopId": "00000002-0000-4000-8000-000000000002",
+          "nickname": "After work"
+        },
+        {
+          "householdId": "00000001-0000-4000-8000-000000000001",
+          "shopId": "00000002-0000-4000-8000-000000000003",
+          "nickname": "Weekend"
+        }
+      ]
+    },
+    {
+      "name": "listSavedShops",
+      "householdId": "00000001-0000-4000-8000-000000000002",
+      "expected": [
+        {
+          "householdId": "00000001-0000-4000-8000-000000000002",
+          "shopId": "00000002-0000-4000-8000-000000000001",
+          "nickname": "Mum’s shop"
+        },
+        {
+          "householdId": "00000001-0000-4000-8000-000000000002",
+          "shopId": "00000002-0000-4000-8000-000000000004",
+          "nickname": "Cheap stop"
+        }
+      ]
+    },
+    {
+      "name": "lookupBarcode",
+      "barcode": "00012345678905",
+      "expected": {
+        "id": "00000003-0000-4000-8000-000000000001",
+        "barcode": "00012345678905",
+        "brand": "Field & Mill",
+        "variety": "Basmati",
+        "comparisonGroup": "rice",
+        "quantity": 1,
+        "unit": "kg"
+      }
+    },
+    {
+      "name": "lookupBarcode",
+      "barcode": "12345678905",
+      "expected": null
+    },
+    {
+      "name": "lookupBarcode",
+      "barcode": "00012345678950",
+      "expected": null
+    },
+    {
+      "name": "createProduct",
+      "input": {
+        "id": "00000003-0000-4000-8000-000000000008",
+        "barcode": "00012345678950",
+        "brand": "New Farm",
+        "variety": "Basmati",
+        "comparisonGroup": "rice",
+        "quantity": 1,
+        "unit": "kg"
+      },
+      "concurrentIdenticalCalls": 2,
+      "expected": {
+        "id": "00000003-0000-4000-8000-000000000008",
+        "barcode": "00012345678950",
+        "brand": "New Farm",
+        "variety": "Basmati",
+        "comparisonGroup": "rice",
+        "quantity": 1,
+        "unit": "kg"
+      }
+    },
+    {
+      "name": "lookupBarcode",
+      "barcode": "00012345678950",
+      "expected": {
+        "id": "00000003-0000-4000-8000-000000000008",
+        "barcode": "00012345678950",
+        "brand": "New Farm",
+        "variety": "Basmati",
+        "comparisonGroup": "rice",
+        "quantity": 1,
+        "unit": "kg"
+      }
+    },
+    {
+      "name": "createProductConflict",
+      "input": {
+        "id": "00000003-0000-4000-8000-000000000008",
+        "barcode": "00012345678950",
+        "brand": "Conflicting Brand",
+        "variety": "Basmati",
+        "comparisonGroup": "rice",
+        "quantity": 1,
+        "unit": "kg"
+      },
+      "expected": "conflict"
+    },
+    {
+      "name": "raceProductsWithSameBarcode",
+      "inputs": [
+        {
+          "id": "00000003-0000-4000-8000-000000000009",
+          "barcode": "00012345678967",
+          "brand": "New Farm",
+          "variety": "Basmati",
+          "comparisonGroup": "rice",
+          "quantity": 1,
+          "unit": "kg"
+        },
+        {
+          "id": "00000003-0000-4000-8000-00000000000a",
+          "barcode": "00012345678967",
+          "brand": "Other Farm",
+          "variety": "Basmati",
+          "comparisonGroup": "rice",
+          "quantity": 1,
+          "unit": "kg"
+        }
+      ],
+      "expected": {
+        "created": 1,
+        "conflicts": 1,
+        "lookupMatchesWinner": true
+      }
+    },
+    {
+      "name": "latestPrice",
+      "productId": "00000003-0000-4000-8000-000000000001",
+      "shopId": "00000002-0000-4000-8000-000000000001",
+      "expected": {
+        "id": "00000004-0000-4000-8000-000000000003",
+        "productId": "00000003-0000-4000-8000-000000000001",
+        "shopId": "00000002-0000-4000-8000-000000000001",
+        "priceMinor": 220,
+        "currency": "GBP",
+        "observedAt": "2026-10-02T12:00:00.000Z",
+        "photoRef": "fixture://shelf/3"
+      }
+    },
+    {
+      "name": "latestPrice",
+      "productId": "00000003-0000-4000-8000-000000000001",
+      "shopId": "00000002-0000-4000-8000-000000000003",
+      "expected": null
+    },
+    {
+      "name": "compare",
+      "householdId": "00000001-0000-4000-8000-000000000001",
+      "referenceProductId": "00000003-0000-4000-8000-000000000001",
+      "expected": [
+        {
+          "productId": "00000003-0000-4000-8000-000000000002",
+          "shopId": "00000002-0000-4000-8000-000000000002",
+          "observationId": "00000004-0000-4000-8000-000000000005",
+          "unit": "kg",
+          "normalizedPriceMinor": 160
+        },
+        {
+          "productId": "00000003-0000-4000-8000-000000000003",
+          "shopId": "00000002-0000-4000-8000-000000000003",
+          "observationId": "00000004-0000-4000-8000-000000000006",
+          "unit": "kg",
+          "normalizedPriceMinor": 160
+        },
+        {
+          "productId": "00000003-0000-4000-8000-000000000001",
+          "shopId": "00000002-0000-4000-8000-000000000002",
+          "observationId": "00000004-0000-4000-8000-000000000004",
+          "unit": "kg",
+          "normalizedPriceMinor": 210
+        },
+        {
+          "productId": "00000003-0000-4000-8000-000000000001",
+          "shopId": "00000002-0000-4000-8000-000000000001",
+          "observationId": "00000004-0000-4000-8000-000000000003",
+          "unit": "kg",
+          "normalizedPriceMinor": 220
+        },
+        {
+          "productId": "00000003-0000-4000-8000-000000000007",
+          "shopId": "00000002-0000-4000-8000-000000000001",
+          "observationId": "00000004-0000-4000-8000-00000000000b",
+          "unit": "kg",
+          "normalizedPriceMinor": 220
+        }
+      ]
+    },
+    {
+      "name": "compare",
+      "householdId": "00000001-0000-4000-8000-000000000001",
+      "referenceProductId": "00000003-0000-4000-8000-000000000001",
+      "sameBrand": true,
+      "expected": [
+        {
+          "productId": "00000003-0000-4000-8000-000000000002",
+          "shopId": "00000002-0000-4000-8000-000000000002",
+          "observationId": "00000004-0000-4000-8000-000000000005",
+          "unit": "kg",
+          "normalizedPriceMinor": 160
+        },
+        {
+          "productId": "00000003-0000-4000-8000-000000000001",
+          "shopId": "00000002-0000-4000-8000-000000000002",
+          "observationId": "00000004-0000-4000-8000-000000000004",
+          "unit": "kg",
+          "normalizedPriceMinor": 210
+        },
+        {
+          "productId": "00000003-0000-4000-8000-000000000001",
+          "shopId": "00000002-0000-4000-8000-000000000001",
+          "observationId": "00000004-0000-4000-8000-000000000003",
+          "unit": "kg",
+          "normalizedPriceMinor": 220
+        },
+        {
+          "productId": "00000003-0000-4000-8000-000000000007",
+          "shopId": "00000002-0000-4000-8000-000000000001",
+          "observationId": "00000004-0000-4000-8000-00000000000b",
+          "unit": "kg",
+          "normalizedPriceMinor": 220
+        }
+      ]
+    },
+    {
+      "name": "compare",
+      "householdId": "00000001-0000-4000-8000-000000000001",
+      "referenceProductId": "00000003-0000-4000-8000-000000000001",
+      "sameVariety": true,
+      "expected": [
+        {
+          "productId": "00000003-0000-4000-8000-000000000003",
+          "shopId": "00000002-0000-4000-8000-000000000003",
+          "observationId": "00000004-0000-4000-8000-000000000006",
+          "unit": "kg",
+          "normalizedPriceMinor": 160
+        },
+        {
+          "productId": "00000003-0000-4000-8000-000000000001",
+          "shopId": "00000002-0000-4000-8000-000000000002",
+          "observationId": "00000004-0000-4000-8000-000000000004",
+          "unit": "kg",
+          "normalizedPriceMinor": 210
+        },
+        {
+          "productId": "00000003-0000-4000-8000-000000000001",
+          "shopId": "00000002-0000-4000-8000-000000000001",
+          "observationId": "00000004-0000-4000-8000-000000000003",
+          "unit": "kg",
+          "normalizedPriceMinor": 220
+        },
+        {
+          "productId": "00000003-0000-4000-8000-000000000007",
+          "shopId": "00000002-0000-4000-8000-000000000001",
+          "observationId": "00000004-0000-4000-8000-00000000000b",
+          "unit": "kg",
+          "normalizedPriceMinor": 220
+        }
+      ]
+    },
+    {
+      "name": "compare",
+      "householdId": "00000001-0000-4000-8000-000000000001",
+      "referenceProductId": "00000003-0000-4000-8000-000000000001",
+      "sameBrand": true,
+      "sameVariety": true,
+      "expected": [
+        {
+          "productId": "00000003-0000-4000-8000-000000000001",
+          "shopId": "00000002-0000-4000-8000-000000000002",
+          "observationId": "00000004-0000-4000-8000-000000000004",
+          "unit": "kg",
+          "normalizedPriceMinor": 210
+        },
+        {
+          "productId": "00000003-0000-4000-8000-000000000001",
+          "shopId": "00000002-0000-4000-8000-000000000001",
+          "observationId": "00000004-0000-4000-8000-000000000003",
+          "unit": "kg",
+          "normalizedPriceMinor": 220
+        },
+        {
+          "productId": "00000003-0000-4000-8000-000000000007",
+          "shopId": "00000002-0000-4000-8000-000000000001",
+          "observationId": "00000004-0000-4000-8000-00000000000b",
+          "unit": "kg",
+          "normalizedPriceMinor": 220
+        }
+      ]
+    },
+    {
+      "name": "compare",
+      "householdId": "00000001-0000-4000-8000-000000000002",
+      "referenceProductId": "00000003-0000-4000-8000-000000000001",
+      "expected": [
+        {
+          "productId": "00000003-0000-4000-8000-000000000001",
+          "shopId": "00000002-0000-4000-8000-000000000004",
+          "observationId": "00000004-0000-4000-8000-000000000007",
+          "unit": "kg",
+          "normalizedPriceMinor": 100
+        },
+        {
+          "productId": "00000003-0000-4000-8000-000000000001",
+          "shopId": "00000002-0000-4000-8000-000000000001",
+          "observationId": "00000004-0000-4000-8000-000000000003",
+          "unit": "kg",
+          "normalizedPriceMinor": 220
+        },
+        {
+          "productId": "00000003-0000-4000-8000-000000000007",
+          "shopId": "00000002-0000-4000-8000-000000000001",
+          "observationId": "00000004-0000-4000-8000-00000000000b",
+          "unit": "kg",
+          "normalizedPriceMinor": 220
+        }
+      ]
+    },
+    {
+      "name": "createObservation",
+      "input": {
+        "id": "00000004-0000-4000-8000-00000000000c",
+        "productId": "00000003-0000-4000-8000-000000000001",
+        "shopId": "00000002-0000-4000-8000-000000000001",
+        "priceMinor": 190,
+        "currency": "GBP",
+        "observedAt": "2026-10-03T12:00:00.000Z",
+        "photoRef": "fixture://shelf/12"
+      },
+      "concurrentIdenticalCalls": 2,
+      "expected": {
+        "id": "00000004-0000-4000-8000-00000000000c",
+        "productId": "00000003-0000-4000-8000-000000000001",
+        "shopId": "00000002-0000-4000-8000-000000000001",
+        "priceMinor": 190,
+        "currency": "GBP",
+        "observedAt": "2026-10-03T12:00:00.000Z",
+        "photoRef": "fixture://shelf/12"
+      }
+    },
+    {
+      "name": "createObservationConflict",
+      "input": {
+        "id": "00000004-0000-4000-8000-00000000000c",
+        "productId": "00000003-0000-4000-8000-000000000001",
+        "shopId": "00000002-0000-4000-8000-000000000001",
+        "priceMinor": 191,
+        "currency": "GBP",
+        "observedAt": "2026-10-03T12:00:00.000Z",
+        "photoRef": "fixture://shelf/12"
+      },
+      "expected": "conflict"
+    },
+    {
+      "name": "createObservation",
+      "input": {
+        "id": "00000004-0000-4000-8000-00000000000d",
+        "productId": "00000003-0000-4000-8000-000000000001",
+        "shopId": "00000002-0000-4000-8000-000000000001",
+        "priceMinor": 90,
+        "currency": "GBP",
+        "observedAt": "2026-10-01T12:00:00.000Z",
+        "photoRef": null
+      },
+      "expected": {
+        "id": "00000004-0000-4000-8000-00000000000d",
+        "productId": "00000003-0000-4000-8000-000000000001",
+        "shopId": "00000002-0000-4000-8000-000000000001",
+        "priceMinor": 90,
+        "currency": "GBP",
+        "observedAt": "2026-10-01T12:00:00.000Z",
+        "photoRef": null
+      }
+    },
+    {
+      "name": "latestPrice",
+      "productId": "00000003-0000-4000-8000-000000000001",
+      "shopId": "00000002-0000-4000-8000-000000000001",
+      "expected": {
+        "id": "00000004-0000-4000-8000-00000000000c",
+        "productId": "00000003-0000-4000-8000-000000000001",
+        "shopId": "00000002-0000-4000-8000-000000000001",
+        "priceMinor": 190,
+        "currency": "GBP",
+        "observedAt": "2026-10-03T12:00:00.000Z",
+        "photoRef": "fixture://shelf/12"
+      }
+    },
+    {
+      "name": "correctObservation",
+      "observationId": "00000004-0000-4000-8000-00000000000c",
+      "patch": {
+        "priceMinor": 195,
+        "photoRef": "fixture://shelf/12-corrected"
+      },
+      "repeat": 2,
+      "expected": {
+        "id": "00000004-0000-4000-8000-00000000000c",
+        "productId": "00000003-0000-4000-8000-000000000001",
+        "shopId": "00000002-0000-4000-8000-000000000001",
+        "priceMinor": 195,
+        "currency": "GBP",
+        "observedAt": "2026-10-03T12:00:00.000Z",
+        "photoRef": "fixture://shelf/12-corrected"
+      }
+    },
+    {
+      "name": "latestPrice",
+      "productId": "00000003-0000-4000-8000-000000000001",
+      "shopId": "00000002-0000-4000-8000-000000000001",
+      "expected": {
+        "id": "00000004-0000-4000-8000-00000000000c",
+        "productId": "00000003-0000-4000-8000-000000000001",
+        "shopId": "00000002-0000-4000-8000-000000000001",
+        "priceMinor": 195,
+        "currency": "GBP",
+        "observedAt": "2026-10-03T12:00:00.000Z",
+        "photoRef": "fixture://shelf/12-corrected"
+      }
+    },
+    {
+      "name": "storedObservations",
+      "productId": "00000003-0000-4000-8000-000000000001",
+      "shopId": "00000002-0000-4000-8000-000000000001",
+      "expected": [
+        {
+          "id": "00000004-0000-4000-8000-00000000000d",
+          "productId": "00000003-0000-4000-8000-000000000001",
+          "shopId": "00000002-0000-4000-8000-000000000001",
+          "priceMinor": 90,
+          "currency": "GBP",
+          "observedAt": "2026-10-01T12:00:00.000Z",
+          "photoRef": null
+        },
+        {
+          "id": "00000004-0000-4000-8000-000000000001",
+          "productId": "00000003-0000-4000-8000-000000000001",
+          "shopId": "00000002-0000-4000-8000-000000000001",
+          "priceMinor": 260,
+          "currency": "GBP",
+          "observedAt": "2026-10-01T12:00:00.000Z",
+          "photoRef": null
+        },
+        {
+          "id": "00000004-0000-4000-8000-000000000002",
+          "productId": "00000003-0000-4000-8000-000000000001",
+          "shopId": "00000002-0000-4000-8000-000000000001",
+          "priceMinor": 230,
+          "currency": "GBP",
+          "observedAt": "2026-10-02T12:00:00.000Z",
+          "photoRef": null
+        },
+        {
+          "id": "00000004-0000-4000-8000-000000000003",
+          "productId": "00000003-0000-4000-8000-000000000001",
+          "shopId": "00000002-0000-4000-8000-000000000001",
+          "priceMinor": 220,
+          "currency": "GBP",
+          "observedAt": "2026-10-02T12:00:00.000Z",
+          "photoRef": "fixture://shelf/3"
+        },
+        {
+          "id": "00000004-0000-4000-8000-00000000000c",
+          "productId": "00000003-0000-4000-8000-000000000001",
+          "shopId": "00000002-0000-4000-8000-000000000001",
+          "priceMinor": 195,
+          "currency": "GBP",
+          "observedAt": "2026-10-03T12:00:00.000Z",
+          "photoRef": "fixture://shelf/12-corrected"
+        }
+      ]
+    },
+    {
+      "name": "createDistinctObservationsConcurrently",
+      "inputs": [
+        {
+          "id": "00000004-0000-4000-8000-00000000000e",
+          "productId": "00000003-0000-4000-8000-000000000001",
+          "shopId": "00000002-0000-4000-8000-000000000003",
+          "priceMinor": 230,
+          "currency": "GBP",
+          "observedAt": "2026-10-04T12:00:00.000Z",
+          "photoRef": null
+        },
+        {
+          "id": "00000004-0000-4000-8000-00000000000f",
+          "productId": "00000003-0000-4000-8000-000000000001",
+          "shopId": "00000002-0000-4000-8000-000000000003",
+          "priceMinor": 235,
+          "currency": "GBP",
+          "observedAt": "2026-10-04T12:00:00.000Z",
+          "photoRef": null
+        }
+      ],
+      "expected": [
+        {
+          "id": "00000004-0000-4000-8000-00000000000e",
+          "productId": "00000003-0000-4000-8000-000000000001",
+          "shopId": "00000002-0000-4000-8000-000000000003",
+          "priceMinor": 230,
+          "currency": "GBP",
+          "observedAt": "2026-10-04T12:00:00.000Z",
+          "photoRef": null
+        },
+        {
+          "id": "00000004-0000-4000-8000-00000000000f",
+          "productId": "00000003-0000-4000-8000-000000000001",
+          "shopId": "00000002-0000-4000-8000-000000000003",
+          "priceMinor": 235,
+          "currency": "GBP",
+          "observedAt": "2026-10-04T12:00:00.000Z",
+          "photoRef": null
+        }
+      ]
+    },
+    {
+      "name": "latestPrice",
+      "productId": "00000003-0000-4000-8000-000000000001",
+      "shopId": "00000002-0000-4000-8000-000000000003",
+      "expected": {
+        "id": "00000004-0000-4000-8000-00000000000f",
+        "productId": "00000003-0000-4000-8000-000000000001",
+        "shopId": "00000002-0000-4000-8000-000000000003",
+        "priceMinor": 235,
+        "currency": "GBP",
+        "observedAt": "2026-10-04T12:00:00.000Z",
+        "photoRef": null
+      }
+    },
+    {
+      "name": "renameSavedShop",
+      "householdId": "00000001-0000-4000-8000-000000000001",
+      "shopId": "00000002-0000-4000-8000-000000000001",
+      "nickname": "New nickname",
+      "expected": {
+        "householdId": "00000001-0000-4000-8000-000000000001",
+        "shopId": "00000002-0000-4000-8000-000000000001",
+        "nickname": "New nickname"
+      }
+    },
+    {
+      "name": "listSavedShops",
+      "householdId": "00000001-0000-4000-8000-000000000001",
+      "expected": [
+        {
+          "householdId": "00000001-0000-4000-8000-000000000001",
+          "shopId": "00000002-0000-4000-8000-000000000001",
+          "nickname": "New nickname"
+        },
+        {
+          "householdId": "00000001-0000-4000-8000-000000000001",
+          "shopId": "00000002-0000-4000-8000-000000000002",
+          "nickname": "After work"
+        },
+        {
+          "householdId": "00000001-0000-4000-8000-000000000001",
+          "shopId": "00000002-0000-4000-8000-000000000003",
+          "nickname": "Weekend"
+        }
+      ]
+    },
+    {
+      "name": "listSavedShops",
+      "householdId": "00000001-0000-4000-8000-000000000002",
+      "expected": [
+        {
+          "householdId": "00000001-0000-4000-8000-000000000002",
+          "shopId": "00000002-0000-4000-8000-000000000001",
+          "nickname": "Mum’s shop"
+        },
+        {
+          "householdId": "00000001-0000-4000-8000-000000000002",
+          "shopId": "00000002-0000-4000-8000-000000000004",
+          "nickname": "Cheap stop"
+        }
+      ]
+    },
+    {
+      "name": "unlinkSavedShop",
+      "householdId": "00000001-0000-4000-8000-000000000001",
+      "shopId": "00000002-0000-4000-8000-000000000001",
+      "repeat": 2
+    },
+    {
+      "name": "listSavedShops",
+      "householdId": "00000001-0000-4000-8000-000000000001",
+      "expected": [
+        {
+          "householdId": "00000001-0000-4000-8000-000000000001",
+          "shopId": "00000002-0000-4000-8000-000000000002",
+          "nickname": "After work"
+        },
+        {
+          "householdId": "00000001-0000-4000-8000-000000000001",
+          "shopId": "00000002-0000-4000-8000-000000000003",
+          "nickname": "Weekend"
+        }
+      ]
+    },
+    {
+      "name": "listSavedShops",
+      "householdId": "00000001-0000-4000-8000-000000000002",
+      "expected": [
+        {
+          "householdId": "00000001-0000-4000-8000-000000000002",
+          "shopId": "00000002-0000-4000-8000-000000000001",
+          "nickname": "Mum’s shop"
+        },
+        {
+          "householdId": "00000001-0000-4000-8000-000000000002",
+          "shopId": "00000002-0000-4000-8000-000000000004",
+          "nickname": "Cheap stop"
+        }
+      ]
+    },
+    {
+      "name": "latestPrice",
+      "productId": "00000003-0000-4000-8000-000000000001",
+      "shopId": "00000002-0000-4000-8000-000000000001",
+      "expected": {
+        "id": "00000004-0000-4000-8000-00000000000c",
+        "productId": "00000003-0000-4000-8000-000000000001",
+        "shopId": "00000002-0000-4000-8000-000000000001",
+        "priceMinor": 195,
+        "currency": "GBP",
+        "observedAt": "2026-10-03T12:00:00.000Z",
+        "photoRef": "fixture://shelf/12-corrected"
+      }
+    },
+    {
+      "name": "compare",
+      "householdId": "00000001-0000-4000-8000-000000000001",
+      "referenceProductId": "00000003-0000-4000-8000-000000000001",
+      "expected": [
+        {
+          "productId": "00000003-0000-4000-8000-000000000002",
+          "shopId": "00000002-0000-4000-8000-000000000002",
+          "observationId": "00000004-0000-4000-8000-000000000005",
+          "unit": "kg",
+          "normalizedPriceMinor": 160
+        },
+        {
+          "productId": "00000003-0000-4000-8000-000000000003",
+          "shopId": "00000002-0000-4000-8000-000000000003",
+          "observationId": "00000004-0000-4000-8000-000000000006",
+          "unit": "kg",
+          "normalizedPriceMinor": 160
+        },
+        {
+          "productId": "00000003-0000-4000-8000-000000000001",
+          "shopId": "00000002-0000-4000-8000-000000000002",
+          "observationId": "00000004-0000-4000-8000-000000000004",
+          "unit": "kg",
+          "normalizedPriceMinor": 210
+        },
+        {
+          "productId": "00000003-0000-4000-8000-000000000001",
+          "shopId": "00000002-0000-4000-8000-000000000003",
+          "observationId": "00000004-0000-4000-8000-00000000000f",
+          "unit": "kg",
+          "normalizedPriceMinor": 235
+        }
+      ]
+    },
+    {
+      "name": "compare",
+      "householdId": "00000001-0000-4000-8000-000000000002",
+      "referenceProductId": "00000003-0000-4000-8000-000000000001",
+      "expected": [
+        {
+          "productId": "00000003-0000-4000-8000-000000000001",
+          "shopId": "00000002-0000-4000-8000-000000000004",
+          "observationId": "00000004-0000-4000-8000-000000000007",
+          "unit": "kg",
+          "normalizedPriceMinor": 100
+        },
+        {
+          "productId": "00000003-0000-4000-8000-000000000001",
+          "shopId": "00000002-0000-4000-8000-000000000001",
+          "observationId": "00000004-0000-4000-8000-00000000000c",
+          "unit": "kg",
+          "normalizedPriceMinor": 195
+        },
+        {
+          "productId": "00000003-0000-4000-8000-000000000007",
+          "shopId": "00000002-0000-4000-8000-000000000001",
+          "observationId": "00000004-0000-4000-8000-00000000000b",
+          "unit": "kg",
+          "normalizedPriceMinor": 220
+        }
+      ]
+    }
+  ]
+}
