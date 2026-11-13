@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { BarcodeScan } from '@/component/barcode-scan';
 import { findLocalProductByBarcode } from '@/data/local-products';
 import { emptyReview } from '@/data/photo-review';
-import { loadSavedPriceRecords, type LocalPhotoDraft } from '@/data/local-photo';
+import { loadSavedPriceRecords, saveManualPrice, type LocalPhotoDraft } from '@/data/local-photo';
 
 const mockPush = jest.fn();
 jest.mock('expo-router', () => ({
@@ -17,8 +17,11 @@ jest.mock('expo-camera', () => ({
   },
 }));
 jest.mock('@/data/local-products', () => ({ findLocalProductByBarcode: jest.fn() }));
-jest.mock('@/data/local-photo', () => ({ loadSavedPriceRecords: jest.fn() }));
+jest.mock('@/data/local-photo', () => ({ loadSavedPriceRecords: jest.fn(), saveManualPrice: jest.fn() }));
+jest.mock('@/component/camera', () => ({ CameraComponent: () => null }));
+jest.mock('expo-crypto', () => ({ randomUUID: () => 'manual-price-id' }));
 
+const currentShop = { id: 'selected-shop', displayName: 'Selected shop' };
 const product = { id: 'exact-rice', name: 'Example Basmati Rice', productType: 'Dry rice',
   variety: 'Basmati', brand: 'Example', pack: { quantity: 500, unit: 'g' } };
 const photo = { uri: 'file:///fixture.jpg', mimeType: 'image/jpeg', width: 100, height: 100 } as const;
@@ -44,7 +47,7 @@ test('opens a known product’s comparisons and filters saved prices by brand an
     { ...row('Other type', 'Shop B', 'Basmati', 'Example', '1.00'),
       review: { ...emptyReview('Shop B'), productName: 'Other type', productType: 'Microwave rice', price: '1.00' } },
   ]);
-  await render(<BarcodeScan onScanLabel={jest.fn()} />);
+  await render(<BarcodeScan currentShop={currentShop} onScanLabel={jest.fn()} />);
   await scan();
 
   expect(await screen.findByRole('header', { name: product.name })).toBeOnTheScreen();
@@ -69,7 +72,7 @@ test('uses the completed observation with the explicit product ID as the referen
   const linked = row('linked', 'Linked shop', 'Basmati', 'Example', '2.50');
   jest.mocked(findLocalProductByBarcode).mockResolvedValue(product);
   jest.mocked(loadSavedPriceRecords).mockResolvedValue([{ ...linked, productId: product.id }]);
-  await render(<BarcodeScan onScanLabel={jest.fn()} />);
+  await render(<BarcodeScan currentShop={currentShop} onScanLabel={jest.fn()} />);
   await scan();
 
   expect(await screen.findByLabelText(`Scan photo for ${product.name}`)).toBeOnTheScreen();
@@ -80,7 +83,7 @@ test('uses the completed observation with the explicit product ID as the referen
 test('ignores invalid and repeated scans, then lets the shopper scan again after an unknown code', async () => {
   let finishLookup!: (product: undefined) => void;
   jest.mocked(findLocalProductByBarcode).mockReturnValue(new Promise(resolve => { finishLookup = resolve; }));
-  await render(<BarcodeScan onScanLabel={jest.fn()} />);
+  await render(<BarcodeScan currentShop={currentShop} onScanLabel={jest.fn()} />);
   await scan('012345678904');
   expect(findLocalProductByBarcode).not.toHaveBeenCalled();
   const onBarcodeScanned = screen.getByTestId('barcode-preview').props.onBarcodeScanned;
@@ -97,4 +100,48 @@ test('ignores invalid and repeated scans, then lets the shopper scan again after
   expect(loadSavedPriceRecords).not.toHaveBeenCalled();
   await fireEvent.press(screen.getByRole('button', { name: 'Scan another barcode' }));
   expect(screen.getByTestId('barcode-preview')).toBeOnTheScreen();
+});
+
+test.each([false, true])('records a new price for only the selected shop (existing: %s)', async existing => {
+  const other = { ...row('other', 'Another shop', 'Basmati', 'Example', '2.50'),
+    productId: product.id, shop: { id: 'other-shop', displayName: 'Another shop' } };
+  const saved = { ...row('existing', currentShop.displayName, 'Basmati', 'Example', '2.75'),
+    productId: product.id, shop: currentShop, capturedAt: '2026-11-13T10:00:00Z' };
+  const differentProduct = { ...saved, id: 'different-product', productId: 'other-product' };
+  jest.mocked(findLocalProductByBarcode).mockResolvedValue(product);
+  jest.mocked(loadSavedPriceRecords).mockResolvedValue(existing ? [saved, other] : [differentProduct, other]);
+  jest.mocked(saveManualPrice).mockImplementation(async record => record);
+  await render(<BarcodeScan currentShop={currentShop} onScanLabel={jest.fn()} />);
+  await scan();
+
+  if (existing) expect(screen.getByText('£2.75 pack')).toBeOnTheScreen();
+  else expect(screen.getByText('No price saved at this shop')).toBeOnTheScreen();
+  await fireEvent.press(screen.getByRole('button', { name: existing ? 'Update price' : 'Add price' }));
+  expect(screen.getByRole('button', { name: 'Save Price' })).toBeDisabled();
+  expect(screen.getByLabelText('Confirmed shop: Selected shop')).toBeOnTheScreen();
+  await fireEvent.changeText(screen.getByLabelText('Pack price'), '1.95');
+  await fireEvent.press(screen.getByRole('button', { name: 'Save Price' }));
+
+  expect(saveManualPrice).toHaveBeenCalledWith({
+    id: 'manual-price-id', capturedAt: expect.any(String), productId: product.id, shop: currentShop,
+    review: expect.objectContaining({ productName: product.name, price: '1.95', packSize: '500 g' }),
+  });
+  expect(screen.getByTestId('barcode-preview')).toBeOnTheScreen();
+});
+
+test('keeps entered details after a failed manual save and retries the same record', async () => {
+  jest.mocked(findLocalProductByBarcode).mockResolvedValue(product);
+  jest.mocked(loadSavedPriceRecords).mockResolvedValue([]);
+  jest.mocked(saveManualPrice).mockRejectedValueOnce(Error('Disk full')).mockImplementationOnce(async record => record);
+  await render(<BarcodeScan currentShop={currentShop} onScanLabel={jest.fn()} />);
+  await scan();
+  await fireEvent.press(screen.getByRole('button', { name: 'Add price' }));
+  await fireEvent.changeText(screen.getByLabelText('Pack price'), '1.95');
+  await fireEvent.press(screen.getByRole('button', { name: 'Save Price' }));
+
+  expect(await screen.findByRole('alert')).toHaveTextContent(/Your entries are still here\./);
+  expect(screen.getByLabelText('Pack price')).toHaveDisplayValue('1.95');
+  await fireEvent.press(screen.getByRole('button', { name: 'Save Price' }));
+  expect(screen.getByTestId('barcode-preview')).toBeOnTheScreen();
+  expect(jest.mocked(saveManualPrice).mock.calls.map(([record]) => record.id)).toEqual(['manual-price-id', 'manual-price-id']);
 });
