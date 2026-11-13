@@ -4,17 +4,15 @@ import { normalizeName, shopDisplayName } from "@cheapo/domain/names";
 
 import { ui } from "@/component/results/theme";
 import type { Shop } from "@cheapo/domain";
-import type { SavedShopState, removeShop, saveShop, selectShop, updateShop } from "@/data/local-shops";
+import type { SavedShopState, ShopRepository } from "@/data/shop-repository";
 import { ShopForm, type ShopFormValues } from "./shop-form";
 import { ShopPicker } from "./shop-picker";
 import { ShopRemovalConfirmation } from "./shop-removal-confirmation";
 
 type ShopChooserProps = {
   state: SavedShopState;
-  actions: { saveShop: typeof saveShop; selectShop: typeof selectShop };
-  management?: {
-    updateShop: typeof updateShop;
-    removeShop: typeof removeShop;
+  actions: Pick<ShopRepository, "saveShop" | "selectShop">;
+  management?: Pick<ShopRepository, "updateShop" | "removeShop"> & {
     onChanged: (state: SavedShopState) => void;
   };
   onSelected: (state: SavedShopState) => void;

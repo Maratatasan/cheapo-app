@@ -3,14 +3,7 @@ import { shopDisplayName } from '@cheapo/domain/names';
 import { randomUUID } from 'expo-crypto';
 
 import { readShopSnapshot, writeShopSnapshot } from './shop-snapshot';
-
-export type SavedShopState = {
-  shops: Shop[];
-  currentShop?: Shop;
-};
-
-type ShopInput = Omit<Shop, 'id'> & { id?: string };
-type EditableShopDetails = Pick<Shop, 'nickname' | 'name' | 'address'>;
+import type { EditableShopDetails, SavedShopState, ShopInput } from './shop-repository';
 type ShopSnapshot = {
   version: 1;
   shops: Shop[];

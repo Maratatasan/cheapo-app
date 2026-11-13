@@ -4,13 +4,12 @@ import { shopDisplayName } from "@cheapo/domain/names";
 import { CameraComponent } from "@/component/camera";
 import { BarcodeScan } from "@/component/barcode-scan";
 import { ShopChooser, ShopLoadFeedback } from "@/component/shop/shop-chooser";
-import * as localShopActions from "@/data/local-shops";
 import { useSavedShops } from "@/hooks/use-saved-shops";
 
 export default function ScanScreen() {
   const router = useRouter();
   const { mode } = useLocalSearchParams<{ mode?: string }>();
-  const { shops, setShops, readError, retry } = useSavedShops();
+  const { shopRepository, shops, setShops, readError, retry } = useSavedShops();
   if (!shops) return <ShopLoadFeedback error={readError} onRetry={retry} />;
 
   const shop = shops.currentShop;
@@ -20,7 +19,7 @@ export default function ScanScreen() {
     return (
       <ShopChooser
         state={shops}
-        actions={localShopActions}
+        actions={shopRepository}
         onSelected={setShops}
         onCancel={() => router.canGoBack() ? router.back() : router.replace("/")}
       />
