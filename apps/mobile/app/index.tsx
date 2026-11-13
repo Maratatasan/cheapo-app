@@ -10,9 +10,29 @@ import { useSavedShops } from "@/hooks/use-saved-shops";
 export default function Index() {
   const router = useRouter();
   const [choosing, setChoosing] = useState(false);
+  const [seeding, setSeeding] = useState(false);
+  const [fixtureError, setFixtureError] = useState(false);
   const { shops, setShops, readError, retry } = useSavedShops();
   const showDeveloperTools = Constants.expoConfig?.extra?.directAuthTest === true;
   const fieldTest = Platform.OS === "android" && Constants.expoConfig?.extra?.fieldTest === true;
+  const shoppingFixture = Platform.OS === "ios"
+    && Constants.expoConfig?.ios?.bundleIdentifier === "com.maratatasan.cheapo.shopping-test"
+    && Constants.expoConfig?.extra?.iosShoppingFixture === true;
+
+  async function loadFixtures() {
+    setSeeding(true);
+    setFixtureError(false);
+    try {
+      const { seedIosShoppingFixtures } = await import("@/data/ios-shopping-fixtures");
+      await seedIosShoppingFixtures();
+      setShops(await localShopActions.loadSavedShops());
+      router.push("/saved-products");
+    } catch {
+      setFixtureError(true);
+    } finally {
+      setSeeding(false);
+    }
+  }
 
   return (
     <>
@@ -23,7 +43,9 @@ export default function Index() {
           headerRight: showDeveloperTools
             ? () => <Button title="Developer tools" onPress={() => router.push("/developer-tools")} />
             : fieldTest ? () => <Button title="ChatGPT" onPress={() => router.push("/direct-auth")} />
-            : undefined,
+            : shoppingFixture
+              ? () => <Button title={fixtureError ? "Retry fixtures" : "Load fixtures"} disabled={seeding} onPress={() => void loadFixtures()} />
+              : undefined,
         }}
       />
       {choosing && shops ? (

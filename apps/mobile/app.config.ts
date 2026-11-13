@@ -4,6 +4,17 @@ import type { ConfigContext, ExpoConfig } from 'expo/config';
 export default function configure({ config }: ConfigContext): ExpoConfig {
   const authTest = process.env.CHEAPO_AUTH_TEST === '1';
   const fieldTest = process.env.CHEAPO_FIELD_TEST === '1';
+  if (process.env.CHEAPO_IOS_SHOPPING_FIXTURE === '1') {
+    if (authTest || fieldTest) throw new Error('Choose one Cheapo test app per build.');
+    return {
+      ...config,
+      name: 'Cheapo Shopping Test',
+      slug: config.slug ?? 'cheapo-app',
+      scheme: 'cheapo-shopping-test',
+      ios: { ...config.ios, bundleIdentifier: 'com.maratatasan.cheapo.shopping-test' },
+      extra: { ...config.extra, iosShoppingFixture: true },
+    };
+  }
   if (authTest && fieldTest) throw new Error('Choose one Cheapo test app per build.');
   if (fieldTest) return {
     ...config,
