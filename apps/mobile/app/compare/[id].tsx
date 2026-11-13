@@ -7,19 +7,19 @@ import { MarketScanActions } from '@/component/results/market-scan-actions';
 import { DisplayState } from '@/component/results/display-state';
 import { ShopComparison } from '@/component/results/shop-comparison';
 import { marketColor, ui } from '@/component/results/theme';
-import { loadLocalPhotos, type LocalPhotoDraft } from '@/data/local-photo';
+import { loadSavedPriceRecords, type SavedPriceRecord } from '@/data/local-photo';
 import { comparisonRowFromDraft } from '@/data/saved-comparison';
 
 export default function SavedComparison() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const [drafts, setDrafts] = useState<LocalPhotoDraft[]>();
+  const [drafts, setDrafts] = useState<SavedPriceRecord[]>();
   const [error, setError] = useState(false);
   const focus = useRef<AbortController | null>(null);
 
   const refresh = useCallback((signal: AbortSignal) => {
     setError(false);
-    loadLocalPhotos().then(saved => { if (!signal.aborted) setDrafts(saved); })
+    loadSavedPriceRecords().then(saved => { if (!signal.aborted) setDrafts(saved); })
       .catch(() => { if (!signal.aborted) setError(true); });
   }, []);
 
@@ -53,7 +53,7 @@ export default function SavedComparison() {
               description="Open a completed review from Saved products and photos to compare prices." />
           ) : (
             <ShopComparison key={draft.id} reference={reference} comparisons={comparisons}
-              product={{ name: reference.product, pack: reference.pack, photo: { uri: draft.selected.uri } }}
+              product={{ name: reference.product, pack: reference.pack, photo: draft.selected && { uri: draft.selected.uri } }}
               onEdit={recordId => router.push({ pathname: '/edit-price/[id]', params: { id: recordId } })} />
           )}
         </ScrollView>

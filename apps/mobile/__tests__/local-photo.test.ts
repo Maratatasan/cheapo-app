@@ -1,4 +1,4 @@
-import { emptyReview, reviewComplete, loadLocalPhotos, saveLocalPhoto, saveLocalPhotoReview, type LocalPhotoDraft } from '../data/local-photo';
+import { emptyReview, reviewComplete, loadLocalPhotos, loadSavedPriceRecords, saveLocalPhoto, saveLocalPhotoReview, saveManualPrice, type LocalPhotoDraft } from '../data/local-photo';
 import { comparisonRowFromDraft } from '../data/saved-comparison';
 const mockFiles = new Map<string, string>();
 let mockFailCopy = false;
@@ -11,6 +11,8 @@ jest.mock('expo-file-system', () => {
     get name() { return this.uri.split('/').pop()!; }
     get exists() { return mockFiles.has(this.uri); }
     get size() { return mockFiles.get(this.uri)?.length ?? 0; }
+    delete() { mockFiles.delete(this.uri); }
+    async move(target: File) { if (target.exists) throw Error('File already exists.'); mockFiles.set(target.uri, mockFiles.get(this.uri)!); this.delete(); this.uri = target.uri; }
     async copy(target: File) { await new Promise(resolve => setTimeout(resolve, 1)); if (mockFailCopy) throw Error('Disk full'); mockFiles.set(target.uri, mockFiles.get(this.uri)!); }
     async write(value: string) { await new Promise(resolve => setTimeout(resolve, 1)); if (mockFailWrite) throw Error('Manifest could not be written'); if (mockPartialWrite && this.name.endsWith('.json')) { mockFiles.set(this.uri, '{partial'); throw Error('Interrupted manifest write'); } mockFiles.set(this.uri, value); }
     async text() { return mockFiles.get(this.uri); }
@@ -26,6 +28,30 @@ jest.mock('expo-file-system', () => {
 });
 const draft: LocalPhotoDraft = { id: 'capture-1', capturedAt: '2026-11-10T12:00:00Z', original: { uri: 'file:///camera.jpg', width: 1000, height: 500, mimeType: 'image/jpeg' }, selected: { uri: 'file:///crop.jpg', width: 500, height: 250, mimeType: 'image/jpeg' } };
 beforeEach(() => { mockFiles.clear(); mockFailCopy = false; mockFailWrite = false; mockPartialWrite = false; mockFiles.set('file:///camera.jpg', 'original JPEG'); mockFiles.set('file:///crop.jpg', 'cropped JPEG'); });
+
+it('keeps manual prices as separate dated records without fabricating a photo', async () => {
+  const shop = { id: 'shop-1', displayName: 'Test shop' };
+  const review = { ...emptyReview(shop.displayName), productName: 'Rice', price: '2.00' };
+  const manual = { id: 'manual-1', capturedAt: '2026-11-12T12:00:00Z', productId: 'rice', shop, review };
+  const previous = await saveLocalPhoto(draft);
+  await saveManualPrice(manual);
+  await expect(loadSavedPriceRecords()).resolves.toEqual([manual, previous]);
+  await expect(loadLocalPhotos()).resolves.toEqual([previous]);
+  await expect(saveManualPrice({ ...manual, review: { ...review, price: '3.00' } })).rejects.toThrow('already saved');
+  await expect(saveManualPrice({ ...manual, id: 'invalid', review: { ...review, price: '' } })).rejects.toThrow('valid product and price');
+  await expect(loadSavedPriceRecords()).resolves.toEqual([manual, previous]);
+});
+
+it('does not publish a failed manual price and accepts a retry', async () => {
+  const shop = { id: 'shop-1', displayName: 'Test shop' };
+  const review = { ...emptyReview(shop.displayName), productName: 'Rice', price: '2.00' };
+  const manual = { id: 'retry-price', capturedAt: '2026-11-12T12:00:00Z', productId: 'rice', shop, review };
+  mockFailWrite = true;
+  await expect(saveManualPrice(manual)).rejects.toThrow('Manifest could not be written');
+  await expect(loadSavedPriceRecords({ requireAll: true })).resolves.toEqual([]);
+  mockFailWrite = false;
+  await expect(saveManualPrice(manual)).resolves.toEqual(manual);
+});
 it('restores both original and selected photos after temporary camera files disappear', async () => {
   await saveLocalPhoto(draft);
   mockFiles.delete('file:///camera.jpg'); mockFiles.delete('file:///crop.jpg');
@@ -81,9 +107,9 @@ it('skips malformed metadata without hiding other saved photos',async()=>{
 
 it('requires every saved capture and photo for a complete export', async () => {
   const saved = await saveLocalPhoto(draft);
-  await expect(loadLocalPhotos({ requireAll: true })).resolves.toEqual([saved]);
+  await expect(loadSavedPriceRecords({ requireAll: true })).resolves.toEqual([saved]);
   mockFiles.delete(saved.selected.uri);
-  await expect(loadLocalPhotos({ requireAll: true })).rejects.toThrow('could not export the full collection');
+  await expect(loadSavedPriceRecords({ requireAll: true })).rejects.toThrow('could not export the full collection');
   await expect(loadLocalPhotos()).resolves.toEqual([]);
 });
 

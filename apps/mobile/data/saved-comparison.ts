@@ -1,9 +1,9 @@
 import { normalizeName } from '@cheapo/domain/names';
 
-import type { LocalPhotoDraft } from './local-photo';
+import type { SavedPriceRecord } from './local-photo';
 import { reviewComplete, reviewUnitPrice } from './photo-review';
 
-export function comparisonRowFromDraft({ id, capturedAt, review, shop }: LocalPhotoDraft) {
+export function comparisonRowFromDraft({ id, capturedAt, review, shop }: SavedPriceRecord) {
   if (!review || !reviewComplete(review, shop?.displayName)) return null;
   return {
     id,

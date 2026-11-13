@@ -4,7 +4,7 @@ import { Directory, File, FileMode, Paths, type FileHandle } from 'expo-file-sys
 import { isAvailableAsync, shareAsync } from 'expo-sharing';
 import { Zip, ZipPassThrough } from 'fflate/browser';
 
-import { loadLocalPhotos, reviewComplete, savedPhotoDirectory, type LocalPhotoDraft, type PhotoAsset } from '@/data/local-photo';
+import { loadSavedPriceRecords, reviewComplete, savedPhotoDirectory, type SavedPriceRecord, type PhotoAsset } from '@/data/local-photo';
 import { reviewUnitPrice } from '@/data/photo-review';
 import { loadSavedShops } from '@/data/local-shops';
 
@@ -27,14 +27,15 @@ function describePhoto(asset: PhotoAsset, path: string) {
   return { path, width: asset.width, height: asset.height, mimeType: asset.mimeType };
 }
 
-function describeRecord(draft: LocalPhotoDraft, index: number) {
-  const { review, shop, cropBox, original, selected } = draft;
+function describeRecord(draft: SavedPriceRecord, index: number) {
+  const { review, shop, cropBox, original, selected, productId } = draft;
   const shopName = shop?.displayName ?? normalizeName(review?.shop) ?? null;
   const prefix = `photos/${index + 1}`;
   const originalPath = `${prefix}/original.jpg`;
-  const cropPath = original.uri !== selected.uri ? `${prefix}/crop.jpg` : null;
+  const cropPath = original && original.uri !== selected.uri ? `${prefix}/crop.jpg` : null;
   return {
     id: draft.id,
+    productId,
     capturedAt: draft.capturedAt,
     productName: normalizeName(review?.productName) ?? null,
     shop: shopName ? { id: shop?.id ?? null, displayName: shopName } : null,
@@ -47,11 +48,11 @@ function describeRecord(draft: LocalPhotoDraft, index: number) {
     } : null,
     unitPrice: review ? reviewUnitPrice(review) : null,
     cropBox: cropBox ? { left: cropBox.left, top: cropBox.top, right: cropBox.right, bottom: cropBox.bottom } : null,
-    photos: {
+    photos: original ? {
       original: describePhoto(original, originalPath),
       crop: cropPath ? describePhoto(selected, cropPath) : null,
       selectedPath: cropPath ?? originalPath,
-    },
+    } : null,
   };
 }
 
@@ -115,7 +116,7 @@ export async function exportShoppingData(signal: AbortSignal): Promise<void> {
   try {
     ensureActive(signal);
     if (!await isAvailableAsync()) throw new ExportError('Android sharing is unavailable on this phone.');
-    const drafts = await loadLocalPhotos({ requireAll: true }).catch(() => {
+    const drafts = await loadSavedPriceRecords({ requireAll: true }).catch(() => {
       throw new ExportError('A saved record or photo is unreadable. The full collection could not be exported.');
     });
     if (!drafts.length) throw new ExportError('There are no saved products or photos to export.');
@@ -133,13 +134,15 @@ export async function exportShoppingData(signal: AbortSignal): Promise<void> {
       return { path, source };
     }
     const photos = drafts.flatMap((draft, index) => {
-      const { original, crop } = records[index].photos;
+      const paths = records[index].photos;
+      if (!draft.original || !paths) return [];
+      const { original, crop } = paths;
       const source = savedPhoto(draft.original, original.path);
       return crop ? [source, savedPhoto(draft.selected, crop.path)] : [source];
     });
     if (photos.length + 1 > ZIP32_MAX_ENTRIES) throw new ExportError('The collection has too many files for one ZIP.');
     const manifest = new TextEncoder().encode(JSON.stringify({
-      version: 1,
+      version: records.some(record => record.photos === null) ? 2 : 1,
       exportedAt,
       records,
       savedShops: shops.map((shop) => {
