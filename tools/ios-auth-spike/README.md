@@ -1,10 +1,11 @@
 # iOS mock sign-in lifecycle
 
-This Simulator-only harness for [#91](https://github.com/Maratatasan/cheapo-app/issues/91)
+This harness for [#91](https://github.com/Maratatasan/cheapo-app/issues/91)
 opens a local mock authorization page in the system browser. The app owns its
 HTTP callback listener on `127.0.0.1` and accepts one synthetic code for the
 current state. It records lifecycle events and requires an explicit foreground
-Continue. All requests stay on loopback and use synthetic data.
+Continue. All requests use synthetic data. The original Simulator test keeps
+all requests on loopback.
 
 ## Run locally
 
@@ -52,6 +53,54 @@ xcrun simctl shutdown "$simulator_id"
 
 The log records lifecycle and pass/fail events without query values. Stop the
 mock page with Ctrl-C in its terminal when finished.
+
+## Run on a physical iPhone
+
+The separate [#119](https://github.com/Maratatasan/cheapo-app/issues/119) test
+app is named **Cheapo Mock Auth** and uses `com.maratatasan.cheapo.mock-auth`.
+The Mac serves a static synthetic authorization page on one private IPv4
+address. Safari opens that page, and the callback goes to the phone's
+`127.0.0.1`. Serving the authorization page from the app itself would make
+Safari depend on the process under test before it could send the callback.
+Apple documents that Safari traffic does not require an app's Local Network
+permission. [Apple local network privacy technote](https://developer.apple.com/documentation/technotes/tn3179-understanding-local-network-privacy)
+
+Use an existing Xcode development team and paired iPhone on the same trusted
+Wi-Fi network. The project generator uses the `xcodeproj` Ruby gem, which is
+also installed with CocoaPods. Start the server in one terminal with the
+Mac's private Wi-Fi IPv4 address and port `0` to allocate a free port.
+
+```sh
+node tools/ios-auth-spike/mock-page.mjs 0 '<Mac private IPv4>'
+```
+
+Use the address printed by the server, including the port and trailing slash:
+
+```sh
+project_dir="$(mktemp -d)"
+ruby tools/ios-auth-spike/build-device.rb "$project_dir" \
+  '<development team ID>' 'http://<Mac private IPv4>:<port>/'
+xcodebuild -project "$project_dir/MockAuth.xcodeproj" -scheme MockAuth \
+  -configuration Release -destination 'id=<iPhone UDID>' \
+  -derivedDataPath "$project_dir/build" -jobs 1 -allowProvisioningUpdates build
+xcrun devicectl device install app --device '<iPhone UDID>' \
+  "$project_dir/build/Build/Products/Release-iphoneos/MockAuth.app"
+```
+
+Start on the iPhone from **Cheapo Mock Auth**. Run the same valid, delayed,
+invalid, and no-callback scenarios above. Include a cold Safari launch, a
+warm launch, lock/unlock while Safari is open, and a return after the
+45-second callback deadline. Record any instance where Safari keeps loading
+and whether returning to the app offers Continue or a clear retry.
+
+```sh
+xcrun devicectl device copy from --device '<iPhone UDID>' \
+  --domain-type appDataContainer --domain-identifier com.maratatasan.cheapo.mock-auth \
+  --source Documents/events.log --destination /tmp/cheapo-mock-auth-events.log
+```
+
+Stop the private server when finished. If cleaning up the iPhone, remove only
+the separate mock app, whose container holds synthetic event logs.
 
 ## Observed on iPhone 17 Pro Simulator
 
