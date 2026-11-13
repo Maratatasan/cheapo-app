@@ -8,6 +8,8 @@
     "scheme": "myapp",
     "userInterfaceStyle": "automatic",
     "ios": {
+      "bundleIdentifier": "com.maratatasan.cheapo",
+      "buildNumber": "1",
       "supportsTablet": true
     },
     "android": {
