@@ -107,3 +107,18 @@ test("only marks the actual cheapest eligible price, including the reference", a
   await screen.rerender(<ShopComparison product={product} reference={{ ...reference, unit_price: { amount: 1.24, unit: "kg" } }} comparisons={[candidate]} />);
   expect(screen.getAllByText("Lowest unit price")).toHaveLength(2);
 });
+
+test("ranks the reference basis and shows saved prices with other units separately", async () => {
+  const reference = { id: "anchor", shop: "Loose produce shop", productType: "Apples", price: 1.2, currency: "GBP", unit_price: { amount: 0.2, unit: "100 g" } };
+  const alternatives = [
+    { ...reference, id: "item", shop: "Per item shop", unit_price: { amount: 0.15, unit: "each" } },
+    { ...reference, id: "kg", shop: "Per kg shop", unit_price: { amount: 1.8, unit: "kg" } },
+  ];
+  await render(<ShopComparison product={{ name: "Apples" }} reference={reference} comparisons={alternatives} />);
+
+  expect(screen.getByText("£2.00 / kg")).toBeOnTheScreen();
+  expect(screen.getByText("Saved basis · 100 g")).toBeOnTheScreen();
+  expect(screen.getByRole("header", { name: "Prices in other units" })).toBeOnTheScreen();
+  expect(screen.getByText("£0.15 / each")).toBeOnTheScreen();
+  expect(within(screen.getByText("Lowest unit price").parent!).getByText("£1.80 / kg")).toBeOnTheScreen();
+});
