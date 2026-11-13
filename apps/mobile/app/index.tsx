@@ -11,6 +11,7 @@ export default function Index() {
   const router = useRouter();
   const [choosing, setChoosing] = useState(false);
   const { shops, setShops, readError, retry } = useSavedShops();
+  const iosAuthTest = Platform.OS === "ios" && Constants.expoConfig?.extra?.iosDirectAuthTest === true;
   const showDeveloperTools = Constants.expoConfig?.extra?.directAuthTest === true;
   const fieldTest = Platform.OS === "android" && Constants.expoConfig?.extra?.fieldTest === true;
 
@@ -22,7 +23,7 @@ export default function Index() {
           headerTransparent: { ios: false },
           headerRight: showDeveloperTools
             ? () => <Button title="Developer tools" onPress={() => router.push("/developer-tools")} />
-            : fieldTest ? () => <Button title="ChatGPT" onPress={() => router.push("/direct-auth")} />
+            : fieldTest || iosAuthTest ? () => <Button title="ChatGPT" onPress={() => router.push("/direct-auth")} />
             : undefined,
         }}
       />

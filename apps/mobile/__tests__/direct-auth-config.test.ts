@@ -2,7 +2,7 @@ import configure from '../app.config';
 import type { ConfigContext } from 'expo/config';
 const config={name:'Cheapo',slug:'cheapo-app',scheme:'myapp',plugins:['expo-router'],extra:{existing:true},android:{package:'com.example.cheapo'}};
 const context:ConfigContext={config,projectRoot:'/test',staticConfigPath:null,packageJsonPath:'/test/package.json'};
-afterEach(()=>{delete process.env.CHEAPO_AUTH_TEST;delete process.env.CHEAPO_FIELD_TEST;});
+afterEach(()=>{delete process.env.CHEAPO_AUTH_TEST;delete process.env.CHEAPO_FIELD_TEST;delete process.env.CHEAPO_IOS_AUTH_TEST;});
 it('preserves the normal app configuration unless explicitly opted in',()=>{
   expect(configure(context)).toEqual(config);
 });
@@ -20,4 +20,17 @@ it('uses the existing field-test package without enabling auth-test UI',()=>{
 it('rejects conflicting test-app choices',()=>{
   process.env.CHEAPO_FIELD_TEST='1';process.env.CHEAPO_AUTH_TEST='1';
   expect(()=>configure(context)).toThrow('Choose one');
+});
+
+it('isolates the iPhone auth test without enabling Android field or test flags', () => {
+  process.env.CHEAPO_IOS_AUTH_TEST = '1';
+  expect(configure(context)).toMatchObject({
+    name: 'Cheapo iPhone Auth Test', scheme: 'cheapo-ios-auth-test',
+    ios: { bundleIdentifier: 'com.maratatasan.cheapo.ios-auth-test', buildNumber: '1' },
+    android: config.android, extra: { existing: true, iosDirectAuthTest: true },
+  });
+  expect(configure(context).extra?.fieldTest).toBeUndefined();
+  expect(configure(context).extra?.directAuthTest).toBeUndefined();
+  process.env.CHEAPO_AUTH_TEST = '1';
+  expect(() => configure(context)).toThrow('Choose one');
 });

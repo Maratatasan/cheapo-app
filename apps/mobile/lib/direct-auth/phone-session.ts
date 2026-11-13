@@ -9,14 +9,17 @@ import { createPhoneAuth, type PhoneNative } from './client';
 type Check = { callbackVerified: boolean; signatureVerified: boolean; boundAddress: string };
 const extra = Constants.expoConfig?.extra;
 export const fieldPhotoAnalysisEnabled = Platform.OS === 'android' && extra?.fieldTest === true;
-export const phoneAuthNative = Platform.OS === 'android' && (fieldPhotoAnalysisEnabled || extra?.directAuthTest === true)
+export const iosPhoneAuthTestEnabled = Platform.OS === 'ios' && extra?.iosDirectAuthTest === true;
+const authEnabled = iosPhoneAuthTestEnabled || (Platform.OS === 'android' && (fieldPhotoAnalysisEnabled || extra?.directAuthTest === true));
+export const phoneAuthNative = authEnabled
   ? requireOptionalNativeModule<PhoneNative & { selfTest(state: string): Promise<Check> }>('CheapoLoopback')
   : null;
 
 export const randomHex = () => Array.from(Crypto.getRandomBytes(32), (byte) => byte.toString(16).padStart(2, '0')).join('');
 export const phoneAuth = phoneAuthNative ? createPhoneAuth({
   native: phoneAuthNative,
-  appName: fieldPhotoAnalysisEnabled ? 'Cheapo Field' : undefined,
+  appName: iosPhoneAuthTestEnabled ? 'Cheapo iPhone Auth Test' : fieldPhotoAnalysisEnabled ? 'Cheapo Field' : undefined,
+  storageName: iosPhoneAuthTestEnabled ? 'iPhone Keychain' : undefined,
   getItem: SecureStore.getItemAsync,
   setItem: SecureStore.setItemAsync,
   deleteItem: SecureStore.deleteItemAsync,

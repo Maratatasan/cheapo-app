@@ -5,9 +5,9 @@ import Constants from 'expo-constants';
 import * as Crypto from 'expo-crypto';
 import * as SecureStore from 'expo-secure-store';
 import { ui } from '@/component/results/theme';
-import { fieldPhotoAnalysisEnabled,phoneAuth as auth,phoneAuthNative as native,randomHex } from '@/lib/direct-auth/phone-session';
+import { fieldPhotoAnalysisEnabled,iosPhoneAuthTestEnabled,phoneAuth as auth,phoneAuthNative as native,randomHex } from '@/lib/direct-auth/phone-session';
 
-const experiment=Constants.expoConfig?.extra?.directAuthTest===true;
+const experiment=iosPhoneAuthTestEnabled || Constants.expoConfig?.extra?.directAuthTest===true;
 export default function DirectAuthTest() {
   const [busy,setBusy]=useState(false);
   const [authState,setAuthState]=useState(auth?.getState());
@@ -16,7 +16,7 @@ export default function DirectAuthTest() {
   async function check() {
     setBusy(true);setStatus('Checking on-phone loopback and protected storage…');
     try {
-      if(!native)throw Error('Install the separate Cheapo Auth Test APK. Expo Go cannot host this native listener.');
+      if(!native)throw Error('Install the separate Cheapo Auth Test app. Expo Go cannot host this native listener.');
       let host=await SecureStore.getItemAsync('direct-auth.host-id');
       if(!host){host=`urn:uuid:${Crypto.randomUUID()}`;await SecureStore.setItemAsync('direct-auth.host-id',host);}
       const state=randomHex();
@@ -31,11 +31,11 @@ export default function DirectAuthTest() {
     <Stack.Screen options={{title:fieldPhotoAnalysisEnabled?'ChatGPT sign-in':'Direct phone sign-in test'}} />
     <Text style={ui.title}>{fieldPhotoAnalysisEnabled?'Connect ChatGPT':'Direct phone sign-in test'}</Text>
     {experiment ? <>
-      <Text style={ui.small}>Auth test 1.0.2 (3) · explicit Continue</Text>
+      <Text style={ui.small}>{iosPhoneAuthTestEnabled ? 'iPhone auth test 1.0.0 (1)' : 'Auth test 1.0.2 (3)'} · explicit Continue</Text>
       <Text style={ui.body}>{status}</Text>
       <Button title={busy?'Checking…':'Check this phone'} disabled={busy||authState?.busy} onPress={check} />
     </> : <Text style={ui.body}>Connect your ChatGPT plan to suggest details from a photo you choose. You can still save photos and enter details manually.</Text>}
-    <Text style={ui.body}>{authState?.message || 'Install the Android field app to sign in.'}</Text>
+    <Text style={ui.body}>{authState?.message || 'Install a Cheapo build with phone sign-in enabled.'}</Text>
     <Text style={ui.small}>Identity: {authState?.signedIn?'verified':'not verified'} · Plan permission: {authState?.planAllowed?'granted':'not granted'} · Saved login: {authState?.savedLogin?'yes':'no'}</Text>
     <Button title={authState?.busy?'Completing phone sign-in…':'Sign in with ChatGPT on this phone'} disabled={!auth||busy||authState?.busy} onPress={()=>void auth?.signIn()} />
     {authState?.awaitingContinue?<Button title="Continue sign-in" onPress={()=>auth?.continueSignIn()} />:null}
