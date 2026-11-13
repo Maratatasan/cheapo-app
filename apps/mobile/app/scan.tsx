@@ -1,13 +1,15 @@
-import { View, StyleSheet } from "react-native";
-import { useRouter } from "expo-router";
+import { View, StyleSheet, Platform } from "react-native";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { shopDisplayName } from "@cheapo/domain/names";
 import { CameraComponent } from "@/component/camera";
+import { BarcodeScan } from "@/component/barcode-scan";
 import { ShopChooser, ShopLoadFeedback } from "@/component/shop/shop-chooser";
 import * as localShopActions from "@/data/local-shops";
 import { useSavedShops } from "@/hooks/use-saved-shops";
 
 export default function ScanScreen() {
   const router = useRouter();
+  const { mode } = useLocalSearchParams<{ mode?: string }>();
   const { shops, setShops, readError, retry } = useSavedShops();
   if (!shops) return <ShopLoadFeedback error={readError} onRetry={retry} />;
 
@@ -27,7 +29,12 @@ export default function ScanScreen() {
 
   return (
     <View style={styles.container}>
-      <CameraComponent currentShop={{ id: shop.id, displayName }} />
+      {mode === "barcode" && Platform.OS !== "web" ? (
+        <BarcodeScan key={shop.id} onScanLabel={() => router.setParams({ mode: "label" })} />
+      ) : (
+        <CameraComponent currentShop={{ id: shop.id, displayName }}
+          onScanBarcode={Platform.OS === "web" ? undefined : () => router.setParams({ mode: "barcode" })} />
+      )}
     </View>
   );
 }

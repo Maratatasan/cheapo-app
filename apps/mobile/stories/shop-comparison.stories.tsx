@@ -123,6 +123,25 @@ export const MissingVariety: Story = {
   },
 };
 
+export const BarcodeCategory: Story = {
+  args: {
+    product: { ...product, name: "Rooster potatoes" },
+    catalogProduct: freshPotatoes,
+    comparisons: filteredPrices,
+  },
+  play: async ({ canvas, userEvent }) => {
+    const variety = canvas.getByRole("checkbox", { name: "Same variety" });
+    const brand = canvas.getByRole("checkbox", { name: "Same brand" });
+    await expect(canvas.getByText("Maris Piper potatoes 2 kg")).toBeVisible();
+    await expect(canvas.getByText("Brand B Rooster potatoes 2 kg")).toBeVisible();
+    await userEvent.click(variety);
+    await expect(canvas.queryByText("Maris Piper potatoes 2 kg")).not.toBeInTheDocument();
+    await userEvent.click(brand);
+    await expect(canvas.queryByText("Brand B Rooster potatoes 2 kg")).not.toBeInTheDocument();
+    await expect(canvas.getByText("Rooster potatoes 1 kg")).toBeVisible();
+  },
+};
+
 
 function EditComparison({ saveFails = false }: { saveFails?: boolean }) {
   const [reference, setReference] = useState<ComparisonRow>(filterReference);

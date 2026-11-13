@@ -10,6 +10,7 @@ const mockExtra = { directAuthTest: false };
 
 jest.mock("expo-router", () => ({
   useRouter: () => ({ push: mockPush }),
+  useLocalSearchParams: () => ({}),
   useFocusEffect: (callback: () => void) => require("react").useEffect(callback, [callback]),
   Stack: { Screen: ({ options }: { options: { headerRight?: () => ReactNode } }) => options.headerRight?.() ?? null },
   Redirect: () => null,
