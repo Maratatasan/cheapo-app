@@ -1,4 +1,5 @@
 import { emptyReview, reviewComplete, loadLocalPhotos, saveLocalPhoto, saveLocalPhotoReview, type LocalPhotoDraft } from '../data/local-photo';
+import { comparisonRowFromDraft } from '../data/saved-comparison';
 const mockFiles = new Map<string, string>();
 let mockFailCopy = false;
 let mockFailWrite = false;
@@ -136,6 +137,17 @@ it('retains optional classification and pack size after saving', async () => {
   await saveLocalPhoto({ ...draft, review });
   expect((await loadLocalPhotos())[0].review).toEqual(review);
   expect(reviewComplete(review)).toBe(true);
+});
+
+it('keeps the printed multipack size and derives the unit price when a saved record is reopened', async () => {
+  const packSize = '8 × 500 mL';
+  const review = { ...emptyReview('Test shop'), productName: 'Sparkling water', price: '3.20', packSize };
+  await saveLocalPhoto({ ...draft, review });
+  const [restored] = await loadLocalPhotos();
+  expect(restored.review?.packSize).toBe(packSize);
+  expect(comparisonRowFromDraft(restored)).toMatchObject({
+    pack: packSize, unit_price: { amount: 0.8, unit: 'litre' },
+  });
 });
 
 

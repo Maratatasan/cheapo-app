@@ -40,7 +40,7 @@ export function PhotoReview({ photo, review, selectedShopName, saved, busy, onRe
     ['variety', 'Variety (optional)', 'Variety', 'For example basmati', productMetadataMaxLength],
     ['brand', 'Brand (optional)', 'Brand', 'For example Tilda', productMetadataMaxLength],
   ] as const;
-  const pack = ['packSize', 'Pack size (optional)', 'Pack size', 'For example 500 g or 2 kg', packSizeMaxLength] as const;
+  const pack = ['packSize', 'Pack size (optional)', 'Pack size', 'For example 500 g or 8 × 500 ml', packSizeMaxLength] as const;
   const price = [
     ['price', `Total price (${review.currency || 'GBP'})`, 'Pack price', '0.00'],
     ['currency', 'Currency', 'Currency', 'GBP'],
@@ -69,7 +69,7 @@ export function PhotoReview({ photo, review, selectedShopName, saved, busy, onRe
         {children}
         {fields.map(([field, label, accessibilityLabel, placeholder, maxLength]) => <View key={field} style={styles.field} onLayout={event => { positions.current[field] = event.nativeEvent.layout.y; if (keyboardVisible && focused.current === field) revealFocused(); }}>
           <Text style={styles.label}>{label}</Text>
-          {field === 'packSize' && invalidPack ? <Text style={styles.note}>Enter a positive quantity and unit, for example 500 g or 2 kg.</Text> : null}
+          {field === 'packSize' && invalidPack ? <Text style={styles.note}>Enter the quantity and unit. For multipacks, include the count and size of each pack, for example 8 × 500 ml.</Text> : null}
           {field === 'productType' ? <Text style={styles.note}>Use the same type for products you would compare. For example, use different types for fresh potatoes and frozen chips.</Text> : null}
           {field === 'shop' && selectedShopName ? <Text accessibilityLabel={`${accessibilityLabel}: ${selectedShopName}`} style={styles.input}>{selectedShopName}</Text> : (
             <TextInput accessibilityLabel={accessibilityLabel} placeholder={placeholder} placeholderTextColor="#666" value={review[field] ?? ''} maxLength={maxLength} editable={!busy} keyboardType={field === 'price' || field === 'unitPrice' ? 'decimal-pad' : 'default'} autoCapitalize={field === 'currency' ? 'characters' : 'sentences'} style={styles.input} onFocus={() => { focused.current = field; revealFocused(); }} onChangeText={value => onReviewChange({ ...review, [field]: field === 'currency' ? value.toUpperCase().slice(0, 3) : value })} />

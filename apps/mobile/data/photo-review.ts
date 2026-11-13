@@ -9,8 +9,11 @@ const validPrice = (value: string, fraction = 2) => new RegExp(`^\\d+(\\.\\d{1,$
 
 export function calculatePackUnitPrice(total: string, pack: string) {
   const basis = pack.trim().replace(/(items|litres|liters)$/i, unit => unit.slice(0, -1));
-  if (!validPrice(total) || !/^\d+(?:\.\d+)?\s*[a-z]+$/i.test(basis)) return null;
-  return normalizedUnitPrice({ amount: Number(total), unit: basis });
+  const match = /^(?:(\d+)\s*[x×]\s*)?(\d+(?:\.\d+)?\s*[a-z]+)$/i.exec(basis);
+  if (!validPrice(total) || !match) return null;
+  const count = Number(match[1] ?? 1);
+  if (!Number.isSafeInteger(count) || count < 1) return null;
+  return normalizedUnitPrice({ amount: Number(total) / count, unit: match[2] });
 }
 
 export function reviewUnitPrice(review: ManualReview) {

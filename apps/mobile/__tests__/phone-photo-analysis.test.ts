@@ -74,7 +74,8 @@ test.each([
   { raw: '1.5 litres', expected: '1.5 litres' },
   { raw: '6 items', expected: '6 items' },
   { raw: null, expected: null },
-  { raw: '8×500 ml', expected: null },
+  { raw: '8 × 500 mL', expected: '8 × 500 mL' },
+  { raw: '8 × 500', expected: null },
   { raw: '0 g', expected: null },
   { raw: 'per kg', expected: null },
 ])('only prefills supported pack sizes ($raw)', async ({ raw, expected }) => {
