@@ -1,7 +1,7 @@
 import { shareAsync, isAvailableAsync } from 'expo-sharing';
 import { unzipSync } from 'fflate/browser';
 
-import { emptyReview, loadLocalPhotos, type LocalPhotoDraft } from '@/data/local-photo';
+import { emptyReview, loadSavedPriceRecords, type LocalPhotoDraft } from '@/data/local-photo';
 import { loadSavedShops } from '@/data/local-shops';
 import { exportShoppingData } from '@/lib/shopping-export';
 
@@ -51,7 +51,7 @@ jest.mock('expo-file-system', () => {
   }
   return { Directory, File, FileMode: { ReadOnly: 'r', WriteOnly: 'w' }, Paths: { document: 'file:///documents', cache: 'file:///cache' } };
 });
-jest.mock('../data/local-photo', () => ({ ...jest.requireActual('../data/local-photo'), loadLocalPhotos: jest.fn() }));
+jest.mock('../data/local-photo', () => ({ ...jest.requireActual('../data/local-photo'), loadSavedPriceRecords: jest.fn() }));
 jest.mock('../data/local-shops', () => ({ loadSavedShops: jest.fn() }));
 
 const original = { uri: 'file:///documents/price-photos/rice-original.jpg', width: 1000, height: 600, mimeType: 'image/jpeg' } as const;
@@ -72,13 +72,13 @@ beforeEach(() => {
   mockFiles.set(crop.uri, Uint8Array.of(5, 9, 1));
   jest.mocked(isAvailableAsync).mockResolvedValue(true);
   jest.mocked(shareAsync).mockResolvedValue(undefined);
-  jest.mocked(loadLocalPhotos).mockResolvedValue([complete, old]);
+  jest.mocked(loadSavedPriceRecords).mockResolvedValue([complete, old]);
   jest.mocked(loadSavedShops).mockResolvedValue({ shops: [{ id: 'test-shop-id', nickname: 'Test shop' }] });
 });
 
 test('shares an extractable ZIP with reviewed records, older drafts, and portable photo references', async () => {
   await exportShoppingData(new AbortController().signal);
-  expect(loadLocalPhotos).toHaveBeenCalledWith({ requireAll: true });
+  expect(loadSavedPriceRecords).toHaveBeenCalledWith({ requireAll: true });
   expect(shareAsync).toHaveBeenCalledTimes(1);
   const [uri, options] = jest.mocked(shareAsync).mock.calls[0];
   expect(uri).toMatch(/^file:\/\/\/cache\/cheapo-shopping-exports\/cheapo-shopping-.*\.zip$/);
@@ -119,10 +119,25 @@ test('exports historical shop identity and photos after a shop leaves the catalo
   expect(archive['photos/1/crop.jpg']).toEqual(mockFiles.get(crop.uri));
 });
 
+test('exports manual prices as dated records without creating image entries', async () => {
+  const manual = { id: 'manual-price', productId: 'catalog-rice', capturedAt: complete.capturedAt,
+    shop: complete.shop!, review: complete.review! };
+  jest.mocked(loadSavedPriceRecords).mockResolvedValue([manual, complete]);
+  await exportShoppingData(new AbortController().signal);
+  const [[uri]] = jest.mocked(shareAsync).mock.calls;
+  const archive = unzipSync(Buffer.concat(mockWrites.get(uri)!));
+  expect(Object.keys(archive).sort()).toEqual(['manifest.json', 'photos/2/crop.jpg', 'photos/2/original.jpg']);
+  const manifest = JSON.parse(new TextDecoder().decode(archive['manifest.json']));
+  expect(manifest.version).toBe(2);
+  expect(manifest.records[0]).toMatchObject({
+    id: 'manual-price', productId: 'catalog-rice', status: 'complete', capturedAt: manual.capturedAt, photos: null,
+  });
+});
+
 test('does not share an incomplete archive or read outside the saved photo directory', async () => {
   const outside = { ...original, uri: 'file:///documents/private/other.jpg' };
   mockFiles.set(outside.uri, Uint8Array.of(1));
-  jest.mocked(loadLocalPhotos).mockResolvedValue([{ ...complete, original: outside }]);
+  jest.mocked(loadSavedPriceRecords).mockResolvedValue([{ ...complete, original: outside }]);
   await expect(exportShoppingData(new AbortController().signal)).rejects.toThrow('saved photo is missing or unreadable');
   expect(mockRead).not.toHaveBeenCalled();
   expect(shareAsync).not.toHaveBeenCalled();

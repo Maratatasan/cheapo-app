@@ -10,7 +10,7 @@ import { DisplayState } from './results/display-state';
 import { ShopComparison, type ComparisonRow } from './results/shop-comparison';
 import { ui } from './results/theme';
 import { CameraActionButton, CameraPermissionActions } from './camera-actions';
-import { loadLocalPhotos } from '@/data/local-photo';
+import { loadSavedPriceRecords } from '@/data/local-photo';
 import { addLocalProduct, findLocalProductByBarcode } from '@/data/local-products';
 import { canonicalProductBarcode } from '@/data/product-barcode';
 import { comparisonRowFromDraft } from '@/data/saved-comparison';
@@ -21,14 +21,14 @@ type ScanResult =
   | { kind: 'known'; product: Product; comparisons: ComparisonRow[]; reference?: ComparisonRow; photo?: string };
 
 async function loadComparison(product: Product): Promise<Extract<ScanResult, { kind: 'known' }>> {
-  const drafts = await loadLocalPhotos();
+  const drafts = await loadSavedPriceRecords();
   const rows = drafts.flatMap(draft => {
     const row = comparisonRowFromDraft(draft);
     return row ? [{ row, draft }] : [];
   });
   const linked = rows.find(({ draft }) => draft.productId === product.id);
   return { kind: 'known', product, comparisons: rows.map(({ row }) => row),
-    reference: linked?.row, photo: linked?.draft.selected.uri };
+    reference: linked?.row, photo: linked?.draft.selected?.uri };
 }
 
 export function BarcodeScan({ onScanLabel }: { onScanLabel: () => void }) {

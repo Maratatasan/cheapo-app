@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { BarcodeScan } from '@/component/barcode-scan';
 import { addLocalProduct, findLocalProductByBarcode } from '@/data/local-products';
 import { emptyReview } from '@/data/photo-review';
-import { loadLocalPhotos, type LocalPhotoDraft } from '@/data/local-photo';
+import { loadSavedPriceRecords, type LocalPhotoDraft } from '@/data/local-photo';
 
 const mockPush = jest.fn();
 jest.mock('expo-router', () => ({
@@ -18,7 +18,7 @@ jest.mock('expo-camera', () => ({
 }));
 jest.mock('@/data/local-products', () => ({ addLocalProduct: jest.fn(), findLocalProductByBarcode: jest.fn() }));
 jest.mock('expo-crypto', () => ({ randomUUID: () => 'catalog-product-id' }));
-jest.mock('@/data/local-photo', () => ({ loadLocalPhotos: jest.fn() }));
+jest.mock('@/data/local-photo', () => ({ loadSavedPriceRecords: jest.fn() }));
 
 const product = { id: 'exact-rice', name: 'Example Basmati Rice', productType: 'Dry rice',
   variety: 'Basmati', brand: 'Example', pack: { quantity: 500, unit: 'g' } };
@@ -38,7 +38,7 @@ async function scan(data = '012345678905') {
 
 test('opens a known product’s comparisons and filters saved prices by brand and variety', async () => {
   jest.mocked(findLocalProductByBarcode).mockResolvedValue(product);
-  jest.mocked(loadLocalPhotos).mockResolvedValue([
+  jest.mocked(loadSavedPriceRecords).mockResolvedValue([
     row('Match both', 'Shop A', 'Basmati', 'Example', '2.50', product.name),
     row('Same brand', 'Shop A', 'Long grain', 'Example', '2.00'),
     row('Same variety', 'Shop B', 'Basmati', 'Different brand', '1.50'),
@@ -69,7 +69,7 @@ test('opens a known product’s comparisons and filters saved prices by brand an
 test('uses the completed observation with the explicit product ID as the reference', async () => {
   const linked = row('linked', 'Linked shop', 'Basmati', 'Example', '2.50');
   jest.mocked(findLocalProductByBarcode).mockResolvedValue(product);
-  jest.mocked(loadLocalPhotos).mockResolvedValue([{ ...linked, productId: product.id }]);
+  jest.mocked(loadSavedPriceRecords).mockResolvedValue([{ ...linked, productId: product.id }]);
   await render(<BarcodeScan onScanLabel={jest.fn()} />);
   await scan();
 
@@ -95,7 +95,7 @@ test('ignores invalid and repeated scans, then lets the shopper scan again after
   await act(() => finishLookup(undefined));
 
   expect(await screen.findByText('Product not found')).toBeOnTheScreen();
-  expect(loadLocalPhotos).not.toHaveBeenCalled();
+  expect(loadSavedPriceRecords).not.toHaveBeenCalled();
   await fireEvent.press(screen.getByRole('button', { name: 'Scan another barcode' }));
   expect(screen.getByTestId('barcode-preview')).toBeOnTheScreen();
 });
@@ -104,7 +104,7 @@ test('returns to scanning after save and finds the same product on rescan', asyn
   const saved = { ...product, id: 'catalog-product-id', barcode: '00012345678905' };
   jest.mocked(findLocalProductByBarcode).mockResolvedValueOnce(undefined).mockResolvedValueOnce(saved);
   jest.mocked(addLocalProduct).mockResolvedValue(saved);
-  jest.mocked(loadLocalPhotos).mockResolvedValue([]);
+  jest.mocked(loadSavedPriceRecords).mockResolvedValue([]);
   await render(<BarcodeScan onScanLabel={jest.fn()} />);
   await scan();
   await fireEvent.press(screen.getByRole('button', { name: 'Add product' }));
