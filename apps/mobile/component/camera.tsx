@@ -189,6 +189,7 @@ export const CameraComponent = ({ currentShop }: { currentShop?: DraftShop }) =>
                   productType: suggestion.productType ?? review.productType,
                   variety: suggestion.variety ?? review.variety,
                   brand: suggestion.brand ?? review.brand,
+                  packSize: review.packSize ?? suggestion.packSize ?? undefined,
                   price: suggestion.price?.toString() ?? review.price,
                   currency: suggestion.currency ?? review.currency,
                   unitPrice: suggestion.unit_price?.amount.toString() ?? review.unitPrice,

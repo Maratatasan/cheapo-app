@@ -4,6 +4,7 @@ import type { ProductMetadata } from './product-metadata';
 
 export type ManualReview = ProductMetadata & { productName: string; packSize?: string; price: string; currency: string; shop: string; unitPrice: string; unit: string };
 export const emptyReview = (shop = ''): ManualReview => ({ productName: '', price: '', currency: 'GBP', shop, unitPrice: '', unit: '' });
+export const packSizeMaxLength = 50;
 const validPrice = (value: string, fraction = 2) => new RegExp(`^\\d+(\\.\\d{1,${fraction}})?$`).test(value.trim()) && value.length <= 24 && Number(value) > 0 && Number(value) <= 9999999.99;
 
 export function calculatePackUnitPrice(total: string, pack: string) {
