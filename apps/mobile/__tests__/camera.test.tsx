@@ -104,6 +104,32 @@ describe("CameraComponent", () => {
     expect(mockRequestPermission).not.toHaveBeenCalled();
   });
 
+  it('saves a reviewed shelf photo with the selected shop and exact product', async () => {
+    const shop = { id: 'selected-shop', displayName: 'Selected shop' };
+    const onSaved = jest.fn();
+    mockPermission = { granted: false };
+    mockChoosePhoto.mockResolvedValue({ uri: 'file:///label.jpg', width: 1200, height: 800, mimeType: 'image/jpeg' });
+    mockSaveLocalPhoto.mockImplementation(async (draft) => draft);
+    await render(<CameraComponent currentShop={shop} linkedPrice={{ productId: 'exact-product',
+      initialReview: { productName: 'Known rice', shop: shop.displayName, price: '', currency: 'GBP', unit: '', unitPrice: '' },
+      onCancel: jest.fn(), onSaved }} />);
+    await fireEvent.press(screen.getByRole('button', { name: 'Choose photo' }));
+    await fireEvent.press(await screen.findByRole('button', { name: 'Apply crop' }));
+
+    expect(screen.getByText('Known rice')).toBeOnTheScreen();
+    expect(screen.queryByLabelText('Product name')).not.toBeOnTheScreen();
+    expect(screen.getByRole('button', { name: 'Save Price' })).toBeDisabled();
+    await fireEvent.changeText(screen.getByLabelText('Pack price'), '2.50');
+    await fireEvent.press(screen.getByRole('button', { name: 'Save Price' }));
+
+    expect(mockSaveLocalPhoto).toHaveBeenCalledWith(expect.objectContaining({
+      productId: 'exact-product', shop, capturedAt: expect.any(String),
+      selected: expect.objectContaining({ uri: 'file:///cropped.jpg' }),
+      review: expect.objectContaining({ productName: 'Known rice', price: '2.50' }),
+    }));
+    expect(onSaved).toHaveBeenCalledTimes(1);
+  });
+
   it.each([
     { label: 'suggested size', suggestion: '500 g', editBefore: undefined, editAfter: undefined, savedSize: '500 g' },
     { label: 'previously entered size', suggestion: '500 g', editBefore: '450 g', editAfter: undefined, savedSize: '450 g' },
