@@ -5,7 +5,7 @@ jest.mock('expo/fetch', () => ({ fetch: jest.fn() }));
 
 const provider = jest.mocked(fetch);
 const image = 'data:image/jpeg;base64,/9j/';
-const draft = { product: 'Café beans', productType: 'Coffee beans', variety: null, brand: 'Café', price: 2.5, currency: 'GBP', unit_price: { amount: 5, unit: 'kg' }, uncertainty: '' };
+const draft = { product: 'Café beans', productType: 'Coffee beans', variety: null, brand: 'Café', packSize: '500 g', price: 2.5, currency: 'GBP', unit_price: { amount: 5, unit: 'kg' }, uncertainty: '' };
 
 function bodyResponse(chunks: Uint8Array[], status = 200) {
   const reader = {
@@ -53,7 +53,10 @@ test('uses the preferred listed model and returns only the completed structured 
   expect(JSON.parse(String(request?.body))).toMatchObject({
     model: 'gpt-5.6-luna', store: false, stream: true,
     input: [{ role: 'user', content: [expect.anything(), { type: 'input_image', image_url: image }] }],
-    text: { format: { type: 'json_schema', strict: true, schema: { required: expect.arrayContaining(['productType', 'variety', 'brand']) } } },
+    text: { format: { type: 'json_schema', strict: true, schema: {
+      properties: { packSize: { type: ['string', 'null'] } },
+      required: expect.arrayContaining(['productType', 'variety', 'brand', 'packSize']),
+    } } },
   });
   expect(reader.releaseLock).toHaveBeenCalled();
 });
@@ -63,6 +66,23 @@ test('uses the listed fallback when the preferred model is hidden', async () => 
   bodyResponse([new TextEncoder().encode(completed([{ type: 'output_text', text: JSON.stringify(draft) }]))]);
   await expect(analyze()).resolves.toEqual(draft);
   expect(JSON.parse(String(provider.mock.calls[1][1]?.body))).toMatchObject({ model: 'gpt-6-luna' });
+});
+
+test.each([
+  { raw: ' 180g ', expected: '180g' },
+  { raw: '100 g', expected: '100 g' },
+  { raw: '1.5 litres', expected: '1.5 litres' },
+  { raw: '6 items', expected: '6 items' },
+  { raw: null, expected: null },
+  { raw: '8×500 ml', expected: null },
+  { raw: '0 g', expected: null },
+  { raw: 'per kg', expected: null },
+])('only prefills supported pack sizes ($raw)', async ({ raw, expected }) => {
+  catalog();
+  bodyResponse([new TextEncoder().encode(completed([{
+    type: 'output_text', text: JSON.stringify({ ...draft, packSize: raw, unit_price: null }),
+  }]))]);
+  await expect(analyze()).resolves.toMatchObject({ packSize: expected, unit_price: null });
 });
 
 test('withholds the photo when the catalog has no supported listed model', async () => {
@@ -79,6 +99,8 @@ test.each([
   [completed([{ type: 'output_text', text: '{malformed draft}' }]), 'invalid price draft'],
   [completed([{ type: 'output_text', text: JSON.stringify({ ...draft, price: -1 }) }]), 'invalid price draft'],
   [completed([{ type: 'output_text', text: JSON.stringify({ ...draft, variety: 42 }) }]), 'invalid price draft'],
+  [completed([{ type: 'output_text', text: JSON.stringify({ ...draft, packSize: undefined }) }]), 'invalid price draft'],
+  [completed([{ type: 'output_text', text: JSON.stringify({ ...draft, packSize: 500 }) }]), 'invalid price draft'],
 ])('rejects unusable stream output without sending a retry', async (stream, message) => {
   catalog();
   bodyResponse([new TextEncoder().encode(stream)]);

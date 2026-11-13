@@ -131,8 +131,8 @@ it('restores a shop snapshot with its original ID and display name', async () =>
   expect((await loadLocalPhotos())[0].shop).toEqual(shop);
 });
 
-it('retains optional classification after saving without changing review completeness', async () => {
-  const review = { ...emptyReview('Original shop'), productName: 'Rice', price: '1.25', productType: 'Dry rice', variety: 'Basmati', brand: 'Example brand' };
+it('retains optional classification and pack size after saving', async () => {
+  const review = { ...emptyReview('Original shop'), productName: 'Rice', price: '1.25', productType: 'Dry rice', variety: 'Basmati', brand: 'Example brand', packSize: '500 g' };
   await saveLocalPhoto({ ...draft, review });
   expect((await loadLocalPhotos())[0].review).toEqual(review);
   expect(reviewComplete(review)).toBe(true);

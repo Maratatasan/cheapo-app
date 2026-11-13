@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ComponentRef, type ReactNode } from '
 import { Button, Image, Keyboard, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { PhotoAsset } from '@/data/local-photo';
-import { calculatePackUnitPrice, reviewComplete, reviewUnitPrice, type ManualReview } from '@/data/photo-review';
+import { calculatePackUnitPrice, packSizeMaxLength, reviewComplete, reviewUnitPrice, type ManualReview } from '@/data/photo-review';
 import { productMetadataMaxLength } from '@/data/product-metadata';
 import { unitPriceLabel } from '@/data/observation';
 import { marketColor as color } from './results/theme';
@@ -40,7 +40,7 @@ export function PhotoReview({ photo, review, selectedShopName, saved, busy, onRe
     ['variety', 'Variety (optional)', 'Variety', 'For example basmati', productMetadataMaxLength],
     ['brand', 'Brand (optional)', 'Brand', 'For example Tilda', productMetadataMaxLength],
   ] as const;
-  const pack = ['packSize', 'Pack size (optional)', 'Pack size', 'For example 500 g or 2 kg', 50] as const;
+  const pack = ['packSize', 'Pack size (optional)', 'Pack size', 'For example 500 g or 2 kg', packSizeMaxLength] as const;
   const price = [
     ['price', `Total price (${review.currency || 'GBP'})`, 'Pack price', '0.00'],
     ['currency', 'Currency', 'Currency', 'GBP'],

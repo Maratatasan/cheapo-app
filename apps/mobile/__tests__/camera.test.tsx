@@ -15,6 +15,25 @@ import { CameraComponent } from "../component/camera";
 const mockSaveLocalPhoto = jest.fn();
 const mockLoadLocalPhotos = jest.fn();
 const mockChoosePhoto = jest.fn();
+let mockFieldPhotoAnalysisEnabled = false;
+const mockRequestPhotoDraft = jest.fn();
+jest.mock('../lib/direct-auth/photo-analysis', () => ({ requestPhotoDraft: (...args: unknown[]) => mockRequestPhotoDraft(...args) }));
+jest.mock('../lib/direct-auth/phone-session', () => ({
+  get fieldPhotoAnalysisEnabled() { return mockFieldPhotoAnalysisEnabled; },
+  phoneAuth: {
+    getState: () => ({ planAllowed: true, busy: false }),
+    subscribe: jest.fn(),
+    restore: jest.fn(),
+    withPlanAccess: (action: (token: string) => unknown) => action('test-token'),
+  },
+}));
+jest.mock('expo-file-system', () => ({
+  File: class {
+    exists = true;
+    size = 3;
+    async base64() { return '/9j/'; }
+  },
+}));
 jest.mock('../lib/choose-photo', () => ({ choosePhoto: () => mockChoosePhoto() }));
 jest.mock('../data/local-photo', () => ({ emptyReview: (shop = '') => ({ productName: '', price: '', currency: 'GBP', shop, unitPrice: '', unit: '' }), reviewComplete: (review: any) => !!review?.productName && !!review?.price && !!review?.shop, saveLocalPhoto: (...args: unknown[]) => mockSaveLocalPhoto(...args), loadLocalPhotos: () => mockLoadLocalPhotos() }));
 jest.mock('../component/photo-crop', () => ({ PhotoCrop: ({ onApply, onCancel }: any) => {
@@ -48,6 +67,8 @@ describe("CameraComponent", () => {
   beforeEach(() => {
     jest.spyOn(Image, "getSize").mockImplementation((uri, success) => { success?.(1200, 800); return Promise.resolve({ width: 1200, height: 800 }); });
     mockPermission = null;
+    mockFieldPhotoAnalysisEnabled = false;
+    mockRequestPhotoDraft.mockReset();
     mockSaveLocalPhoto.mockReset();
     mockChoosePhoto.mockReset();
     mockLoadLocalPhotos.mockResolvedValue([]);
@@ -81,6 +102,36 @@ describe("CameraComponent", () => {
     expect(screen.getByLabelText("Confirmed shop: Test shop")).toHaveTextContent("Test shop");
     expect(screen.getByLabelText("Price photo preview")).toHaveProp("source", { uri: "file:///cropped.jpg" });
     expect(mockRequestPermission).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { label: 'suggested size', suggestion: '500 g', editBefore: undefined, editAfter: undefined, savedSize: '500 g' },
+    { label: 'previously entered size', suggestion: '500 g', editBefore: '450 g', editAfter: undefined, savedSize: '450 g' },
+    { label: 'corrected suggestion', suggestion: '500 g', editBefore: undefined, editAfter: '450 g', savedSize: '450 g' },
+    { label: 'manual entry for an unknown size', suggestion: null, editBefore: undefined, editAfter: '450 g', savedSize: '450 g' },
+  ])('saves the $label through the photo review', async ({ suggestion, editBefore, editAfter, savedSize }) => {
+    mockFieldPhotoAnalysisEnabled = true;
+    mockPermission = { granted: false };
+    mockChoosePhoto.mockResolvedValue({ uri: 'file:///label.jpg', width: 1200, height: 800, mimeType: 'image/jpeg' });
+    mockRequestPhotoDraft.mockResolvedValue({ product: 'Tomatoes', price: 1.49, currency: 'GBP', packSize: suggestion, unit_price: null, uncertainty: '' });
+    mockSaveLocalPhoto.mockImplementation(async (draft) => draft);
+    await render(<CameraComponent currentShop={{ id: 'test-shop', displayName: 'Test shop' }} />);
+
+    await fireEvent.press(screen.getByRole('button', { name: 'Choose photo' }));
+    await fireEvent.press(await screen.findByRole('button', { name: 'Apply crop' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Analyse photo' }));
+    const applySuggestion = await screen.findByRole('button', { name: 'Use suggested details' });
+    expect(screen.getByText(`Brand unconfirmed · ${suggestion ?? 'Pack size unconfirmed'}`)).toBeOnTheScreen();
+    if (editBefore) await fireEvent.changeText(screen.getByLabelText('Pack size'), editBefore);
+    await fireEvent.press(applySuggestion);
+    expect(screen.getByLabelText('Pack size')).toHaveDisplayValue(editBefore ?? suggestion ?? '');
+    if (editAfter) await fireEvent.changeText(screen.getByLabelText('Pack size'), editAfter);
+
+    await fireEvent.press(screen.getByRole('button', { name: 'Save Price' }));
+    expect(await screen.findByText('On this phone')).toBeOnTheScreen();
+    expect(mockSaveLocalPhoto).toHaveBeenCalledWith(expect.objectContaining({
+      review: expect.objectContaining({ packSize: savedSize }),
+    }));
   });
 
   it("keeps capture controls disabled while the photo picker is open", async () => {
