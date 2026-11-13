@@ -14,9 +14,10 @@ type Props = {
   onSave: () => void; onRetake?: () => void; onCrop?: () => void; onCancel?: () => void;
   galleryAction?: ReactNode; onOriginal?: () => void; onImageError?: () => void; children?: ReactNode;
   saveError?: string;
+  recordingPrice?: boolean;
 };
 
-export function PhotoReview({ photo, review, selectedShopName, saved, busy, onReviewChange, onSave, onRetake, onCrop, onCancel, onOriginal, onImageError, galleryAction, children, saveError }: Props) {
+export function PhotoReview({ photo, review, selectedShopName, saved, busy, onReviewChange, onSave, onRetake, onCrop, onCancel, onOriginal, onImageError, galleryAction, children, saveError, recordingPrice }: Props) {
   const container = useRef<ComponentRef<typeof View>>(null);
   const scroll = useRef<ComponentRef<typeof ScrollView>>(null);
   const focused = useRef<keyof ManualReview | null>(null);
@@ -24,7 +25,8 @@ export function PhotoReview({ photo, review, selectedShopName, saved, busy, onRe
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [headerOffset, setHeaderOffset] = useState(0);
   const complete = reviewComplete(review, selectedShopName);
-  const editing = !!onCancel;
+  const editing = !!onCancel && !recordingPrice;
+  const requireComplete = editing || recordingPrice;
   const revealFocused = () => {
     const y = focused.current ? positions.current[focused.current] : undefined;
     if (y !== undefined) scroll.current?.scrollTo({ y: Math.max(0, y - 12), animated: false });
@@ -50,18 +52,18 @@ export function PhotoReview({ photo, review, selectedShopName, saved, busy, onRe
     ['unitPrice', 'Unit price (optional)', 'Unit price (optional)', '0.00'],
     ['unit', 'Unit (kg / 100g / litre / each)', 'Unit (for example kg or litre)', 'For example kg'],
   ] as const;
-  const fields = editing
+  const fields = recordingPrice ? [...price, pack, ...unitPrice, shop] : editing
     ? [product, pack, ...price, ...unitPrice, ...metadata, shop]
     : [product, ...metadata, pack, ...price, shop, ...unitPrice];
   const amount = reviewUnitPrice(review);
   const invalidPack = !!review.packSize?.trim() && !calculatePackUnitPrice('1', review.packSize);
-  const saveLabel = busy ? 'Saving…' : editing ? 'Save changes' : complete ? 'Save Price' : 'Save on this phone';
+  const saveLabel = busy ? 'Saving…' : editing ? 'Save changes' : recordingPrice || complete ? 'Save Price' : 'Save on this phone';
   return <View ref={container} style={styles.root} onLayout={() => container.current?.measureInWindow((_, y) => setHeaderOffset(y))}>
     <KeyboardAvoidingView style={styles.root} behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={headerOffset}>
       <ScrollView ref={scroll} style={styles.root} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" onContentSizeChange={revealFocused} onLayout={revealFocused}>
         {photo && !keyboardVisible ? <Image source={{ uri: photo.uri }} accessibilityLabel="Price photo preview" style={styles.photo} resizeMode="contain" onError={onImageError} /> : null}
-        <Text style={styles.status}>{editing ? 'Review saved details' : saved ? 'On this phone' : 'Review photo · Not saved'}</Text>
-        <Text style={styles.note}>{editing ? 'Use the amount and unit from your saved observation. Enter both unit-price fields or leave both blank.' : complete ? 'Manual details ready' : selectedShopName ? 'Incomplete draft · Add product and price' : 'Incomplete draft · Add product, price and shop'}</Text>
+        <Text style={styles.status}>{recordingPrice ? review.productName : editing ? 'Review saved details' : saved ? 'On this phone' : 'Review photo · Not saved'}</Text>
+        <Text style={styles.note}>{recordingPrice ? 'Review the current price before saving.' : editing ? 'Use the amount and unit from your saved observation. Enter both unit-price fields or leave both blank.' : complete ? 'Manual details ready' : selectedShopName ? 'Incomplete draft · Add product and price' : 'Incomplete draft · Add product, price and shop'}</Text>
         {onCrop ? <View style={styles.actions}>
           <Button title="Crop photo" disabled={busy} onPress={() => { Keyboard.dismiss(); onCrop(); }} />
           {onOriginal ? <Button title="Use original" disabled={busy} onPress={onOriginal} /> : null}
@@ -81,13 +83,13 @@ export function PhotoReview({ photo, review, selectedShopName, saved, busy, onRe
             </View>
           ) : null}
         </View>)}
-        <Text style={styles.note}>Use a decimal point for prices. {editing ? '' : `${selectedShopName ? '' : 'Confirm the shop manually. '}Incomplete details are saved as a photo draft.`}</Text>
+        <Text style={styles.note}>Use a decimal point for prices. {requireComplete ? '' : `${selectedShopName ? '' : 'Confirm the shop manually. '}Incomplete details are saved as a photo draft.`}</Text>
       </ScrollView>
       <SafeAreaView edges={['bottom']} style={styles.footer}>
         {saveError ? <Text accessibilityRole="alert" style={styles.note}>{saveError}</Text> : null}
-        {editing && !complete ? <Text accessibilityLiveRegion="polite" style={styles.note}>Enter a product and valid price details to save.</Text> : null}
-        <Pressable accessibilityRole="button" disabled={busy || saved || (editing && !complete)} onPress={() => { Keyboard.dismiss(); onSave(); }}
-          style={[styles.save, (busy || saved || (editing && !complete)) && styles.disabled]}><Text style={styles.saveText}>{saveLabel}</Text></Pressable>
+        {requireComplete && !complete ? <Text accessibilityLiveRegion="polite" style={styles.note}>{recordingPrice ? 'Enter a valid price to save.' : 'Enter a product and valid price details to save.'}</Text> : null}
+        <Pressable accessibilityRole="button" disabled={busy || saved || (requireComplete && !complete)} onPress={() => { Keyboard.dismiss(); onSave(); }}
+          style={[styles.save, (busy || saved || (requireComplete && !complete)) && styles.disabled]}><Text style={styles.saveText}>{saveLabel}</Text></Pressable>
         {saved ? galleryAction : null}
         {onCancel ? <Button title="Cancel" disabled={busy} onPress={() => { Keyboard.dismiss(); onCancel(); }} /> : null}
         {onRetake ? <Button title="Retake" disabled={busy} onPress={() => { Keyboard.dismiss(); onRetake(); }} /> : null}

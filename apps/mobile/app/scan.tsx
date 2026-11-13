@@ -30,7 +30,8 @@ export default function ScanScreen() {
   return (
     <View style={styles.container}>
       {mode === "barcode" && Platform.OS !== "web" ? (
-        <BarcodeScan key={shop.id} onScanLabel={() => router.setParams({ mode: "label" })} />
+        <BarcodeScan key={shop.id} currentShop={{ id: shop.id, displayName }}
+          onScanLabel={() => router.setParams({ mode: "label" })} />
       ) : (
         <CameraComponent currentShop={{ id: shop.id, displayName }}
           onScanBarcode={Platform.OS === "web" ? undefined : () => router.setParams({ mode: "barcode" })} />
