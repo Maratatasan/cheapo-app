@@ -6,10 +6,10 @@ import { normalizeName } from '@cheapo/domain/names';
 import { EditPriceButton } from '@/component/results/edit-price-button';
 import { PriceDisplay } from '@/component/results/price-display';
 import { color, radius, spacing, typography, ui } from '@/component/results/theme';
-import { loadLocalPhotos, reviewComplete, type LocalPhotoDraft } from '@/data/local-photo';
+import { loadSavedPriceRecords, reviewComplete, type SavedPriceRecord } from '@/data/local-photo';
 import { reviewUnitPrice } from '@/data/photo-review';
 
-function SavedDetails({ draft }: { draft: LocalPhotoDraft }) {
+function SavedDetails({ draft }: { draft: SavedPriceRecord }) {
   const { review } = draft;
   const shop = draft.shop?.displayName ?? normalizeName(review?.shop);
   const complete = reviewComplete(review, draft.shop?.displayName);
@@ -39,7 +39,7 @@ function SavedDetails({ draft }: { draft: LocalPhotoDraft }) {
 
 export default function SavedProducts() {
   const router = useRouter();
-  const [drafts, setDrafts] = useState<LocalPhotoDraft[]>();
+  const [drafts, setDrafts] = useState<SavedPriceRecord[]>();
   const [error, setError] = useState(false);
   const focus = useRef<AbortController | null>(null);
   const [openedId, setOpenedId] = useState<string>();
@@ -51,7 +51,7 @@ export default function SavedProducts() {
 
   const refresh = useCallback((signal: AbortSignal) => {
     setError(false);
-    loadLocalPhotos().then((saved) => {
+    loadSavedPriceRecords().then((saved) => {
       if (!signal.aborted) setDrafts(saved);
     }).catch(() => { if (!signal.aborted) setError(true); });
   }, []);
@@ -96,13 +96,13 @@ export default function SavedProducts() {
               <EditPriceButton label={`Edit ${opened.review?.productName.trim()}`} onPress={() => router.push({ pathname: '/edit-price/[id]', params: { id: opened.id } })} />
             </View>
           ) : null}
-          <Image
+          {opened.original && <Image
             accessibilityLabel="Saved photo"
             resizeMode="contain"
             source={{ uri: (original ? opened.original : opened.selected).uri }}
             style={styles.preview}
-          />
-          {opened.original.uri !== opened.selected.uri ? (
+          />}
+          {opened.original && opened.original.uri !== opened.selected.uri ? (
             <Button title={original ? 'View crop' : 'View original'} onPress={() => setOriginal(!original)} />
           ) : null}
         </ScrollView>
@@ -136,7 +136,7 @@ export default function SavedProducts() {
               onPress={() => { setOriginal(false); setOpenedId(item.id); }}
               style={[ui.card, styles.card]}
             >
-              <Image source={{ uri: item.selected.uri }} style={styles.thumbnail} />
+              {item.selected && <Image source={{ uri: item.selected.uri }} style={styles.thumbnail} />}
               <SavedDetails draft={item} />
             </Pressable>
           )}

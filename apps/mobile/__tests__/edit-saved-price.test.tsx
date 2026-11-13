@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react-native';
 import EditSavedPrice from '@/app/edit-price/[id]';
-import { loadLocalPhoto, saveLocalPhotoReview, type LocalPhotoDraft } from '@/data/local-photo';
+import { loadSavedPriceRecord, saveLocalPhotoReview, type LocalPhotoDraft } from '@/data/local-photo';
 import { emptyReview } from '@/data/photo-review';
 
 const mockBack = jest.fn();
@@ -10,7 +10,7 @@ jest.mock('expo-router', () => ({
   useRouter: () => ({ canGoBack: () => true, back: mockBack }),
 }));
 jest.mock('expo-file-system', () => ({}));
-jest.mock('../data/local-photo', () => ({ loadLocalPhoto: jest.fn(), saveLocalPhotoReview: jest.fn() }));
+jest.mock('../data/local-photo', () => ({ loadSavedPriceRecord: jest.fn(), saveLocalPhotoReview: jest.fn() }));
 
 const photo = { uri: 'file:///label.jpg', width: 300, height: 300, mimeType: 'image/jpeg' } as const;
 const review = {
@@ -24,7 +24,7 @@ const product: LocalPhotoDraft = {
 
 beforeEach(() => {
   jest.clearAllMocks();
-  jest.mocked(loadLocalPhoto).mockResolvedValue(product);
+  jest.mocked(loadSavedPriceRecord).mockResolvedValue(product);
   jest.mocked(saveLocalPhotoReview).mockResolvedValue(product);
 });
 
@@ -55,7 +55,7 @@ test('keeps the edited values on failure and saves to the same ID on retry', asy
 });
 
 test('shows an unavailable state when the selected record no longer exists', async () => {
-  jest.mocked(loadLocalPhoto).mockResolvedValue(null);
+  jest.mocked(loadSavedPriceRecord).mockResolvedValue(null);
   await render(<EditSavedPrice />);
   expect(await screen.findByText('Saved product unavailable')).toBeOnTheScreen();
   expect(screen.queryByRole('button', { name: 'Save changes' })).not.toBeOnTheScreen();

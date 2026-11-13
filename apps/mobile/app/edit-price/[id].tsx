@@ -5,10 +5,10 @@ import { Platform, View } from 'react-native';
 import { PhotoReview } from '@/component/photo-review';
 import { DisplayState } from '@/component/results/display-state';
 import { ui } from '@/component/results/theme';
-import { loadLocalPhoto, saveLocalPhotoReview, type LocalPhotoDraft } from '@/data/local-photo';
+import { loadSavedPriceRecord, saveLocalPhotoReview, type SavedPriceRecord } from '@/data/local-photo';
 import { reviewComplete, type ManualReview } from '@/data/photo-review';
 
-type EditableProduct = LocalPhotoDraft & { review: ManualReview };
+type EditableProduct = SavedPriceRecord & { review: ManualReview };
 
 export default function EditSavedPrice() {
   const router = useRouter();
@@ -25,7 +25,7 @@ export default function EditSavedPrice() {
     const controller = new AbortController();
     lifecycle.current = controller;
     if (Platform.OS !== 'web') {
-      loadLocalPhoto(id).then(draft => {
+      loadSavedPriceRecord(id).then(draft => {
         if (controller.signal.aborted) return;
         if (draft?.review && reviewComplete(draft.review, draft.shop?.displayName)) {
           setLoaded({ id, product: { ...draft, review: draft.review } });
@@ -69,7 +69,7 @@ export default function EditSavedPrice() {
           {Platform.OS === 'web' || product === null ? (
             <DisplayState kind="empty" title="Saved product unavailable"
               description="Open a saved product from the phone app." actionLabel="Back to saved products" onAction={leave} />
-          ) : <DisplayState kind="loading" title="Loading saved product" description="Reading the saved photo and details." />}
+          ) : <DisplayState kind="loading" title="Loading saved product" description="Reading the saved price details." />}
         </View>
       )}
     </>

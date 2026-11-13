@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react-native';
 import SavedProducts from '../app/saved-products';
 import SavedComparison from '../app/compare/[id]';
-import { emptyReview, loadLocalPhotos, type LocalPhotoDraft } from '../data/local-photo';
+import { emptyReview, loadSavedPriceRecords, type LocalPhotoDraft, type ManualPriceRecord } from '../data/local-photo';
 
 const mockPush = jest.fn();
 let mockFocusRevision = 0;
@@ -16,7 +16,7 @@ jest.mock('expo-router', () => ({
 jest.mock('expo-file-system', () => ({}));
 jest.mock('../data/local-photo', () => ({
   ...jest.requireActual('../data/local-photo'),
-  loadLocalPhotos: jest.fn(),
+  loadSavedPriceRecords: jest.fn(),
 }));
 
 const original = { uri: 'file:///original.jpg', width: 1000, height: 500, mimeType: 'image/jpeg' } as const;
@@ -31,7 +31,7 @@ const complete: LocalPhotoDraft = {
 };
 
 test('reopens a saved product with its shop, price, and original photo', async () => {
-  jest.mocked(loadLocalPhotos).mockResolvedValue([complete]);
+  jest.mocked(loadSavedPriceRecords).mockResolvedValue([complete]);
   await render(<SavedProducts />);
 
   await fireEvent.press(await screen.findByRole('button', { name: 'Open Basmati rice' }));
@@ -48,7 +48,7 @@ test('reopens a saved product with its shop, price, and original photo', async (
 });
 
 test('shows an unfinished older photo as a draft with its original free-text shop', async () => {
-  jest.mocked(loadLocalPhotos).mockResolvedValue([{
+  jest.mocked(loadSavedPriceRecords).mockResolvedValue([{
     ...complete,
     shop: undefined,
     review: emptyReview('Previous shop'),
@@ -60,13 +60,29 @@ test('shows an unfinished older photo as a draft with its original free-text sho
   expect(screen.queryByText('£1.25')).not.toBeOnTheScreen();
 });
 
+test('opens a manual price and retains its edit and comparison actions without photo controls', async () => {
+  const manual: ManualPriceRecord = { id: 'manual-rice', capturedAt: complete.capturedAt,
+    productId: 'product-rice', shop: complete.shop!, review: complete.review! };
+  jest.mocked(loadSavedPriceRecords).mockResolvedValue([manual]);
+  await render(<SavedProducts />);
+  await fireEvent.press(await screen.findByRole('button', { name: 'Open Basmati rice' }));
+
+  expect(screen.getByText('£1.25')).toBeOnTheScreen();
+  expect(screen.queryByLabelText('Saved photo')).not.toBeOnTheScreen();
+  expect(screen.queryByRole('button', { name: 'View original' })).not.toBeOnTheScreen();
+  await fireEvent.press(screen.getByRole('button', { name: 'Compare saved prices' }));
+  expect(mockPush).toHaveBeenLastCalledWith({ pathname: '/compare/[id]', params: { id: manual.id } });
+  await fireEvent.press(screen.getByRole('button', { name: 'Edit Basmati rice' }));
+  expect(mockPush).toHaveBeenLastCalledWith({ pathname: '/edit-price/[id]', params: { id: manual.id } });
+});
+
 
 test('compares completed saved reviews and toggles variety and brand independently', async () => {
   const reference = { ...complete, review: { ...complete.review!, unitPrice: '0.25', unit: '100g' } };
   const offer = (id: string, displayName: string, fields: Partial<NonNullable<LocalPhotoDraft['review']>>) => ({
     ...reference, id, shop: { id, displayName }, review: { ...reference.review, ...fields },
   });
-  jest.mocked(loadLocalPhotos).mockResolvedValue([
+  jest.mocked(loadSavedPriceRecords).mockResolvedValue([
     reference,
     offer('long-grain', 'Long Grain Shop', { productName: 'Long grain rice', variety: 'Long grain', unitPrice: '2', unit: 'kg' }),
     offer('other-brand', 'Other Brand Shop', { productName: 'Other-brand basmati rice', brand: 'Other brand', unitPrice: '0.15' }),
@@ -104,14 +120,14 @@ test('returns to the comparison with its filter and reranks the edited saved rec
   });
   const first = offer('offer-1', 'First saved offer', '1.00');
   const edited = offer('offer-2', 'Edited saved offer', '2.00');
-  jest.mocked(loadLocalPhotos).mockResolvedValue([reference, first, edited]);
+  jest.mocked(loadSavedPriceRecords).mockResolvedValue([reference, first, edited]);
   await render(<SavedComparison />);
   await fireEvent.press(await screen.findByRole('checkbox', { name: 'Same variety' }));
   await fireEvent.press(screen.getByRole('button', { name: /^Edit Edited saved offer at/ }));
   expect(mockPush).toHaveBeenLastCalledWith({ pathname: '/edit-price/[id]', params: { id: 'offer-2' } });
   expect(screen.getAllByText(/saved offer$/).map(label => label.props.children)).toEqual(['First saved offer', 'Edited saved offer']);
 
-  jest.mocked(loadLocalPhotos).mockResolvedValue([reference, first, offer('offer-2', 'Edited saved offer', '0.90')]);
+  jest.mocked(loadSavedPriceRecords).mockResolvedValue([reference, first, offer('offer-2', 'Edited saved offer', '0.90')]);
   mockFocusRevision++;
   await screen.rerender(<SavedComparison />);
   expect(await screen.findByText('£0.90 / kg')).toBeOnTheScreen();
