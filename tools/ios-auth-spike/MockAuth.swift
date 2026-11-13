@@ -80,8 +80,8 @@ final class MockAuthScreen: UIViewController {
 
     @objc private func openSafari() {
         clearAttempt()
-        guard let value = ProcessInfo.processInfo.environment["MOCK_PAGE_PORT"], let mockPort = UInt16(value) else {
-            status.text = "Launch with MOCK_PAGE_PORT."
+        guard let page = mockPage() else {
+            status.text = "Set the local mock page address before running."
             return
         }
         let state = UUID().uuidString
@@ -96,7 +96,7 @@ final class MockAuthScreen: UIViewController {
                 switch lifecycle {
                 case .ready:
                     guard let port = listener.port else { self.cancelAttempt(); return }
-                    self.openMockPage(mockPort: mockPort, callbackPort: port.rawValue, state: state)
+                    self.openMockPage(page, callbackPort: port.rawValue, state: state)
                 case .failed:
                     self.clearAttempt()
                     self.status.text = "Listener failed. Try again."
@@ -116,12 +116,23 @@ final class MockAuthScreen: UIViewController {
         }
     }
 
-    private func openMockPage(mockPort: UInt16, callbackPort: UInt16, state: String) {
+    private func mockPage() -> URLComponents? {
+        if let address = Bundle.main.object(forInfoDictionaryKey: "MockPageURL") as? String {
+            return URLComponents(string: address)
+        }
+        guard let value = ProcessInfo.processInfo.environment["MOCK_PAGE_PORT"], let port = UInt16(value) else {
+            return nil
+        }
         var page = URLComponents()
         page.scheme = "http"
         page.host = "127.0.0.1"
-        page.port = Int(mockPort)
+        page.port = Int(port)
         page.path = "/"
+        return page
+    }
+
+    private func openMockPage(_ endpoint: URLComponents, callbackPort: UInt16, state: String) {
+        var page = endpoint
         page.queryItems = [.init(name: "port", value: String(callbackPort)), .init(name: "state", value: state)]
         guard let url = page.url else { cancelAttempt(); return }
         callbackDeadline = Date().addingTimeInterval(45)
@@ -131,7 +142,7 @@ final class MockAuthScreen: UIViewController {
         status.text = "Waiting for Safari. Return here to continue or cancel."
         record("open-safari")
         UIApplication.shared.open(url) { [weak self] opened in
-            if !opened {
+            if !opened, self?.pendingState == state {
                 self?.clearAttempt()
                 self?.status.text = "Could not open Safari. Try again."
                 self?.record("browser-failed")

@@ -1,4 +1,11 @@
 import { createServer } from 'node:http';
+import { isIPv4 } from 'node:net';
+
+const host = process.argv[3] ?? '127.0.0.1';
+const [first, second] = host.split('.').map(Number);
+const privateHost = isIPv4(host) && (first === 10 || (first === 172 && second >= 16 && second <= 31) ||
+  (first === 192 && second === 168));
+if (host !== '127.0.0.1' && !privateHost) throw Error('Use loopback or an explicit private IPv4 address.');
 
 const server = createServer((request, response) => {
   const url = new URL(request.url, 'http://127.0.0.1');
@@ -23,6 +30,6 @@ const server = createServer((request, response) => {
     <p>For a delayed callback, wait on this screen before tapping.</p>`);
 });
 
-server.listen(Number(process.argv[2] ?? '18765'), '127.0.0.1', () => {
-  console.log(`Mock page ready on port ${server.address().port}`);
+server.listen(Number(process.argv[2] ?? '18765'), host, () => {
+  console.log(`Mock page ready at http://${host}:${server.address().port}/`);
 });
