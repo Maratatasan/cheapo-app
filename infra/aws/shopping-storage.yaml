@@ -9,29 +9,37 @@ Parameters:
   VpcId:
     Type: AWS::EC2::VPC::Id
     Description: Existing Stockholm VPC with DNS support.
+  PrimaryAvailabilityZone:
+    Type: AWS::EC2::AvailabilityZone::Name
+    Description: Zone for the writer and its private subnet.
+  SecondaryAvailabilityZone:
+    Type: AWS::EC2::AvailabilityZone::Name
+    Description: Zone for the other private subnet.
   DatabaseSubnetACidr:
     Type: String
-    Description: Unused IPv4 range in the VPC for the private eu-north-1a subnet.
+    Description: Unused IPv4 range in the VPC for the private subnet in the primary zone.
   DatabaseSubnetBCidr:
     Type: String
-    Description: Unused IPv4 range in the VPC for the private eu-north-1b subnet.
+    Description: Unused IPv4 range in the VPC for the private subnet in the secondary zone.
 
 Rules:
   StockholmOnly:
     Assertions:
       - Assert: !Equals [!Ref 'AWS::Region', eu-north-1]
         AssertDescription: Cheapo shopping storage belongs in eu-north-1.
+      - Assert: !Not [!Equals [!Ref PrimaryAvailabilityZone, !Ref SecondaryAvailabilityZone]]
+        AssertDescription: The database subnets must be in two distinct zones.
 
 Resources:
   DatabaseSubnetA:
     Type: AWS::EC2::Subnet
     Metadata:
       com.aws.cloudformation.Context:
-        why: Hosts the Aurora writer in the first Stockholm zone.
+        why: Hosts the Aurora writer in the selected primary zone.
         must: Keep public IPv4 assignment disabled.
     Properties:
       VpcId: !Ref VpcId
-      AvailabilityZone: eu-north-1a
+      AvailabilityZone: !Ref PrimaryAvailabilityZone
       CidrBlock: !Ref DatabaseSubnetACidr
       MapPublicIpOnLaunch: false
 
@@ -43,7 +51,7 @@ Resources:
         must: Keep public IPv4 assignment disabled.
     Properties:
       VpcId: !Ref VpcId
-      AvailabilityZone: eu-north-1b
+      AvailabilityZone: !Ref SecondaryAvailabilityZone
       CidrBlock: !Ref DatabaseSubnetBCidr
       MapPublicIpOnLaunch: false
 
@@ -136,7 +144,7 @@ Resources:
       DBClusterIdentifier: !Ref Database
       DBInstanceClass: db.serverless
       Engine: aurora-postgresql
-      AvailabilityZone: eu-north-1a
+      AvailabilityZone: !Ref PrimaryAvailabilityZone
       PubliclyAccessible: false
       AutoMinorVersionUpgrade: true
 
@@ -193,6 +201,8 @@ Outputs:
     Value: !Ref Database
   DatabaseEndpoint:
     Value: !GetAtt Database.Endpoint.Address
+  DatabaseAvailabilityZone:
+    Value: !Ref PrimaryAvailabilityZone
   DatabaseWriterIdentifier:
     Value: !Ref DatabaseWriter
   DatabaseSecurityGroupId:

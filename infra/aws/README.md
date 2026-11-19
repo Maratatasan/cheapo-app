@@ -18,30 +18,36 @@ For the import, use the
 `psql`, and an [RDS CA bundle](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/UsingWithRDS.SSL.html).
 
 From the repo root, copy [the example](.env.example) to `infra/aws/.env.local`
-and fill in the AWS profile and project account ID. Keep the Region
-`eu-north-1`. Store credentials in AWS login and Secrets Manager.
+and fill in the profile and expected account ID from Building Momentum.
+Use the assigned Region and a distinct name for each stack. Region policy
+allows only Stockholm. Store credentials in AWS login and Secrets Manager.
+Changing a name selects another stack.
 
 ```sh
 pnpm infra:aws:check
 
+cheapo_settings=$(pnpm --silent infra:aws:check identity) &&
+  IFS=$'\t' read -r cheapo_profile cheapo_region cheapo_account storage_stack access_stack <<< "$cheapo_settings"
+
 cheapo_aws() {
-  local cheapo_profile
-  cheapo_profile=$(pnpm --silent infra:aws:check identity) || return
-  aws --profile "$cheapo_profile" --region eu-north-1 --no-cli-pager "$@"
+  local current_settings
+  current_settings=$(pnpm --silent infra:aws:check identity) || return
+  if [ "$current_settings" != "${cheapo_settings:-}" ]; then
+    printf '%s\n' 'Reload the AWS settings before continuing.' >&2
+    return 1
+  fi
+  aws --profile "$cheapo_profile" --region "$cheapo_region" --no-cli-pager "$@"
 }
-storage_stack=cheapo-shopping-storage
-access_stack=cheapo-shopping-migration-access
 ```
 
-The validation command checks project identity and both templates. The shell
-helper uses that verified profile for each manual AWS command.
+Validation checks project identity and both templates. Rerun the setup block
+after changing the local settings.
 
 ## Deploy approved stacks
 
 Confirm spend settings before creating changes. In the local file, set
-`CHEAPO_VPC_ID` and two distinct unused database subnet CIDRs within that VPC.
-Start with the storage stack. Create migration access only when the import is
-ready.
+`CHEAPO_VPC_ID`, primary and secondary zones, and two distinct unused CIDRs
+in that VPC. Start with the storage stack and add migration access when ready.
 
 ```sh
 cheapo_storage_parameters=$(pnpm --silent infra:aws:check storage) &&
@@ -76,9 +82,10 @@ cheapo_aws cloudformation update-termination-protection --stack-name "$storage_s
 ```
 
 In the local file, set `CHEAPO_DB_SECURITY_GROUP_ID` from the storage stack's
-`DatabaseSecurityGroupId`. Set `CHEAPO_RUNNER_SUBNET_ID` to a same-VPC subnet
-in `eu-north-1a` with an internet gateway route. Create, review and execute
-the access change set using the same steps above with `stack="$access_stack"`.
+`DatabaseSecurityGroupId`. Check `CHEAPO_PRIMARY_AZ` matches the
+`DatabaseAvailabilityZone` output. Set `CHEAPO_RUNNER_SUBNET_ID` to an existing
+same-VPC subnet in that zone with an internet gateway route. Follow the same
+change-set review and execution steps with `stack="$access_stack"`.
 
 ```sh
 cheapo_access_parameters=$(pnpm --silent infra:aws:check access) &&

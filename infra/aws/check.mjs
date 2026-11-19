@@ -3,28 +3,42 @@ import { readFileSync } from 'node:fs';
 import { parse } from 'dotenv';
 import { z } from 'zod';
 
-const projectId = '811926871874';
+const stockholm = 'eu-north-1';
 const identity = z.object({
   CHEAPO_AWS_PROFILE: z.string().trim().regex(/^\w[\w.@ -]*$/),
-  CHEAPO_AWS_REGION: z.literal('eu-north-1'),
-  CHEAPO_AWS_ACCOUNT_ID: z.literal(projectId),
+  CHEAPO_AWS_REGION: z.literal(stockholm),
+  CHEAPO_AWS_ACCOUNT_ID: z.string().regex(/^\d{12}$/),
 });
+const stackName = z.string().max(128).regex(/^[A-Za-z][A-Za-z0-9-]*$/);
+const availabilityZone = z.string().regex(new RegExp(`^${stockholm}[a-z]$`));
 const vpcId = z.string().regex(/^vpc-(?:[a-f0-9]{8}|[a-f0-9]{17})$/);
 const subnetCidr = z.cidrv4().refine((cidr) => /\/(1[6-9]|2[0-8])$/.test(cidr));
 
 const schemas = {
   validate: identity,
-  identity,
+  identity: identity.extend({
+    CHEAPO_STORAGE_STACK_NAME: stackName,
+    CHEAPO_ACCESS_STACK_NAME: stackName,
+  }).refine(
+    (config) => config.CHEAPO_STORAGE_STACK_NAME !== config.CHEAPO_ACCESS_STACK_NAME,
+    { path: ['CHEAPO_ACCESS_STACK_NAME'] },
+  ),
   storage: identity.extend({
     CHEAPO_VPC_ID: vpcId,
     CHEAPO_DB_SUBNET_A_CIDR: subnetCidr,
     CHEAPO_DB_SUBNET_B_CIDR: subnetCidr,
+    CHEAPO_PRIMARY_AZ: availabilityZone,
+    CHEAPO_SECONDARY_AZ: availabilityZone,
   }).refine(
+    (config) => config.CHEAPO_PRIMARY_AZ !== config.CHEAPO_SECONDARY_AZ,
+    { path: ['CHEAPO_SECONDARY_AZ'] },
+  ).refine(
     (config) => config.CHEAPO_DB_SUBNET_A_CIDR !== config.CHEAPO_DB_SUBNET_B_CIDR,
     { path: ['CHEAPO_DB_SUBNET_B_CIDR'] },
   ),
   access: identity.extend({
     CHEAPO_VPC_ID: vpcId,
+    CHEAPO_PRIMARY_AZ: availabilityZone,
     CHEAPO_RUNNER_SUBNET_ID: z.string().regex(/^subnet-(?:[a-f0-9]{8}|[a-f0-9]{17})$/),
     CHEAPO_DB_SECURITY_GROUP_ID: z.string().regex(/^sg-(?:[a-f0-9]{8}|[a-f0-9]{17})$/),
   }),
@@ -61,7 +75,13 @@ function check() {
   }
 
   if (mode === 'identity') {
-    console.log(config.CHEAPO_AWS_PROFILE);
+    console.log([
+      config.CHEAPO_AWS_PROFILE,
+      config.CHEAPO_AWS_REGION,
+      config.CHEAPO_AWS_ACCOUNT_ID,
+      config.CHEAPO_STORAGE_STACK_NAME,
+      config.CHEAPO_ACCESS_STACK_NAME,
+    ].join('\t'));
   } else if (mode === 'validate') {
     for (const name of ['shopping-storage', 'shopping-migration-access']) {
       aws(config, ['cloudformation', 'validate-template', '--template-body', `file://infra/aws/${name}.yaml`]);
@@ -72,9 +92,12 @@ function check() {
       VpcId: config.CHEAPO_VPC_ID,
       DatabaseSubnetACidr: config.CHEAPO_DB_SUBNET_A_CIDR,
       DatabaseSubnetBCidr: config.CHEAPO_DB_SUBNET_B_CIDR,
+      PrimaryAvailabilityZone: config.CHEAPO_PRIMARY_AZ,
+      SecondaryAvailabilityZone: config.CHEAPO_SECONDARY_AZ,
     } : {
       VpcId: config.CHEAPO_VPC_ID,
       RunnerSubnetId: config.CHEAPO_RUNNER_SUBNET_ID,
+      PrimaryAvailabilityZone: config.CHEAPO_PRIMARY_AZ,
       DatabaseSecurityGroupId: config.CHEAPO_DB_SECURITY_GROUP_ID,
     };
     console.log(JSON.stringify(Object.entries(parameters).map(

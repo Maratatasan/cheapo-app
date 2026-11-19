@@ -9,9 +9,12 @@ Parameters:
   VpcId:
     Type: AWS::EC2::VPC::Id
     Description: VPC used by the Cheapo shopping storage stack.
+  PrimaryAvailabilityZone:
+    Type: AWS::EC2::AvailabilityZone::Name
+    Description: Zone of the deployed database writer.
   RunnerSubnetId:
     Type: AWS::EC2::Subnet::Id
-    Description: Existing public subnet in eu-north-1a with an internet gateway route.
+    Description: Existing public subnet in the database writer's zone with an internet gateway route.
   DatabaseSecurityGroupId:
     Type: AWS::EC2::SecurityGroup::Id
     Description: Dedicated database security group from the Cheapo storage stack.
@@ -27,7 +30,7 @@ Rules:
         AssertDescription: Cheapo migration access belongs in eu-north-1.
       - Assert: !Equals [!ValueOf [RunnerSubnetId, VpcId], !Ref VpcId]
         AssertDescription: The runner subnet must be in the supplied VPC.
-      - Assert: !Equals [!ValueOf [RunnerSubnetId, AvailabilityZone], eu-north-1a]
+      - Assert: !Equals [!ValueOf [RunnerSubnetId, AvailabilityZone], !Ref PrimaryAvailabilityZone]
         AssertDescription: Keep the runner and database in the same zone.
 
 Resources:

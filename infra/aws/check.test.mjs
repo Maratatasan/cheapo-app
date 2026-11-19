@@ -7,7 +7,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 const script = fileURLToPath(new URL('./check.mjs', import.meta.url));
-const account = '811926871874';
+const account = '123456789012';
 const identity = [
   'CHEAPO_AWS_PROFILE=cheapo-dev',
   'CHEAPO_AWS_REGION=eu-north-1',
@@ -71,10 +71,10 @@ test('validates both templates with the selected profile and identity settings a
 });
 
 test('rejects a profile logged into a different project before validating templates', (t) => {
-  const result = run(t, 'validate', identity, '123456789012');
+  const result = run(t, 'validate', identity, '210987654321');
   assert.equal(result.status, 1);
   assert.match(result.stderr, /does not match CHEAPO_AWS_ACCOUNT_ID/);
-  assert.doesNotMatch(result.stderr, /123456789012/);
+  assert.doesNotMatch(result.stderr, /210987654321/);
   assert.equal(result.stdout, '');
   assert.equal(result.calls.length, 1);
 });
@@ -94,12 +94,16 @@ test('outputs only storage parameters after verifying the requested project', (t
   const result = run(t, 'storage', `${identity}
 CHEAPO_VPC_ID=vpc-0123456789abcdef0
 CHEAPO_DB_SUBNET_A_CIDR=10.0.16.0/24
-CHEAPO_DB_SUBNET_B_CIDR=10.0.32.0/24`);
+CHEAPO_DB_SUBNET_B_CIDR=10.0.32.0/24
+CHEAPO_PRIMARY_AZ=eu-north-1c
+CHEAPO_SECONDARY_AZ=eu-north-1a`);
   assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(JSON.parse(result.stdout), [
     { ParameterKey: 'VpcId', ParameterValue: 'vpc-0123456789abcdef0' },
     { ParameterKey: 'DatabaseSubnetACidr', ParameterValue: '10.0.16.0/24' },
     { ParameterKey: 'DatabaseSubnetBCidr', ParameterValue: '10.0.32.0/24' },
+    { ParameterKey: 'PrimaryAvailabilityZone', ParameterValue: 'eu-north-1c' },
+    { ParameterKey: 'SecondaryAvailabilityZone', ParameterValue: 'eu-north-1a' },
   ]);
   assert.equal(result.calls.length, 1);
 });
@@ -108,19 +112,55 @@ test('outputs access parameters independently of storage subnet CIDRs', (t) => {
   const result = run(t, 'access', `${identity}
 CHEAPO_VPC_ID=vpc-0123456789abcdef0
 CHEAPO_RUNNER_SUBNET_ID=subnet-0123456789abcdef0
+CHEAPO_PRIMARY_AZ=eu-north-1c
 CHEAPO_DB_SECURITY_GROUP_ID=sg-0123456789abcdef0`);
   assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(JSON.parse(result.stdout), [
     { ParameterKey: 'VpcId', ParameterValue: 'vpc-0123456789abcdef0' },
     { ParameterKey: 'RunnerSubnetId', ParameterValue: 'subnet-0123456789abcdef0' },
+    { ParameterKey: 'PrimaryAvailabilityZone', ParameterValue: 'eu-north-1c' },
     { ParameterKey: 'DatabaseSecurityGroupId', ParameterValue: 'sg-0123456789abcdef0' },
   ]);
   assert.equal(result.calls.length, 1);
 });
 
-test('prints the verified profile for manual AWS CLI commands', (t) => {
-  const result = run(t, 'identity', identity);
+test('prints one verified settings row without splitting spaces in the profile', (t) => {
+  const result = run(t, 'identity', `${identity.replace('cheapo-dev', 'cheapo operator')}
+CHEAPO_STORAGE_STACK_NAME=example-storage
+CHEAPO_ACCESS_STACK_NAME=example-access`);
   assert.equal(result.status, 0, result.stderr);
-  assert.equal(result.stdout.trim(), 'cheapo-dev');
+  assert.deepEqual(result.stdout.trim().split('\t'), [
+    'cheapo operator', 'eu-north-1', account, 'example-storage', 'example-access',
+  ]);
+  assert.equal(result.calls[0][1], 'cheapo operator');
   assert.equal(result.calls.length, 1);
+});
+
+test('rejects matching stack names before contacting AWS', (t) => {
+  const result = run(t, 'identity', `${identity}
+CHEAPO_STORAGE_STACK_NAME=example
+CHEAPO_ACCESS_STACK_NAME=example`);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /CHEAPO_ACCESS_STACK_NAME/);
+  assert.deepEqual(result.calls, []);
+});
+
+test('rejects matching database zones before contacting AWS', (t) => {
+  const result = run(t, 'storage', `${identity}
+CHEAPO_VPC_ID=vpc-0123456789abcdef0
+CHEAPO_DB_SUBNET_A_CIDR=10.0.16.0/24
+CHEAPO_DB_SUBNET_B_CIDR=10.0.32.0/24
+CHEAPO_PRIMARY_AZ=eu-north-1c
+CHEAPO_SECONDARY_AZ=eu-north-1c`);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /CHEAPO_SECONDARY_AZ/);
+  assert.deepEqual(result.calls, []);
+});
+
+test('rejects an invalid account ID without contacting AWS or echoing the value', (t) => {
+  const result = run(t, 'validate', identity.replace(account, 'not-an-account'));
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /CHEAPO_AWS_ACCOUNT_ID/);
+  assert.doesNotMatch(result.stderr, /not-an-account/);
+  assert.deepEqual(result.calls, []);
 });
