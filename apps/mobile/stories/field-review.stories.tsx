@@ -3,7 +3,8 @@ import { useState } from 'react';
 import { View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import type { Meta, StoryObj } from '@storybook/react-native-web-vite';
-import { expect, fireEvent } from 'storybook/test';
+import { expect, fireEvent, waitFor } from 'storybook/test';
+import { PhotoAnalysisControls } from '../component/photo-analysis-review';
 import { PhotoReview } from '../component/photo-review';
 import { CurrentShopPrice } from '../component/results/current-shop-price';
 import { emptyReview, type ManualReview } from '../data/photo-review';
@@ -82,5 +83,112 @@ export const UpdateCurrentShopPrice: Story = {
   play: async ({ canvas }) => {
     await expect(canvas.getByText('Recorded 12 Nov 2026')).toBeVisible();
     await expect(canvas.getByRole('button', { name: 'Update price' })).toBeVisible();
+  },
+};
+
+const exampleSuggestion = {
+  product: 'Chopped tomatoes', packSize: '500 g', price: 1.49, currency: 'GBP', unit_price: null, uncertainty: '',
+};
+const readyMessage = 'Suggestions ready. Check the details before applying.';
+const errorMessage = 'Photo analysis failed. You can still enter details manually.';
+
+function SuggestionsExample({ fails = false }: { fails?: boolean }) {
+  const [state, setState] = useState<'idle' | 'loading' | 'ready' | 'failed' | 'applied'>('idle');
+  const [review, setReview] = useState<ManualReview>(() => emptyReview('Example shop'));
+  const [saved, setSaved] = useState(false);
+  const status = {
+    idle: undefined,
+    loading: 'Analysing the selected photo…',
+    ready: readyMessage,
+    failed: errorMessage,
+    applied: 'Suggestions added. Review or edit before saving.',
+  }[state];
+
+  return <View style={{ width: '100%', maxWidth: 320 }}>
+    <View testID="short-review-viewport" style={{ height: 318 }}>
+      <SafeAreaProvider initialMetrics={{ frame: { x: 0, y: 0, width: 320, height: 318 }, insets: { top: 0, bottom: 8, left: 0, right: 0 } }}>
+        <PhotoReview review={review} selectedShopName="Example shop" saved={saved} busy={false} onReviewChange={setReview}
+          onRetake={() => { setReview(emptyReview('Example shop')); setState('idle'); setSaved(false); }}
+          onSave={() => setSaved(true)} suggestion={state === 'ready' ? {
+            draft: exampleSuggestion,
+            onApply: () => {
+              setReview(current => ({
+                ...current, productName: exampleSuggestion.product, price: exampleSuggestion.price.toString(),
+                packSize: current.packSize ?? exampleSuggestion.packSize,
+              }));
+              setState('applied');
+            },
+          } : undefined}>
+          <PhotoAnalysisControls label={state === 'loading' ? 'Analysing…' : 'Analyse photo'} status={status}
+            disabled={state === 'loading'} onPress={() => setState('loading')} />
+        </PhotoReview>
+      </SafeAreaProvider>
+    </View>
+    <button type="button" disabled={state !== 'loading'} onClick={() => setState(fails ? 'failed' : 'ready')}>
+      {fails ? 'Simulate analysis failure' : 'Complete sample analysis'}
+    </button>
+  </View>;
+}
+
+function verticalBounds(element: HTMLElement) {
+  const { top, bottom } = element.getBoundingClientRect();
+  return { top, bottom };
+}
+
+export const SuggestionsWithShortViewport: Story = {
+  render: () => <SuggestionsExample />,
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole('button', { name: 'Analyse photo' }));
+    const packSize = canvas.getByLabelText('Pack size');
+    packSize.focus();
+    await fireEvent.change(packSize, { target: { value: '450 g' } });
+    await fireEvent.click(canvas.getByRole('button', { name: 'Complete sample analysis' }));
+
+    const viewport = canvas.getByTestId('short-review-viewport');
+    const apply = canvas.getByRole('button', { name: 'Use suggested details' });
+    const product = canvas.getByLabelText('Product name');
+    const summary = canvas.getByText('Chopped tomatoes · £1.49');
+    const bounds = verticalBounds(viewport);
+    await expect(verticalBounds(summary).top).toBeGreaterThanOrEqual(bounds.top);
+    await expect(verticalBounds(apply).bottom).toBeLessThanOrEqual(bounds.bottom);
+    const suggestionHeading = canvas.getByRole('heading', { name: 'Suggested details' });
+    await waitFor(() => {
+      expect(verticalBounds(packSize).top).toBeGreaterThanOrEqual(bounds.top);
+      expect(verticalBounds(packSize).bottom).toBeLessThan(verticalBounds(suggestionHeading).top);
+    });
+    await expect(packSize).toHaveFocus();
+    await expect(packSize).toHaveValue('450 g');
+    await expect(product).toHaveValue('');
+    await expect(canvas.getByRole('button', { name: 'Save on this phone' })).toBeVisible();
+
+    await userEvent.click(apply);
+
+    await waitFor(() => {
+      const field = verticalBounds(product);
+      expect(field.top - bounds.top).toBeLessThan(64);
+      expect(field.top).toBeGreaterThanOrEqual(bounds.top);
+    });
+    await expect(product).toHaveValue('Chopped tomatoes');
+    await expect(product).not.toHaveFocus();
+    await expect(packSize).toHaveValue('450 g');
+    await expect(canvas.queryByText('On this phone')).not.toBeInTheDocument();
+  },
+};
+
+export const AnalysisFailureKeepsEdit: Story = {
+  render: () => <SuggestionsExample fails />,
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole('button', { name: 'Analyse photo' }));
+    const packSize = canvas.getByLabelText('Pack size');
+    packSize.focus();
+    await fireEvent.change(packSize, { target: { value: '450 g' } });
+    const before = verticalBounds(packSize);
+    await fireEvent.click(canvas.getByRole('button', { name: 'Simulate analysis failure' }));
+
+    await expect(canvas.getByText(errorMessage)).toHaveAttribute('aria-live', 'polite');
+    await expect(packSize).toHaveFocus();
+    await expect(packSize).toHaveValue('450 g');
+    await expect(verticalBounds(packSize).top).toBeCloseTo(before.top, 0);
+    await expect(canvas.queryByRole('button', { name: 'Use suggested details' })).not.toBeInTheDocument();
   },
 };
