@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { productSchema, shopDisplayName, shopSchema } from '@cheapo/domain';
+import { derivePackageUnitPrices, productSchema, shopDisplayName, shopSchema } from '@cheapo/domain';
 import { normalizeName, shopDisplayName as lightweightShopDisplayName } from '@cheapo/domain/names';
 
 const manualShop = { id: 'shop-123', name: 'Tesco Borough Road' };
@@ -129,4 +129,95 @@ test('rejects malformed product details without coercing them', () => {
   ]) {
     assert.equal(productSchema.safeParse({ ...product, ...details }).success, false);
   }
+});
+
+test('derives independent prices per weight and per tomato from the reviewed pack', () => {
+  const measures = {
+    mass: { total: { quantity: 500, unit: 'g' } },
+    itemCount: 6,
+  };
+
+  assert.deepEqual(derivePackageUnitPrices({ amount: 3, currency: 'GBP' }, measures), {
+    kg: { amount: 6, currency: 'GBP' },
+    '100g': { amount: 0.6, currency: 'GBP' },
+    item: { amount: 0.5, currency: 'GBP' },
+  });
+});
+
+test('derives independent prices per volume and per manufacturer-stated wash', () => {
+  const measures = {
+    volume: { total: { quantity: 3510, unit: 'mL' } },
+    statedWashCount: { quantity: 130, source: 'manufacturer' },
+  };
+
+  const rates = derivePackageUnitPrices({ amount: 7.02, currency: 'GBP' }, measures);
+
+  assert.deepEqual(Object.keys(rates).sort(), ['100mL', 'litre', 'wash']);
+  assert.equal(rates.litre.currency, 'GBP');
+  assert.ok(Math.abs(rates.litre.amount - 2) < 1e-12);
+  assert.ok(Math.abs(rates['100mL'].amount - 0.2) < 1e-12);
+  assert.equal(rates.wash.amount, 0.054);
+  assert.equal(measures.volume.total.unit, 'mL');
+});
+
+test('leaves missing totals and counts unknown', () => {
+  const price = { amount: 6.5, currency: 'GBP' };
+  const washOnly = derivePackageUnitPrices(price, {
+    volume: { perPack: { quantity: 3510, unit: 'mL' } },
+    statedWashCount: { quantity: 130, source: 'manufacturer' },
+  });
+
+  assert.deepEqual(washOnly, { wash: { amount: 0.05, currency: 'GBP' } });
+  assert.deepEqual(derivePackageUnitPrices(price, { packCount: 4 }), {});
+});
+
+test('uses confirmed multipack facts without assuming the number of items inside', () => {
+  const price = { amount: 5, currency: 'EUR' };
+  const measures = {
+    packCount: 4,
+    mass: { perPack: { quantity: 500, unit: 'g' }, total: { quantity: 2, unit: 'kg' } },
+    volume: { perPack: { quantity: 250, unit: 'mL' } },
+  };
+
+  assert.deepEqual(derivePackageUnitPrices(price, measures), {
+    kg: { amount: 2.5, currency: 'EUR' },
+    '100g': { amount: 0.25, currency: 'EUR' },
+    litre: { amount: 5, currency: 'EUR' },
+    '100mL': { amount: 0.5, currency: 'EUR' },
+  });
+});
+
+test('leaves contradictory mass unranked while retaining the independent item price', () => {
+  const measures = {
+    packCount: 4,
+    mass: { perPack: { quantity: 500, unit: 'g' }, total: { quantity: 1.5, unit: 'kg' } },
+    itemCount: 4,
+  };
+
+  assert.deepEqual(derivePackageUnitPrices({ amount: 5, currency: 'GBP' }, measures), {
+    item: { amount: 1.25, currency: 'GBP' },
+  });
+});
+
+test('skips invalid measures and unsupported provenance', () => {
+  const price = { amount: 5, currency: 'GBP' };
+  const measures = {
+    packCount: 1.5,
+    mass: { perPack: { quantity: 400, unit: 'g' }, total: { quantity: 0, unit: 'kg' } },
+    volume: { total: { quantity: Infinity, unit: 'L' } },
+    itemCount: Number.MAX_SAFE_INTEGER + 1,
+    statedWashCount: { quantity: 130, source: 'estimated' },
+  };
+
+  assert.deepEqual(derivePackageUnitPrices(price, measures), {});
+  assert.deepEqual(derivePackageUnitPrices(price, { mass: { total: { quantity: 1, unit: 'L' } } }), {});
+});
+
+test('omits all package rates when the pack price or currency is unavailable', () => {
+  const measures = { mass: { total: { quantity: 500, unit: 'g' } } };
+
+  for (const amount of [0, -1, NaN, Infinity]) {
+    assert.deepEqual(derivePackageUnitPrices({ amount, currency: 'GBP' }, measures), {});
+  }
+  assert.deepEqual(derivePackageUnitPrices({ amount: 2, currency: '' }, measures), {});
 });
