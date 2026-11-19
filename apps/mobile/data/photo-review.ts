@@ -1,9 +1,27 @@
 import { normalizeName } from '@cheapo/domain/names';
 import { normalizedUnitPrice } from './comparison-prices';
+import type { AiPriceDraft } from './ai-observation';
 import type { ProductMetadata } from './product-metadata';
 
 export type ManualReview = ProductMetadata & { productName: string; packSize?: string; price: string; currency: string; shop: string; unitPrice: string; unit: string };
 export const emptyReview = (shop = ''): ManualReview => ({ productName: '', price: '', currency: 'GBP', shop, unitPrice: '', unit: '' });
+export function applyPhotoSuggestion(review: ManualReview, suggestion: AiPriceDraft, edited: ReadonlySet<keyof ManualReview>, linkedPrice = false): ManualReview {
+  const keepEdit = <Field extends keyof ManualReview>(field: Field, value: ManualReview[Field] | null) => edited.has(field) ? review[field] : value ?? review[field];
+  const keepUnitPrice = edited.has('unitPrice') || edited.has('unit');
+  return {
+    ...review,
+    productName: linkedPrice ? review.productName : keepEdit('productName', suggestion.product),
+    productType: linkedPrice ? review.productType : keepEdit('productType', suggestion.productType),
+    variety: linkedPrice ? review.variety : keepEdit('variety', suggestion.variety),
+    brand: linkedPrice ? review.brand : keepEdit('brand', suggestion.brand),
+    packSize: review.packSize ?? suggestion.packSize ?? undefined,
+    price: keepEdit('price', suggestion.price?.toString() ?? null),
+    currency: keepEdit('currency', suggestion.currency),
+    unitPrice: keepUnitPrice ? review.unitPrice : suggestion.unit_price?.amount.toString() ?? review.unitPrice,
+    unit: keepUnitPrice ? review.unit : suggestion.unit_price?.unit ?? review.unit,
+  };
+}
+
 export const packSizeMaxLength = 50;
 const validPrice = (value: string, fraction = 2) => new RegExp(`^\\d+(\\.\\d{1,${fraction}})?$`).test(value.trim()) && value.length <= 24 && Number(value) > 0 && Number(value) <= 9999999.99;
 

@@ -86,6 +86,25 @@ test.each([
   await expect(analyze()).resolves.toMatchObject({ packSize: expected, unit_price: null });
 });
 
+test('keeps only distinct valid alternatives for fields with a confirmed primary reading', async () => {
+  catalog();
+  bodyResponse([new TextEncoder().encode(completed([{ type: 'output_text', text: JSON.stringify({
+    ...draft,
+    alternatives: {
+      price: [2.5, 2.8, -5, 2.9, 3],
+      packSize: ['500 g', '0 g', '750 g'],
+      variety: ['Medium roast'],
+      unit_price: [{ amount: 5, unit: 'kg' }, { amount: 5.6, unit: 'kg' }, { amount: 5, unit: '' }],
+    },
+  }) }]))]);
+
+  await expect(analyze()).resolves.toEqual({ ...draft, alternatives: {
+    price: [2.8, 2.9], packSize: ['750 g'], unit_price: [{ amount: 5.6, unit: 'kg' }],
+  } });
+  const request = JSON.parse(String(provider.mock.calls[1][1]?.body));
+  expect(request.text.format.schema.required).toContain('alternatives');
+});
+
 test('withholds the photo when the catalog has no supported listed model', async () => {
   catalog([{ slug: 'other', visibility: 'list' }]);
   await expect(analyze()).rejects.toThrow('No supported photo model');

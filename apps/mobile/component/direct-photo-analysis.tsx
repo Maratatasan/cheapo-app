@@ -92,8 +92,8 @@ export function DirectPhotoAnalysis({ photo, busy, onApply, children }: {
 
   return children(controls, draft ? {
     draft,
-    onApply: () => {
-      onApply(draft);
+    onApply: selected => {
+      onApply(selected);
       setDraft(undefined);
       setStatus('Suggestions added. Review or edit before saving.');
     },

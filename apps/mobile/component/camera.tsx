@@ -18,6 +18,7 @@ import { emptyReview, loadLocalPhotos, reviewComplete, saveLocalPhoto, type Draf
 import { MobileDraft } from "./mobile-draft";
 import { DirectPhotoAnalysis } from "./direct-photo-analysis";
 import { fieldPhotoAnalysisEnabled } from "@/lib/direct-auth/phone-session";
+import { applyPhotoSuggestion } from "@/data/photo-review";
 import { choosePhoto } from "@/lib/choose-photo";
 
 type LinkedPriceCapture = {
@@ -37,6 +38,7 @@ export const CameraComponent = ({ currentShop, onScanBarcode, linkedPrice }: {
   const [facing, setFacing] = useState<CameraType>("back");
   const [permission, requestPermission] = useCameraPermissions();
   const cameraRef = useRef<CameraView>(null);
+  const editedFields = useRef(new Set<keyof ManualReview>());
   const [draft, setDraft] = useState<LocalPhotoDraft | null>(null);
   const [cropping, setCropping] = useState(false);
   const [visitShop, setVisitShop] = useState("");
@@ -50,6 +52,7 @@ export const CameraComponent = ({ currentShop, onScanBarcode, linkedPrice }: {
     loadLocalPhotos().then(photos => { setSavedPhotos(photos); if (photos[0]?.review?.shop) setVisitShop(photos[0].review.shop); }).catch(() => Alert.alert('Saved photos unavailable', 'Your saved photos could not be read. Try reopening Scan.'));
   }, [linkedPrice]);
   function selectPhoto(photo: PhotoAsset, cropBox?: CropBox) {
+    editedFields.current.clear();
     setCropping(cropBox !== undefined);
     setDraft({ id: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`, capturedAt: new Date().toISOString(),
       original: photo, selected: photo, review: linkedPrice?.initialReview ?? emptyReview(currentShop?.displayName ?? visitShop),
@@ -78,6 +81,7 @@ export const CameraComponent = ({ currentShop, onScanBarcode, linkedPrice }: {
     drafts={savedPhotos}
     disabled={photoAction !== null}
     onReview={item => {
+      editedFields.current.clear();
       setDraft({ ...item, review: item.review ?? emptyReview() });
       setVisitShop(item.review?.shop ?? "");
       setSaved(true);
@@ -191,7 +195,12 @@ export const CameraComponent = ({ currentShop, onScanBarcode, linkedPrice }: {
         selectedShopName={draft.shop?.displayName}
         saved={saved}
         busy={busy}
-        onReviewChange={review => { setDraft({ ...draft, review }); setSaved(false); setVisitShop(review.shop); }}
+        onReviewChange={(review, field) => {
+          editedFields.current.add(field);
+          setDraft({ ...draft, review });
+          setSaved(false);
+          setVisitShop(review.shop);
+        }}
         galleryAction={<GalleryCopy key={draft.selected.uri} photo={draft.selected} />}
         onSave={savePhoto}
         suggestion={suggestion}
@@ -215,18 +224,7 @@ export const CameraComponent = ({ currentShop, onScanBarcode, linkedPrice }: {
           const review = draft.review ?? emptyReview(draft.shop?.displayName);
           setDraft({
             ...draft,
-            review: {
-              ...review,
-              productName: linkedPrice ? review.productName : suggestion.product ?? review.productName,
-              productType: linkedPrice ? review.productType : suggestion.productType ?? review.productType,
-              variety: linkedPrice ? review.variety : suggestion.variety ?? review.variety,
-              brand: linkedPrice ? review.brand : suggestion.brand ?? review.brand,
-              packSize: review.packSize ?? suggestion.packSize ?? undefined,
-              price: suggestion.price?.toString() ?? review.price,
-              currency: suggestion.currency ?? review.currency,
-              unitPrice: suggestion.unit_price?.amount.toString() ?? review.unitPrice,
-              unit: suggestion.unit_price?.unit ?? review.unit,
-            },
+            review: applyPhotoSuggestion(review, suggestion, editedFields.current, Boolean(linkedPrice)),
           });
           setSaved(false);
         }}>
