@@ -7,6 +7,8 @@ type Props = {
   result?: PhotoBarcodeResult;
   value: string;
   confirmed: boolean;
+  confirmLabel?: string;
+  confirmedLabel?: string;
   carried?: boolean;
   locked?: boolean;
   busy: boolean;
@@ -25,7 +27,7 @@ const messages = {
   unavailable: 'Photo barcode reading is unavailable.',
 };
 
-export function PhotoBarcodeReview({ result, value, confirmed, carried, locked, busy, error, onChange, onConfirm, onClear, onScan }: Props) {
+export function PhotoBarcodeReview({ result, value, confirmed, confirmLabel = 'Confirm barcode', confirmedLabel = 'Barcode confirmed', carried, locked, busy, error, onChange, onConfirm, onClear, onScan }: Props) {
   const scanButton = onScan && !locked ? (
     <Pressable accessibilityRole="button" accessibilityLabel="Scan barcode"
       disabled={busy} onPress={onScan} style={[styles.scan, busy && styles.disabled]}>
@@ -42,7 +44,7 @@ export function PhotoBarcodeReview({ result, value, confirmed, carried, locked, 
         <>
           <View style={styles.inputRow}>
             <Text accessibilityLiveRegion="polite" selectable style={[styles.label, styles.grow]}>
-              Barcode confirmed · {value}
+              {confirmedLabel} · {value}
             </Text>
             {scanButton}
           </View>
@@ -70,7 +72,7 @@ export function PhotoBarcodeReview({ result, value, confirmed, carried, locked, 
           </View>
           <Pressable accessibilityRole="button" disabled={busy || !value.trim()} onPress={onConfirm}
             style={[styles.button, (busy || !value.trim()) && styles.disabled]}>
-            <Text style={styles.label}>Confirm barcode</Text>
+            <Text style={styles.label}>{confirmLabel}</Text>
           </Pressable>
         </>
       )}

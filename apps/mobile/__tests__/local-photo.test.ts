@@ -1,7 +1,29 @@
+import React from 'react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import EditSavedPrice from '@/app/edit-price/[id]';
+import { BarcodeScan } from '@/component/barcode-scan';
 import { emptyReview, reviewComplete, loadLocalPhotos, loadSavedPriceRecords, linkSavedPriceToBarcode, saveLocalPhoto, saveLocalPhotoReview, saveManualPrice, type LocalPhotoDraft } from '../data/local-photo';
 import { addLocalProduct, findLocalProductByBarcode, replaceLocalProductBarcode } from '../data/local-products';
 import { savedProductDetails } from '../data/photo-review';
 import { comparisonRowFromDraft } from '../data/saved-comparison';
+const mockLeavePrice = jest.fn();
+jest.mock('expo-router', () => ({
+  Stack: { Screen: () => null },
+  useLocalSearchParams: () => ({ id: 'capture-1' }),
+  useRouter: () => ({ canGoBack: () => true, back: mockLeavePrice }),
+  usePreventRemove: jest.fn(),
+  useFocusEffect: (callback: () => void) => require('react').useEffect(callback, [callback]),
+}));
+jest.mock('expo-camera', () => ({
+  useCameraPermissions: () => [{ granted: true }, jest.fn()],
+  CameraView: ({ onBarcodeScanned }: { onBarcodeScanned: () => void }) => {
+    const { View } = require('react-native');
+    return require('react').createElement(View, { testID: 'native-code-camera', onBarcodeScanned });
+  },
+}));
+jest.mock('../data/photo-barcode', () => ({ decodePhotoBarcodes: async () => ({ status: 'empty' }) }));
+jest.mock('../component/camera', () => ({ CameraComponent: () => null }));
+
 const mockFiles = new Map<string, string>();
 let mockFailCopy = false;
 let mockFailWrite = false;
@@ -254,4 +276,49 @@ test('reuses the catalog product after an interrupted new-product link', async (
   expect(await loadLocalPhotos()).toEqual([linked.record]);
   await replaceLocalProductBarcode(saved.id, riceBarcode, otherBarcode);
   await expect(linkSavedPriceToBarcode(saved.id, riceBarcode, target)).rejects.toThrow('barcode match changed');
+});
+
+
+test('keeps a confirmed barcode link open when the price Save is pressed', async () => {
+  mockLeavePrice.mockClear();
+  await saveLocalPhoto({ ...draft, review: savedRiceReview });
+  await render(React.createElement(EditSavedPrice));
+  await fireEvent.press(await screen.findByRole('button', { name: 'Link barcode' }));
+  await fireEvent.changeText(screen.getByLabelText('Product barcode'), riceBarcode);
+  await fireEvent.press(screen.getByRole('button', { name: 'Check barcode' }));
+  const linkCommit = await screen.findByRole('button', { name: 'Create product and link' });
+  expect(linkCommit).toBeEnabled();
+  await fireEvent.press(screen.getByRole('button', { name: 'Save changes' }));
+  const footer = await screen.findByRole('button', { name: 'Save changes' });
+  expect(mockLeavePrice).not.toHaveBeenCalled();
+  expect(await findLocalProductByBarcode(riceBarcode)).toBeUndefined();
+  expect(footer).toBeDisabled();
+  await fireEvent.press(screen.getByRole('button', { name: 'Cancel barcode link' }));
+  expect(screen.getByRole('button', { name: 'Save changes' })).toBeEnabled();
+});
+
+test('reopens a linked photo price and finds it through barcode lookup after Save changes', async () => {
+  mockLeavePrice.mockClear();
+  const savedShop = { id: 'shop-rice', displayName: savedRiceReview.shop };
+  const saved = await saveLocalPhoto({ ...draft, shop: savedShop, review: savedRiceReview });
+  const edit = await render(React.createElement(EditSavedPrice));
+  await fireEvent.press(await screen.findByRole('button', { name: 'Link barcode' }));
+  await fireEvent.changeText(screen.getByLabelText('Product barcode'), riceBarcode);
+  await fireEvent.press(screen.getByRole('button', { name: 'Check barcode' }));
+  await fireEvent.press(await screen.findByRole('button', { name: 'Create product and link' }));
+  expect(await screen.findByText('Barcode link saved.')).toBeOnTheScreen();
+  expect(await screen.findByText('00036000291452')).toBeOnTheScreen();
+  await fireEvent.press(screen.getByRole('button', { name: 'Save changes' }));
+  await waitFor(() => expect(mockLeavePrice).toHaveBeenCalledTimes(1));
+  await edit.unmount();
+
+  const reopened = await render(React.createElement(EditSavedPrice));
+  expect(await screen.findByText('00036000291452')).toBeOnTheScreen();
+  expect(screen.getByLabelText('Pack price')).toHaveDisplayValue('1.25');
+  await reopened.unmount();
+  await render(React.createElement(BarcodeScan, { currentShop: savedShop, onScanLabel: jest.fn() }));
+  await fireEvent(screen.getByTestId('native-code-camera'), 'barcodeScanned', { data: '0036000291452' });
+  expect(await screen.findByRole('header', { name: 'Rice' })).toBeOnTheScreen();
+  expect(screen.getByText('£1.25 pack')).toBeOnTheScreen();
+  expect(await loadSavedPriceRecords()).toEqual([{ ...saved, productId: saved.id }]);
 });

@@ -25,7 +25,7 @@ export default function EditSavedPrice() {
   const [busy, setBusy] = useState(false);
   const [linkOpen, setLinkOpen] = useState(false);
   const [linkSaving, setLinkSaving] = useState(false);
-  const [linkedBarcode, setLinkedBarcode] = useState<string>();
+  const [linkedBarcode, setLinkedBarcode] = useState<{ code: string; saved?: boolean }>();
   const [permission, requestPermission] = useCameraPermissions();
   const [error, setError] = useState<string>();
   const saving = useRef(false);
@@ -45,7 +45,7 @@ export default function EditSavedPrice() {
           setLoaded({ id, product: { ...draft, review: draft.review } });
           setReview(draft.review);
           if (draft.productId) void findLocalProductById(draft.productId).then(linked => {
-            if (!controller.signal.aborted) setLinkedBarcode(linked?.barcode);
+            if (!controller.signal.aborted && linked?.barcode) setLinkedBarcode({ code: linked.barcode });
           }).catch(() => {});
         } else setLoaded({ id, product: null });
       }).catch(() => { if (!controller.signal.aborted) setLoaded({ id, product: null }); });
@@ -61,7 +61,7 @@ export default function EditSavedPrice() {
 
   async function save() {
     const signal = lifecycle.current?.signal;
-    if (!signal || saving.current || linkSaving || !product || !review || product.id !== id || !reviewComplete(review, product.shop?.displayName)) return;
+    if (!signal || saving.current || linkOpen || !product || !review || product.id !== id || !reviewComplete(review, product.shop?.displayName)) return;
     saving.current = true;
     setBusy(true);
     setError(undefined);
@@ -81,13 +81,14 @@ export default function EditSavedPrice() {
       <Stack.Screen options={{ title: 'Edit saved product' }} />
       {product && product.id === id && review ? (
         <PhotoReview photo={product.selected} review={review} selectedShopName={product.shop?.displayName ?? product.review.shop}
-          saved={false} busy={busy || linkSaving} onReviewChange={setReview} onCancel={leave} onSave={save} saveError={error}
-          savedBarcode={linkedBarcode}
+          saved={false} busy={busy || linkSaving} onReviewChange={setReview} onCancel={linkOpen ? () => setLinkOpen(false) : leave} onSave={save} saveError={error}
+          saveBlocked={linkOpen ? 'Save or cancel the barcode link first.' : undefined}
+          savedBarcode={linkedBarcode?.code} barcodeLinkSaved={linkedBarcode?.saved}
           barcodeReview={!product.productId && product.original && !linkedBarcode ? (
             linkOpen ? <SavedPriceBarcode key={product.id} record={{ ...product, original: product.original, selected: product.selected }}
               lookup={findLocalProductByBarcode} readPhoto={decodePhotoBarcodes} link={linkSavedPriceToBarcode}
               disabled={busy} onSavingChange={setLinkSaving}
-              onLinked={code => { setLinkedBarcode(code); setLinkOpen(false); }} onCancel={() => setLinkOpen(false)}
+              onLinked={code => { setLinkedBarcode({ code, saved: true }); setLinkOpen(false); }} onCancel={() => setLinkOpen(false)}
               renderScanner={permission ? callbacks => <PhotoBarcodeScan permission={permission}
                 requestPermission={requestPermission} {...callbacks} /> : undefined} />
               : <CameraActionButton label="Link barcode" disabled={busy} onPress={() => setLinkOpen(true)} />

@@ -80,10 +80,10 @@ test('links a chosen barcode without discarding or saving in-progress price edit
   await fireEvent.press(screen.getByRole('button', { name: 'Link barcode' }));
   await fireEvent.press(await screen.findByRole('button', { name: 'Barcode 036000291452' }));
   expect(findLocalProductByBarcode).not.toHaveBeenCalled();
-  await fireEvent.press(screen.getByRole('button', { name: 'Confirm barcode' }));
+  await fireEvent.press(screen.getByRole('button', { name: 'Check barcode' }));
   expect(await screen.findByText(catalog.name)).toBeOnTheScreen();
   expect(linkSavedPriceToBarcode).not.toHaveBeenCalled();
-  await fireEvent.press(screen.getByRole('button', { name: 'Link this barcode' }));
+  await fireEvent.press(screen.getByRole('button', { name: 'Save barcode link' }));
   expect(await screen.findByText(catalog.barcode)).toBeOnTheScreen();
   expect(linkSavedPriceToBarcode).toHaveBeenCalledWith('capture-1', catalog.barcode, { kind: 'existing', productId: catalog.id });
   expect(screen.getByLabelText('Pack size')).toHaveDisplayValue('900 g');
@@ -97,7 +97,7 @@ test('previews original metadata for an unknown code and waits for explicit crea
   await fireEvent.changeText(await screen.findByLabelText('Product name'), 'Unsaved name');
   await fireEvent.press(screen.getByRole('button', { name: 'Link barcode' }));
   await fireEvent.changeText(screen.getByLabelText('Product barcode'), '036000291452');
-  await fireEvent.press(screen.getByRole('button', { name: 'Confirm barcode' }));
+  await fireEvent.press(screen.getByRole('button', { name: 'Check barcode' }));
   expect(await screen.findByText('New product from saved details')).toBeOnTheScreen();
   expect(screen.getByText(review.productName)).toBeOnTheScreen();
   expect(screen.getByLabelText('Product name')).toHaveDisplayValue('Unsaved name');
@@ -123,8 +123,8 @@ test('keeps the saved record open while a confirmed barcode link is committing',
   await render(<EditSavedPrice />);
   await fireEvent.press(await screen.findByRole('button', { name: 'Link barcode' }));
   await fireEvent.changeText(screen.getByLabelText('Product barcode'), '036000291452');
-  await fireEvent.press(screen.getByRole('button', { name: 'Confirm barcode' }));
-  await fireEvent.press(await screen.findByRole('button', { name: 'Link this barcode' }));
+  await fireEvent.press(screen.getByRole('button', { name: 'Check barcode' }));
+  await fireEvent.press(await screen.findByRole('button', { name: 'Save barcode link' }));
   expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled();
   expect(screen.getByRole('button', { name: 'Cancel barcode link' })).toBeDisabled();
   expect(screen.getAllByRole('button', { name: 'Saving…' })).toHaveLength(1);

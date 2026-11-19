@@ -18,13 +18,15 @@ type Props = {
   onSave: () => void; onRetake?: () => void; onCrop?: () => void; onCancel?: () => void;
   galleryAction?: ReactNode; onOriginal?: () => void; onImageError?: () => void; children?: ReactNode;
   saveError?: string;
+  saveBlocked?: string;
   suggestion?: ReviewSuggestion;
   barcodeReview?: ReactNode;
   savedBarcode?: string;
+  barcodeLinkSaved?: boolean;
   recordingPrice?: boolean;
 };
 
-export function PhotoReview({ photo, review, selectedShopName, saved, busy, onReviewChange, onSave, onRetake, onCrop, onCancel, onOriginal, onImageError, galleryAction, children, saveError, recordingPrice, suggestion, barcodeReview, savedBarcode }: Props) {
+export function PhotoReview({ photo, review, selectedShopName, saved, busy, onReviewChange, onSave, onRetake, onCrop, onCancel, onOriginal, onImageError, galleryAction, children, saveError, saveBlocked, recordingPrice, suggestion, barcodeReview, savedBarcode, barcodeLinkSaved }: Props) {
   const container = useRef<ComponentRef<typeof View>>(null);
   const scroll = useRef<ComponentRef<typeof ScrollView>>(null);
   const fieldViews = useRef<Partial<Record<keyof ManualReview, ComponentRef<typeof View> | null>>>({});
@@ -87,6 +89,7 @@ export function PhotoReview({ photo, review, selectedShopName, saved, busy, onRe
   }, [revealField, revealPosition]);
   const amount = reviewUnitPrice(review);
   const invalidPack = !!review.packSize?.trim() && !calculatePackUnitPrice('1', review.packSize);
+  const saveDisabled = busy || saved || Boolean(saveBlocked) || (requireComplete && !complete);
   const saveLabel = busy ? 'Saving…' : editing ? 'Save changes' : recordingPrice || complete ? 'Save Price' : 'Save on this phone';
   return <View ref={container} style={styles.root} onLayout={() => container.current?.measureInWindow((_, y) => setHeaderOffset(y))}>
     <KeyboardAvoidingView style={styles.root} behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={headerOffset}>
@@ -116,6 +119,7 @@ export function PhotoReview({ photo, review, selectedShopName, saved, busy, onRe
         {savedBarcode ? <View style={styles.field}>
           <Text style={styles.label}>Product barcode</Text>
           <Text selectable style={styles.input}>{savedBarcode}</Text>
+          {barcodeLinkSaved ? <Text accessibilityLiveRegion="polite" style={styles.note}>Barcode link saved.</Text> : null}
         </View> : barcodeReview}
         {fields.map(([field, label, accessibilityLabel, placeholder, maxLength]) => <View key={field} ref={view => { fieldViews.current[field] = view; }}
           collapsable={false} style={styles.field} onLayout={event => {
@@ -142,9 +146,10 @@ export function PhotoReview({ photo, review, selectedShopName, saved, busy, onRe
       </ScrollView>
       <SafeAreaView edges={['bottom']} style={styles.footer}>
         {saveError ? <Text accessibilityRole="alert" style={styles.note}>{saveError}</Text> : null}
+        {saveBlocked ? <Text accessibilityLiveRegion="polite" style={styles.note}>{saveBlocked}</Text> : null}
         {requireComplete && !complete ? <Text accessibilityLiveRegion="polite" style={styles.note}>{recordingPrice ? 'Enter a valid price to save.' : 'Enter a product and valid price details to save.'}</Text> : null}
-        <Pressable accessibilityRole="button" disabled={busy || saved || (requireComplete && !complete)} onPress={() => { Keyboard.dismiss(); onSave(); }}
-          style={[styles.save, (busy || saved || (requireComplete && !complete)) && styles.disabled]}><Text style={styles.saveText}>{saveLabel}</Text></Pressable>
+        <Pressable accessibilityRole="button" disabled={saveDisabled} onPress={() => { Keyboard.dismiss(); onSave(); }}
+          style={[styles.save, saveDisabled && styles.disabled]}><Text style={styles.saveText}>{saveLabel}</Text></Pressable>
         {saved ? galleryAction : null}
         {onCancel ? <Button title="Cancel" disabled={busy} onPress={() => { Keyboard.dismiss(); onCancel(); }} /> : null}
         {onRetake ? <Button title="Retake" disabled={busy} onPress={() => { Keyboard.dismiss(); onRetake(); }} /> : null}

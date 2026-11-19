@@ -27,10 +27,11 @@ function LinkExample({ known }: { known: boolean }) {
   return <View style={{ height: 740, width: '100%', maxWidth: 428 }}>
     <SafeAreaProvider initialMetrics={{ frame: { x: 0, y: 0, width: 428, height: 740 }, insets: { top: 0, bottom: 0, left: 0, right: 0 } }}>
       <PhotoReview review={review} selectedShopName="Example shop" saved={false} busy={false}
-        onReviewChange={setReview} onSave={() => {}} onCancel={() => {}} savedBarcode={savedBarcode}
+        onReviewChange={setReview} onSave={() => {}} onCancel={() => setEditing(false)} savedBarcode={savedBarcode}
+        saveBlocked={editing ? 'Save or cancel the barcode link first.' : undefined} barcodeLinkSaved={Boolean(savedBarcode)}
         barcodeReview={editing ? <SavedPriceBarcode record={record} lookup={async () => known ? product : undefined}
           link={async () => ({ record: { ...record, productId: product.id }, product })}
-          onLinked={setSavedBarcode} onCancel={() => setEditing(false)} />
+          onLinked={value => { setSavedBarcode(value); setEditing(false); }} onCancel={() => setEditing(false)} />
           : <CameraActionButton label="Link barcode" onPress={() => setEditing(true)} />} />
     </SafeAreaProvider>
   </View>;
@@ -44,10 +45,11 @@ export const KnownProduct: Story = {
     await userEvent.type(pack, '45 g');
     await userEvent.click(canvas.getByRole('button', { name: 'Link barcode' }));
     await userEvent.type(canvas.getByLabelText('Product barcode'), code);
-    await userEvent.click(canvas.getByRole('button', { name: 'Confirm barcode' }));
+    await userEvent.click(canvas.getByRole('button', { name: 'Check barcode' }));
     await expect(await canvas.findByText('Example pork jerky, 50 g')).toBeVisible();
-    await expect(canvas.getByRole('button', { name: 'Link this barcode' })).toBeEnabled();
+    await expect(canvas.getByRole('button', { name: 'Save barcode link' })).toBeEnabled();
     await expect(pack).toHaveValue('45 g');
+    await expect(canvas.getByRole('button', { name: 'Save changes' })).toBeDisabled();
   },
 };
 
@@ -56,8 +58,9 @@ export const UnknownProduct: Story = {
   play: async ({ canvas, userEvent }) => {
     await userEvent.click(canvas.getByRole('button', { name: 'Link barcode' }));
     await userEvent.type(canvas.getByLabelText('Product barcode'), code);
-    await userEvent.click(canvas.getByRole('button', { name: 'Confirm barcode' }));
+    await userEvent.click(canvas.getByRole('button', { name: 'Check barcode' }));
     await expect(await canvas.findByText('New product from saved details')).toBeVisible();
     await expect(canvas.getByRole('button', { name: 'Create product and link' })).toBeEnabled();
+    await expect(canvas.getByRole('button', { name: 'Save changes' })).toBeDisabled();
   },
 };

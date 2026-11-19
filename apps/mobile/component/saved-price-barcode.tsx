@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Keyboard, StyleSheet, Text, View } from 'react-native';
 import type { Product } from '@cheapo/domain';
 
 import type { LocalPhotoDraft, linkSavedPriceToBarcode } from '@/data/local-photo';
@@ -57,6 +57,7 @@ export function SavedPriceBarcode({ record, lookup, readPhoto, renderScanner, li
     if (disabled || pending.current) return;
     const code = canonicalProductBarcode(value);
     if (!code) { setError('Enter a valid product barcode.'); return; }
+    Keyboard.dismiss();
     pending.current = true;
     setBusy(true); setError(undefined);
     try {
@@ -94,7 +95,7 @@ export function SavedPriceBarcode({ record, lookup, readPhoto, renderScanner, li
   const locked = busy || disabled;
   return <View style={styles.panel}>
     <PhotoBarcodeReview result={detected ?? (readPhoto ? undefined : { status: 'unavailable' })} value={value}
-      confirmed={Boolean(match)} busy={Boolean(locked)} error={error} onChange={change}
+      confirmed={Boolean(match)} confirmLabel="Check barcode" confirmedLabel="Barcode checked" busy={Boolean(locked)} error={error} onChange={change}
       onConfirm={() => { void confirm(); }} onClear={() => change('')}
       onScan={renderScanner ? () => setScanning(true) : undefined} />
     {match ? <View style={styles.target}>
@@ -104,7 +105,7 @@ export function SavedPriceBarcode({ record, lookup, readPhoto, renderScanner, li
       {!match.product && !details.productType?.trim() ? (
         <Text style={styles.note}>Save a product type on this price before creating the product.</Text>
       ) : null}
-      <CameraActionButton primary label={match.product ? 'Link this barcode' : 'Create product and link'}
+      <CameraActionButton primary label={match.product ? 'Save barcode link' : 'Create product and link'}
         disabled={locked || (!match.product && !details.productType?.trim())} busy={busy} onPress={() => { void save(); }} />
     </View> : null}
     <CameraActionButton label="Cancel barcode link" disabled={locked} onPress={onCancel} />
