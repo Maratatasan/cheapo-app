@@ -32,12 +32,12 @@ export default function EditSavedPrice() {
 
   useEffect(() => {
     const controller = new AbortController();
-    setLinkOpen(false);
-    setLinkedBarcode(undefined);
     lifecycle.current = controller;
     if (Platform.OS !== 'web') {
       loadSavedPriceRecord(id).then(draft => {
         if (controller.signal.aborted) return;
+        setLinkOpen(false);
+        setLinkedBarcode(undefined);
         if (draft?.review && reviewComplete(draft.review, draft.shop?.displayName)) {
           setLoaded({ id, product: { ...draft, review: draft.review } });
           setReview(draft.review);
