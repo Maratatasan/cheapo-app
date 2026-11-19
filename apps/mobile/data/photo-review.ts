@@ -56,6 +56,11 @@ export function productPackFromText(value: string) {
   return Number.isFinite(quantity) ? { quantity, unit: parts.unit, label } : undefined;
 }
 
+export function savedProductDetails(review: ManualReview) {
+  return { name: review.productName, productType: review.productType, variety: review.variety?.trim() || undefined,
+    brand: review.brand?.trim() || undefined, pack: productPackFromText(review.packSize ?? '') };
+}
+
 export function reviewUnitPrice(review: ManualReview) {
   if (review.unitPrice.trim() || review.unit.trim()) {
     return validPrice(review.unitPrice, 6) && review.unit.trim()

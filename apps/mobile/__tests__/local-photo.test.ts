@@ -1,4 +1,6 @@
-import { emptyReview, reviewComplete, loadLocalPhotos, loadSavedPriceRecords, saveLocalPhoto, saveLocalPhotoReview, saveManualPrice, type LocalPhotoDraft } from '../data/local-photo';
+import { emptyReview, reviewComplete, loadLocalPhotos, loadSavedPriceRecords, linkSavedPriceToBarcode, saveLocalPhoto, saveLocalPhotoReview, saveManualPrice, type LocalPhotoDraft } from '../data/local-photo';
+import { addLocalProduct, findLocalProductByBarcode, replaceLocalProductBarcode } from '../data/local-products';
+import { savedProductDetails } from '../data/photo-review';
 import { comparisonRowFromDraft } from '../data/saved-comparison';
 const mockFiles = new Map<string, string>();
 let mockFailCopy = false;
@@ -14,7 +16,7 @@ jest.mock('expo-file-system', () => {
     delete() { mockFiles.delete(this.uri); }
     async move(target: File) { if (target.exists) throw Error('File already exists.'); mockFiles.set(target.uri, mockFiles.get(this.uri)!); this.delete(); this.uri = target.uri; }
     async copy(target: File) { await new Promise(resolve => setTimeout(resolve, 1)); if (mockFailCopy) throw Error('Disk full'); mockFiles.set(target.uri, mockFiles.get(this.uri)!); }
-    async write(value: string) { await new Promise(resolve => setTimeout(resolve, 1)); if (mockFailWrite) throw Error('Manifest could not be written'); if (mockPartialWrite && this.name.endsWith('.json')) { mockFiles.set(this.uri, '{partial'); throw Error('Interrupted manifest write'); } mockFiles.set(this.uri, value); }
+    async write(value: string) { await new Promise(resolve => setTimeout(resolve, 1)); if (mockFailWrite) throw Error('Manifest could not be written'); if (mockPartialWrite && this.uri.includes('/price-photos/') && this.name.endsWith('.json')) { mockFiles.set(this.uri, '{partial'); throw Error('Interrupted manifest write'); } mockFiles.set(this.uri, value); }
     async text() { return mockFiles.get(this.uri); }
   }
   class Directory {
@@ -199,4 +201,57 @@ it('keeps the prior review on interrupted edits and rejects missing or unsafe re
   await expect(saveLocalPhotoReview('../absent', review)).rejects.toThrow('Saved product unavailable');
   await expect(saveLocalPhotoReview(saved.id, { ...review, unitPrice: '1' })).rejects.toThrow('valid product and price');
   expect(await loadLocalPhotos()).toEqual([saved]);
+});
+
+
+const riceBarcode = '036000291452';
+const otherBarcode = '4006381333931';
+const savedRiceReview = { ...emptyReview('Original shop'), productName: 'Rice', productType: 'Dry rice', price: '1.25', packSize: '500 g' };
+
+test('links two legacy observations to the same confirmed product without recopying images', async () => {
+  const shop = { id: 'shop-rice', displayName: 'Original shop' };
+  const saved = await saveLocalPhoto({ ...draft, shop, review: savedRiceReview });
+  const second = await saveLocalPhoto({ ...draft, id: 'second-rice', shop, review: savedRiceReview });
+  const images = [...mockFiles].filter(([name]) => name.endsWith('.jpg'));
+  const catalog = await addLocalProduct({ id: 'known-rice', name: 'Catalog rice', barcode: riceBarcode, productType: 'Dry rice' });
+  const target = { kind: 'existing', productId: catalog.id } as const;
+  mockFailCopy = true;
+  await expect(linkSavedPriceToBarcode(saved.id, riceBarcode, target)).resolves.toEqual({ record: { ...saved, productId: catalog.id }, product: catalog });
+  await expect(linkSavedPriceToBarcode(second.id, riceBarcode, target)).resolves.toMatchObject({ record: { id: second.id, productId: catalog.id } });
+  expect(await loadSavedPriceRecords()).toEqual([{ ...saved, productId: catalog.id }, { ...second, productId: catalog.id }]);
+  expect([...mockFiles].filter(([name]) => name.endsWith('.jpg'))).toEqual(images);
+  expect(JSON.parse(mockFiles.get(`file:///documents/price-photos/${saved.id}.json.bak`)!)).toEqual(saved);
+});
+
+test('refuses a changed catalog match and serializes concurrent conflicting links', async () => {
+  const saved = await saveLocalPhoto({ ...draft, review: savedRiceReview });
+  const known = await addLocalProduct({ id: 'known-rice', name: 'Catalog rice', barcode: riceBarcode, productType: 'Dry rice' });
+  const other = await addLocalProduct({ id: 'other-rice', name: 'Other rice', barcode: otherBarcode, productType: 'Dry rice' });
+  const target = { kind: 'existing', productId: known.id } as const;
+  await expect(linkSavedPriceToBarcode(saved.id, otherBarcode, target)).rejects.toThrow('barcode match changed');
+  expect(await loadLocalPhotos()).toEqual([saved]);
+  const outcomes = await Promise.allSettled([
+    linkSavedPriceToBarcode(saved.id, riceBarcode, target),
+    linkSavedPriceToBarcode(saved.id, otherBarcode, { kind: 'existing', productId: other.id }),
+  ]);
+  expect(outcomes.map(result => result.status)).toEqual(['fulfilled', 'rejected']);
+  await expect(linkSavedPriceToBarcode(saved.id, riceBarcode, target)).resolves.toMatchObject({ record: { productId: known.id } });
+  await expect(saveLocalPhotoReview(saved.id, { ...savedRiceReview, price: '1.29' })).resolves.toMatchObject({ productId: known.id });
+  expect(await loadLocalPhotos()).toEqual([{ ...saved, productId: known.id, review: { ...savedRiceReview, price: '1.29' } }]);
+});
+
+test('reuses the catalog product after an interrupted new-product link', async () => {
+  const saved = await saveLocalPhoto({ ...draft, review: savedRiceReview });
+  const target = { kind: 'new', details: savedProductDetails(savedRiceReview) } as const;
+  mockPartialWrite = true;
+  await expect(linkSavedPriceToBarcode(saved.id, riceBarcode, target)).rejects.toThrow('Interrupted manifest write');
+  expect(await loadLocalPhotos()).toEqual([saved]);
+  expect(await findLocalProductByBarcode(riceBarcode)).toMatchObject({ id: saved.id, name: 'Rice' });
+  mockPartialWrite = false;
+  await expect(linkSavedPriceToBarcode(saved.id, otherBarcode, target)).rejects.toThrow('different barcode');
+  const linked = await linkSavedPriceToBarcode(saved.id, riceBarcode, target);
+  expect(linked.record).toEqual({ ...saved, productId: saved.id });
+  expect(await loadLocalPhotos()).toEqual([linked.record]);
+  await replaceLocalProductBarcode(saved.id, riceBarcode, otherBarcode);
+  await expect(linkSavedPriceToBarcode(saved.id, riceBarcode, target)).rejects.toThrow('barcode match changed');
 });
