@@ -1,11 +1,17 @@
 import { useEffect, useRef, useState } from 'react';
-import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import { Stack, useLocalSearchParams, usePreventRemove, useRouter } from 'expo-router';
+import { useCameraPermissions } from 'expo-camera';
 import { Platform, View } from 'react-native';
 
+import { CameraActionButton } from '@/component/camera-actions';
+import { PhotoBarcodeScan } from '@/component/photo-barcode-scan';
+import { SavedPriceBarcode } from '@/component/saved-price-barcode';
 import { PhotoReview } from '@/component/photo-review';
 import { DisplayState } from '@/component/results/display-state';
 import { ui } from '@/component/results/theme';
-import { loadSavedPriceRecord, saveLocalPhotoReview, type SavedPriceRecord } from '@/data/local-photo';
+import { linkSavedPriceToBarcode, loadSavedPriceRecord, saveLocalPhotoReview, type SavedPriceRecord } from '@/data/local-photo';
+import { findLocalProductByBarcode, findLocalProductById } from '@/data/local-products';
+import { decodePhotoBarcodes } from '@/data/photo-barcode';
 import { reviewComplete, type ManualReview } from '@/data/photo-review';
 
 type EditableProduct = SavedPriceRecord & { review: ManualReview };
@@ -17,9 +23,14 @@ export default function EditSavedPrice() {
   const product = loaded?.id === id ? loaded?.product : undefined;
   const [review, setReview] = useState<ManualReview>();
   const [busy, setBusy] = useState(false);
+  const [linkOpen, setLinkOpen] = useState(false);
+  const [linkSaving, setLinkSaving] = useState(false);
+  const [linkedBarcode, setLinkedBarcode] = useState<{ code: string; saved?: boolean }>();
+  const [permission, requestPermission] = useCameraPermissions();
   const [error, setError] = useState<string>();
   const saving = useRef(false);
   const lifecycle = useRef<AbortController | null>(null);
+  usePreventRemove(linkSaving);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -27,9 +38,15 @@ export default function EditSavedPrice() {
     if (Platform.OS !== 'web') {
       loadSavedPriceRecord(id).then(draft => {
         if (controller.signal.aborted) return;
+        setLinkOpen(false);
+        setLinkSaving(false);
+        setLinkedBarcode(undefined);
         if (draft?.review && reviewComplete(draft.review, draft.shop?.displayName)) {
           setLoaded({ id, product: { ...draft, review: draft.review } });
           setReview(draft.review);
+          if (draft.productId) void findLocalProductById(draft.productId).then(linked => {
+            if (!controller.signal.aborted && linked?.barcode) setLinkedBarcode({ code: linked.barcode });
+          }).catch(() => {});
         } else setLoaded({ id, product: null });
       }).catch(() => { if (!controller.signal.aborted) setLoaded({ id, product: null }); });
     }
@@ -37,13 +54,14 @@ export default function EditSavedPrice() {
   }, [id]);
 
   function leave() {
+    if (linkSaving) return;
     if (router.canGoBack()) router.back();
     else router.replace('/saved-products');
   }
 
   async function save() {
     const signal = lifecycle.current?.signal;
-    if (!signal || saving.current || !product || !review || product.id !== id || !reviewComplete(review, product.shop?.displayName)) return;
+    if (!signal || saving.current || linkOpen || !product || !review || product.id !== id || !reviewComplete(review, product.shop?.displayName)) return;
     saving.current = true;
     setBusy(true);
     setError(undefined);
@@ -63,7 +81,18 @@ export default function EditSavedPrice() {
       <Stack.Screen options={{ title: 'Edit saved product' }} />
       {product && product.id === id && review ? (
         <PhotoReview photo={product.selected} review={review} selectedShopName={product.shop?.displayName ?? product.review.shop}
-          saved={false} busy={busy} onReviewChange={setReview} onCancel={leave} onSave={save} saveError={error} />
+          saved={false} busy={busy || linkSaving} onReviewChange={setReview} onCancel={linkOpen ? () => setLinkOpen(false) : leave} onSave={save} saveError={error}
+          saveBlocked={linkOpen ? 'Save or cancel the barcode link first.' : undefined}
+          savedBarcode={linkedBarcode?.code} barcodeLinkSaved={linkedBarcode?.saved}
+          barcodeReview={!product.productId && product.original && !linkedBarcode ? (
+            linkOpen ? <SavedPriceBarcode key={product.id} record={{ ...product, original: product.original, selected: product.selected }}
+              lookup={findLocalProductByBarcode} readPhoto={decodePhotoBarcodes} link={linkSavedPriceToBarcode}
+              disabled={busy} onSavingChange={setLinkSaving}
+              onLinked={code => { setLinkedBarcode({ code, saved: true }); setLinkOpen(false); }} onCancel={() => setLinkOpen(false)}
+              renderScanner={permission ? callbacks => <PhotoBarcodeScan permission={permission}
+                requestPermission={requestPermission} {...callbacks} /> : undefined} />
+              : <CameraActionButton label="Link barcode" disabled={busy} onPress={() => setLinkOpen(true)} />
+          ) : undefined} />
       ) : (
         <View style={ui.content}>
           {Platform.OS === 'web' || product === null ? (

@@ -3,7 +3,9 @@ import { randomUUID } from 'expo-crypto';
 import { Directory, File, Paths } from 'expo-file-system';
 
 import type { CropBox } from './crop-geometry';
-import { emptyReview, reviewComplete, type ManualReview } from './photo-review';
+import { addLocalProduct, findLocalProductByBarcode } from './local-products';
+import { canonicalProductBarcode } from './product-barcode';
+import { emptyReview, reviewComplete, savedProductDetails, type ManualReview } from './photo-review';
 
 export { emptyReview, reviewComplete, type ManualReview } from './photo-review';
 
@@ -23,8 +25,23 @@ export async function localPhotoSource(asset: PhotoAsset): Promise<PhotoAsset> {
 }
 export const savedPhotoDirectory = () => new Directory(Paths.document, 'price-photos');
 
+let pendingPriceWrite: Promise<unknown> = Promise.resolve();
+function serializePriceWrite<T>(operation: () => Promise<T>): Promise<T> {
+  const write = pendingPriceWrite.then(operation);
+  pendingPriceWrite = write.catch(() => {});
+  return write;
+}
+
 // A manifest is published only after both image files have been copied and checked.
-export async function saveLocalPhoto(draft: LocalPhotoDraft): Promise<LocalPhotoDraft> {
+export function saveLocalPhoto(draft: LocalPhotoDraft): Promise<LocalPhotoDraft> {
+  return serializePriceWrite(() => persistLocalPhoto(draft));
+}
+
+async function persistLocalPhoto(draft: LocalPhotoDraft): Promise<LocalPhotoDraft> {
+  const previous = await loadSavedPriceRecord(draft.id);
+  if (previous?.productId && draft.productId && previous.productId !== draft.productId) {
+    throw Error('This price is already linked to a different product.');
+  }
   const directory = savedPhotoDirectory();
   directory.create({ intermediates: true, idempotent: true });
   const copy = async (asset: PhotoAsset, name: string): Promise<PhotoAsset> => {
@@ -37,7 +54,8 @@ export async function saveLocalPhoto(draft: LocalPhotoDraft): Promise<LocalPhoto
   const original = await localPhotoSource(draft.original);
   const selected = draft.original.uri === draft.selected.uri ? original : await localPhotoSource(draft.selected);
   const savedOriginal = await copy(original, 'original');
-  const saved = { ...draft, original: savedOriginal, selected: draft.original.uri === draft.selected.uri ? savedOriginal : await copy(selected, `selected-${Date.now()}`) };
+  const productId = previous?.productId ?? draft.productId;
+  const saved = { ...draft, ...(productId ? { productId } : {}), original: savedOriginal, selected: draft.original.uri === draft.selected.uri ? savedOriginal : await copy(selected, `selected-${Date.now()}`) };
   await writeSavedDraft(directory, saved);
   return saved;
 }
@@ -90,6 +108,32 @@ export async function loadSavedPriceRecord(id: string): Promise<SavedPriceRecord
   return backup?.id === id ? backup : null;
 }
 
+type LinkTarget = { kind: 'existing'; productId: string } | { kind: 'new'; details: ReturnType<typeof savedProductDetails> };
+export function linkSavedPriceToBarcode(id: string, barcode: string, target: LinkTarget) {
+  return serializePriceWrite(async () => {
+    const code = canonicalProductBarcode(barcode);
+    if (!code) throw Error('Enter a valid product barcode.');
+    const record = await loadSavedPriceRecord(id);
+    if (!record?.review || !reviewComplete(record.review, record.shop?.displayName)) throw Error('Saved price unavailable.');
+    const productId = target.kind === 'existing' ? target.productId : record.id;
+    if (record.productId && record.productId !== productId) throw Error('This price is already linked to a different product.');
+    const current = await findLocalProductByBarcode(code);
+    if (current ? current.id !== productId : target.kind === 'existing' || record.productId) {
+      throw Error('The barcode match changed. Review the barcode again.');
+    }
+    const details = savedProductDetails(record.review);
+    if (target.kind === 'new' && JSON.stringify(details) !== JSON.stringify(target.details)) {
+      throw Error('The saved product details changed. Reopen this price before linking it.');
+    }
+    const product = current ?? await addLocalProduct({ id: productId, barcode: code, ...details });
+    if (record.productId) return { record, product };
+
+    const linkedRecord = { ...record, productId: product.id };
+    await writeSavedDraft(savedPhotoDirectory(), linkedRecord);
+    return { record: linkedRecord, product };
+  });
+}
+
 export async function saveManualPrice(record: ManualPriceRecord): Promise<ManualPriceRecord> {
   if (!validSavedDraft(record)) throw Error('Enter valid product and price details.');
   const directory = savedPhotoDirectory();
@@ -109,14 +153,16 @@ export async function saveManualPrice(record: ManualPriceRecord): Promise<Manual
   return record;
 }
 
-export async function saveLocalPhotoReview(id: string, changes: ManualReview): Promise<SavedPriceRecord> {
-  const draft = await loadSavedPriceRecord(id);
-  if (!draft?.review || !reviewComplete(draft.review, draft.shop?.displayName)) throw Error('Saved product unavailable.');
-  const review = { ...changes, shop: draft.review.shop };
-  if (!reviewComplete(review, draft.shop?.displayName)) throw Error('Enter valid product and price details.');
-  const updated = { ...draft, review };
-  await writeSavedDraft(savedPhotoDirectory(), updated);
-  return updated;
+export function saveLocalPhotoReview(id: string, changes: ManualReview): Promise<SavedPriceRecord> {
+  return serializePriceWrite(async () => {
+    const draft = await loadSavedPriceRecord(id);
+    if (!draft?.review || !reviewComplete(draft.review, draft.shop?.displayName)) throw Error('Saved product unavailable.');
+    const review = { ...changes, shop: draft.review.shop };
+    if (!reviewComplete(review, draft.shop?.displayName)) throw Error('Enter valid product and price details.');
+    const updated = { ...draft, review };
+    await writeSavedDraft(savedPhotoDirectory(), updated);
+    return updated;
+  });
 }
 
 export async function loadSavedPriceRecords({ requireAll = false } = {}): Promise<SavedPriceRecord[]> {

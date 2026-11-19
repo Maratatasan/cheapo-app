@@ -67,6 +67,20 @@ export async function findLocalProductByBarcode(barcode: string): Promise<Produc
   return corrections.some(change => change.previous === key && change.product.id === original?.id) ? undefined : original;
 }
 
+export async function findLocalProductById(id: string): Promise<Product | undefined> {
+  const corrected = (await readCorrections()).reverse().find(change => change.product.id === id);
+  if (corrected) return corrected.product;
+  const directory = productsDirectory();
+  if (directory.exists) {
+    for (const file of directory.list()) {
+      if (!(file instanceof File) || !/^\d{14}\.json$/.test(file.name)) continue;
+      const product = await findOriginalProduct(file.name.slice(0, -5));
+      if (product?.id === id) return product;
+    }
+  }
+  return [...(await readLegacyProducts()).values()].find(product => product.id === id);
+}
+
 function serialize<T>(operation: () => Promise<T>): Promise<T> {
   const result = pendingMutation.then(operation);
   pendingMutation = result.catch(() => {});
@@ -104,6 +118,7 @@ async function publishProduct(input: Product & { barcode: string }): Promise<Pro
     if (existing.id === product.id) return existing;
     throw Error('This barcode already has a saved product. Scan it again to open that product.');
   }
+  if (await findLocalProductById(product.id)) throw Error('This saved product already has a different barcode.');
 
   const directory = productsDirectory();
   directory.create({ intermediates: true, idempotent: true });

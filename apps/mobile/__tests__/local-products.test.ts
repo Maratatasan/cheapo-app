@@ -92,3 +92,15 @@ test('keeps both mappings on conflict and the original on a failed correction', 
   await expect(replaceLocalProductBarcode(saved.id, product.barcode, '96385074')).resolves.toMatchObject({ id: saved.id });
   await expect(replaceLocalProductBarcode(saved.id, product.barcode, '4006381333931')).rejects.toThrow('changed');
 });
+
+
+test('serializes different barcode claims for the same product ID', async () => {
+  const otherCode = '4006381333931';
+  const [original, conflicting] = await Promise.allSettled([
+    addLocalProduct(addable), addLocalProduct({ ...addable, barcode: otherCode }),
+  ]);
+  expect(original.status).toBe('fulfilled');
+  expect(conflicting).toMatchObject({ status: 'rejected', reason: expect.objectContaining({ message: expect.stringMatching(/different barcode/) }) });
+  await expect(findLocalProductByBarcode(product.barcode)).resolves.toMatchObject({ id: product.id });
+  await expect(findLocalProductByBarcode(otherCode)).resolves.toBeUndefined();
+});
