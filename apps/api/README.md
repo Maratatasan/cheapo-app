@@ -104,8 +104,8 @@ use references with file hashes and sizes. Photo bytes remain outside the
 database. Product presentation photos have a separate lifecycle.
 
 The PostgreSQL test runs synthetic fixtures for these relationships and the
-existing preference API tests. The offline importer and the real collection
-restore are subsequent work on #171.
+existing preference API tests. The real collection restore is tracked in
+[#171](https://github.com/Maratatasan/cheapo-app/issues/171).
 
 ### Check an offline backup before restore
 
@@ -122,3 +122,25 @@ legacy links. It does not print names, IDs, photo hashes or absolute paths. A
 legacy archive can have observations without the catalog or current-shop state;
 use v3 for a complete backup. The command neither writes to PostgreSQL nor
 copies the original photos. Use the verified ZIP as the backup of record.
+
+### Rehearse a restore on local PostgreSQL
+
+Use a newly provisioned development database, apply the numbered migrations,
+and provision the intended shopper and household membership. Create a separate
+asset directory accessible only to your user. After validating the backup with
+`import:plan`, apply it with an explicit database and owner:
+
+```sh
+PGHOST=/path/to/local/socket PGDATABASE=cheapo_dev PGUSER=cheapo_operator \
+  pnpm --silent --filter @cheapo/api import:local \
+  /path/to/extracted-backup /path/to/private-assets HOUSEHOLD_UUID SHOPPER_UUID
+```
+
+The restore commits the relational data in one transaction. It compares existing
+rows on retries and rolls back rather than replacing conflicting data. SHA-256
+identifies immutable files in the private asset directory. A failed database
+transaction can leave verified files there for a retry. The command preserves
+the source ZIP and the extracted files. It accepts only a local PostgreSQL
+socket. Check that the reported counts match the dry-run counts and that a
+second run returns the same receipt. The [Cheapo migration decision log](https://docs.google.com/document/d/1RiVeT6NU-aVZa9y-uvB5qSQ1OYPbxUB8tzFhrNS7Z84/edit)
+records the initial source and hosted target.
