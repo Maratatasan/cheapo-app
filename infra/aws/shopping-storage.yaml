@@ -1,14 +1,22 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: Private Cheapo Aurora PostgreSQL and photo storage in Stockholm.
+Description: Private Cheapo Aurora PostgreSQL and photo storage.
 
 Metadata:
   AWSToolsMetrics:
     AWSAgentToolkit: aws-cloudformation@3
 
 Parameters:
+  DatabaseName:
+    Type: String
+    AllowedPattern: '[A-Za-z][A-Za-z0-9_]{0,62}'
+    Description: Initial PostgreSQL database name.
+  DatabaseAdminUsername:
+    Type: String
+    AllowedPattern: '[A-Za-z][A-Za-z0-9_]{0,62}'
+    Description: Initial PostgreSQL administrator username.
   VpcId:
     Type: AWS::EC2::VPC::Id
-    Description: Existing Stockholm VPC with DNS support.
+    Description: Existing VPC with DNS support in the configured Region.
   PrimaryAvailabilityZone:
     Type: AWS::EC2::AvailabilityZone::Name
     Description: Zone for the writer and its private subnet.
@@ -23,10 +31,8 @@ Parameters:
     Description: Unused IPv4 range in the VPC for the private subnet in the secondary zone.
 
 Rules:
-  StockholmOnly:
+  DatabaseZones:
     Assertions:
-      - Assert: !Equals [!Ref 'AWS::Region', eu-north-1]
-        AssertDescription: Cheapo shopping storage belongs in eu-north-1.
       - Assert: !Not [!Equals [!Ref PrimaryAvailabilityZone, !Ref SecondaryAvailabilityZone]]
         AssertDescription: The database subnets must be in two distinct zones.
 
@@ -89,7 +95,7 @@ Resources:
     Metadata:
       com.aws.cloudformation.Context:
         why: Places RDS in the isolated subnets.
-        must: Include private subnets in two different Stockholm zones.
+        must: Include private subnets in two different zones.
     DependsOn: [PrivateRouteA, PrivateRouteB]
     Properties:
       DBSubnetGroupDescription: Private Cheapo database subnets
@@ -118,8 +124,8 @@ Resources:
       EngineMode: provisioned
       EngineVersion: '17.11'
       EngineLifecycleSupport: open-source-rds-extended-support-disabled
-      DatabaseName: cheapo
-      MasterUsername: cheapo_admin
+      DatabaseName: !Ref DatabaseName
+      MasterUsername: !Ref DatabaseAdminUsername
       ManageMasterUserPassword: true
       EnableHttpEndpoint: false
       DBSubnetGroupName: !Ref DatabaseSubnets

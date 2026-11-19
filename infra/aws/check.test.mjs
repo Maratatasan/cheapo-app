@@ -9,8 +9,8 @@ import { fileURLToPath } from 'node:url';
 const script = fileURLToPath(new URL('./check.mjs', import.meta.url));
 const account = '123456789012';
 const identity = [
-  'CHEAPO_AWS_PROFILE=cheapo-dev',
-  'CHEAPO_AWS_REGION=eu-north-1',
+  'CHEAPO_AWS_PROFILE=fixture-profile',
+  'CHEAPO_AWS_REGION=zz-fixture-1',
   `CHEAPO_AWS_ACCOUNT_ID=${account}`,
 ].join('\n');
 
@@ -47,8 +47,8 @@ test('requires the dedicated local file before calling AWS', (t) => {
   assert.deepEqual(result.calls, []);
 });
 
-test('rejects a wrong Region without printing the invalid value or calling AWS', (t) => {
-  const result = run(t, 'validate', identity.replace('eu-north-1', 'wrong-region'));
+test('rejects a malformed Region without printing the invalid value or calling AWS', (t) => {
+  const result = run(t, 'validate', identity.replace('zz-fixture-1', 'wrong-region'));
   assert.equal(result.status, 1);
   assert.match(result.stderr, /CHEAPO_AWS_REGION/);
   assert.doesNotMatch(result.stderr, /wrong-region/);
@@ -63,7 +63,7 @@ test('validates both templates with the selected profile and identity settings a
     ['cloudformation', 'validate-template'],
     ['cloudformation', 'validate-template'],
   ]);
-  assert.ok(result.calls.every((call) => call[1] === 'cheapo-dev' && call[3] === 'eu-north-1'));
+  assert.ok(result.calls.every((call) => call[1] === 'fixture-profile' && call[3] === 'zz-fixture-1'));
   assert.deepEqual(result.calls.slice(1).map((call) => call.at(-1)), [
     'file://infra/aws/shopping-storage.yaml',
     'file://infra/aws/shopping-migration-access.yaml',
@@ -93,17 +93,21 @@ CHEAPO_DB_SUBNET_A_CIDR=not-a-cidr`);
 test('outputs only storage parameters after verifying the requested project', (t) => {
   const result = run(t, 'storage', `${identity}
 CHEAPO_VPC_ID=vpc-0123456789abcdef0
+CHEAPO_DB_NAME=fixture_db
+CHEAPO_DB_USER=fixture_admin
 CHEAPO_DB_SUBNET_A_CIDR=10.0.16.0/24
 CHEAPO_DB_SUBNET_B_CIDR=10.0.32.0/24
-CHEAPO_PRIMARY_AZ=eu-north-1c
-CHEAPO_SECONDARY_AZ=eu-north-1a`);
+CHEAPO_PRIMARY_AZ=zz-fixture-1c
+CHEAPO_SECONDARY_AZ=zz-fixture-1a`);
   assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(JSON.parse(result.stdout), [
     { ParameterKey: 'VpcId', ParameterValue: 'vpc-0123456789abcdef0' },
+    { ParameterKey: 'DatabaseName', ParameterValue: 'fixture_db' },
+    { ParameterKey: 'DatabaseAdminUsername', ParameterValue: 'fixture_admin' },
     { ParameterKey: 'DatabaseSubnetACidr', ParameterValue: '10.0.16.0/24' },
     { ParameterKey: 'DatabaseSubnetBCidr', ParameterValue: '10.0.32.0/24' },
-    { ParameterKey: 'PrimaryAvailabilityZone', ParameterValue: 'eu-north-1c' },
-    { ParameterKey: 'SecondaryAvailabilityZone', ParameterValue: 'eu-north-1a' },
+    { ParameterKey: 'PrimaryAvailabilityZone', ParameterValue: 'zz-fixture-1c' },
+    { ParameterKey: 'SecondaryAvailabilityZone', ParameterValue: 'zz-fixture-1a' },
   ]);
   assert.equal(result.calls.length, 1);
 });
@@ -112,27 +116,27 @@ test('outputs access parameters independently of storage subnet CIDRs', (t) => {
   const result = run(t, 'access', `${identity}
 CHEAPO_VPC_ID=vpc-0123456789abcdef0
 CHEAPO_RUNNER_SUBNET_ID=subnet-0123456789abcdef0
-CHEAPO_PRIMARY_AZ=eu-north-1c
+CHEAPO_PRIMARY_AZ=zz-fixture-1c
 CHEAPO_DB_SECURITY_GROUP_ID=sg-0123456789abcdef0`);
   assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(JSON.parse(result.stdout), [
     { ParameterKey: 'VpcId', ParameterValue: 'vpc-0123456789abcdef0' },
     { ParameterKey: 'RunnerSubnetId', ParameterValue: 'subnet-0123456789abcdef0' },
-    { ParameterKey: 'PrimaryAvailabilityZone', ParameterValue: 'eu-north-1c' },
+    { ParameterKey: 'PrimaryAvailabilityZone', ParameterValue: 'zz-fixture-1c' },
     { ParameterKey: 'DatabaseSecurityGroupId', ParameterValue: 'sg-0123456789abcdef0' },
   ]);
   assert.equal(result.calls.length, 1);
 });
 
 test('prints one verified settings row without splitting spaces in the profile', (t) => {
-  const result = run(t, 'identity', `${identity.replace('cheapo-dev', 'cheapo operator')}
+  const result = run(t, 'identity', `${identity.replace('fixture-profile', 'fixture operator')}
 CHEAPO_STORAGE_STACK_NAME=example-storage
 CHEAPO_ACCESS_STACK_NAME=example-access`);
   assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(result.stdout.trim().split('\t'), [
-    'cheapo operator', 'eu-north-1', account, 'example-storage', 'example-access',
+    'fixture operator', 'zz-fixture-1', account, 'example-storage', 'example-access',
   ]);
-  assert.equal(result.calls[0][1], 'cheapo operator');
+  assert.equal(result.calls[0][1], 'fixture operator');
   assert.equal(result.calls.length, 1);
 });
 
@@ -148,10 +152,12 @@ CHEAPO_ACCESS_STACK_NAME=example`);
 test('rejects matching database zones before contacting AWS', (t) => {
   const result = run(t, 'storage', `${identity}
 CHEAPO_VPC_ID=vpc-0123456789abcdef0
+CHEAPO_DB_NAME=fixture_db
+CHEAPO_DB_USER=fixture_admin
 CHEAPO_DB_SUBNET_A_CIDR=10.0.16.0/24
 CHEAPO_DB_SUBNET_B_CIDR=10.0.32.0/24
-CHEAPO_PRIMARY_AZ=eu-north-1c
-CHEAPO_SECONDARY_AZ=eu-north-1c`);
+CHEAPO_PRIMARY_AZ=zz-fixture-1c
+CHEAPO_SECONDARY_AZ=zz-fixture-1c`);
   assert.equal(result.status, 1);
   assert.match(result.stderr, /CHEAPO_SECONDARY_AZ/);
   assert.deepEqual(result.calls, []);
@@ -162,5 +168,31 @@ test('rejects an invalid account ID without contacting AWS or echoing the value'
   assert.equal(result.status, 1);
   assert.match(result.stderr, /CHEAPO_AWS_ACCOUNT_ID/);
   assert.doesNotMatch(result.stderr, /not-an-account/);
+  assert.deepEqual(result.calls, []);
+});
+
+test('rejects a runner zone outside the configured Region before contacting AWS', (t) => {
+  const result = run(t, 'access', `${identity}
+CHEAPO_VPC_ID=vpc-0123456789abcdef0
+CHEAPO_RUNNER_SUBNET_ID=subnet-0123456789abcdef0
+CHEAPO_PRIMARY_AZ=yy-example-1a
+CHEAPO_DB_SECURITY_GROUP_ID=sg-0123456789abcdef0`);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /CHEAPO_PRIMARY_AZ/);
+  assert.deepEqual(result.calls, []);
+});
+
+test('requires valid database identifiers before generating storage parameters', (t) => {
+  const result = run(t, 'storage', `${identity}
+CHEAPO_VPC_ID=vpc-0123456789abcdef0
+CHEAPO_DB_USER=invalid-role!
+CHEAPO_DB_SUBNET_A_CIDR=10.0.16.0/24
+CHEAPO_DB_SUBNET_B_CIDR=10.0.32.0/24
+CHEAPO_PRIMARY_AZ=zz-fixture-1c
+CHEAPO_SECONDARY_AZ=zz-fixture-1a`);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /CHEAPO_DB_NAME/);
+  assert.match(result.stderr, /CHEAPO_DB_USER/);
+  assert.doesNotMatch(result.stderr, /invalid-role!/);
   assert.deepEqual(result.calls, []);
 });

@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: Temporary Systems Manager tunnel for a Cheapo migration in Stockholm.
+Description: Temporary Systems Manager tunnel for a Cheapo migration.
 
 Metadata:
   AWSToolsMetrics:
@@ -24,10 +24,8 @@ Parameters:
     Description: AWS Amazon Linux 2023 Arm64 image with Systems Manager Agent.
 
 Rules:
-  StockholmOnly:
+  RunnerPlacement:
     Assertions:
-      - Assert: !Equals [!Ref 'AWS::Region', eu-north-1]
-        AssertDescription: Cheapo migration access belongs in eu-north-1.
       - Assert: !Equals [!ValueOf [RunnerSubnetId, VpcId], !Ref VpcId]
         AssertDescription: The runner subnet must be in the supplied VPC.
       - Assert: !Equals [!ValueOf [RunnerSubnetId, AvailabilityZone], !Ref PrimaryAvailabilityZone]

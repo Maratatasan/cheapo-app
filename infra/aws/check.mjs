@@ -3,16 +3,24 @@ import { readFileSync } from 'node:fs';
 import { parse } from 'dotenv';
 import { z } from 'zod';
 
-const stockholm = 'eu-north-1';
 const identity = z.object({
   CHEAPO_AWS_PROFILE: z.string().trim().regex(/^\w[\w.@ -]*$/),
-  CHEAPO_AWS_REGION: z.literal(stockholm),
+  CHEAPO_AWS_REGION: z.string().regex(/^[a-z]{2}(?:-[a-z0-9]+)+-[1-9]\d*$/),
   CHEAPO_AWS_ACCOUNT_ID: z.string().regex(/^\d{12}$/),
 });
 const stackName = z.string().max(128).regex(/^[A-Za-z][A-Za-z0-9-]*$/);
-const availabilityZone = z.string().regex(new RegExp(`^${stockholm}[a-z]$`));
+const availabilityZone = z.string().regex(/^[a-z]{2}(?:-[a-z0-9]+)+-[1-9]\d*[a-z]$/);
 const vpcId = z.string().regex(/^vpc-(?:[a-f0-9]{8}|[a-f0-9]{17})$/);
 const subnetCidr = z.cidrv4().refine((cidr) => /\/(1[6-9]|2[0-8])$/.test(cidr));
+
+const databaseIdentifier = z.string().regex(/^[A-Za-z][A-Za-z0-9_]{0,62}$/);
+const network = identity.extend({
+  CHEAPO_VPC_ID: vpcId,
+  CHEAPO_PRIMARY_AZ: availabilityZone,
+}).refine(
+  (config) => config.CHEAPO_PRIMARY_AZ.slice(0, -1) === config.CHEAPO_AWS_REGION,
+  { path: ['CHEAPO_PRIMARY_AZ'] },
+);
 
 const schemas = {
   validate: identity,
@@ -23,22 +31,21 @@ const schemas = {
     (config) => config.CHEAPO_STORAGE_STACK_NAME !== config.CHEAPO_ACCESS_STACK_NAME,
     { path: ['CHEAPO_ACCESS_STACK_NAME'] },
   ),
-  storage: identity.extend({
-    CHEAPO_VPC_ID: vpcId,
+  storage: network.safeExtend({
+    CHEAPO_DB_NAME: databaseIdentifier,
+    CHEAPO_DB_USER: databaseIdentifier,
     CHEAPO_DB_SUBNET_A_CIDR: subnetCidr,
     CHEAPO_DB_SUBNET_B_CIDR: subnetCidr,
-    CHEAPO_PRIMARY_AZ: availabilityZone,
     CHEAPO_SECONDARY_AZ: availabilityZone,
   }).refine(
-    (config) => config.CHEAPO_PRIMARY_AZ !== config.CHEAPO_SECONDARY_AZ,
+    (config) => config.CHEAPO_SECONDARY_AZ.slice(0, -1) === config.CHEAPO_AWS_REGION &&
+      config.CHEAPO_PRIMARY_AZ !== config.CHEAPO_SECONDARY_AZ,
     { path: ['CHEAPO_SECONDARY_AZ'] },
   ).refine(
     (config) => config.CHEAPO_DB_SUBNET_A_CIDR !== config.CHEAPO_DB_SUBNET_B_CIDR,
     { path: ['CHEAPO_DB_SUBNET_B_CIDR'] },
   ),
-  access: identity.extend({
-    CHEAPO_VPC_ID: vpcId,
-    CHEAPO_PRIMARY_AZ: availabilityZone,
+  access: network.safeExtend({
     CHEAPO_RUNNER_SUBNET_ID: z.string().regex(/^subnet-(?:[a-f0-9]{8}|[a-f0-9]{17})$/),
     CHEAPO_DB_SECURITY_GROUP_ID: z.string().regex(/^sg-(?:[a-f0-9]{8}|[a-f0-9]{17})$/),
   }),
@@ -90,6 +97,8 @@ function check() {
   } else {
     const parameters = mode === 'storage' ? {
       VpcId: config.CHEAPO_VPC_ID,
+      DatabaseName: config.CHEAPO_DB_NAME,
+      DatabaseAdminUsername: config.CHEAPO_DB_USER,
       DatabaseSubnetACidr: config.CHEAPO_DB_SUBNET_A_CIDR,
       DatabaseSubnetBCidr: config.CHEAPO_DB_SUBNET_B_CIDR,
       PrimaryAvailabilityZone: config.CHEAPO_PRIMARY_AZ,

@@ -11,16 +11,16 @@ for costs, evidence, and the future API design.
 ## Prerequisites and validation
 
 Use the repo's Node and pnpm versions, and put an AWS CLI with `aws login`
-support on your PATH. Sign your chosen profile into Building Momentum. The
-private storage stack requires the AWS Paid plan and provisioning approval.
+support on your PATH. Sign the selected profile into the intended AWS project.
+The private storage stack requires the AWS Paid plan and provisioning approval.
 For the import, use the
 [Session Manager plugin](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html),
 `psql`, and an [RDS CA bundle](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/UsingWithRDS.SSL.html).
 
 From the repo root, copy [the example](.env.example) to `infra/aws/.env.local`
 and fill in the selected profile, expected account ID, assigned Region, and
-distinct stack names. Region policy allows only Stockholm. Store credentials
-in AWS login and Secrets Manager. Changing a name selects another stack.
+distinct stack names. Use the project's assigned Region. Store credentials in
+AWS login and Secrets Manager. Changing a stack name selects another stack.
 
 ```sh
 pnpm infra:aws:check
@@ -45,8 +45,9 @@ after changing the local settings.
 ## Deploy approved stacks
 
 Confirm spend settings before creating changes. In the local file, set
-`CHEAPO_VPC_ID`, primary and secondary zones, and two distinct unused CIDRs
-in that VPC. Start with the storage stack and add migration access when ready.
+`CHEAPO_DB_NAME` and `CHEAPO_DB_USER` for the initial database and admin role.
+Set `CHEAPO_VPC_ID`, two zones in the assigned Region, and two distinct unused
+CIDRs in that VPC. Start with storage and add migration access when ready.
 
 ```sh
 cheapo_storage_parameters=$(pnpm --silent infra:aws:check storage) &&
