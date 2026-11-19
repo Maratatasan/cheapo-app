@@ -41,3 +41,6 @@ export const productSchema = z.object({
 });
 
 export type Product = z.infer<typeof productSchema>;
+
+export { derivePackageUnitPrices, packagePriceBases } from '@cheapo/domain/package-measures';
+export type { PackageMeasures, PackagePriceBasis } from '@cheapo/domain/package-measures';

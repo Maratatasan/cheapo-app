@@ -4,7 +4,8 @@
   "type": "module",
   "exports": {
     ".": "./index.ts",
-    "./names": "./names.ts"
+    "./names": "./names.ts",
+    "./package-measures": "./package-measures.ts"
   },
   "scripts": {
     "test": "node --test domain.test.mjs",
