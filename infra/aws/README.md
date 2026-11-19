@@ -5,8 +5,9 @@ Serverless v2 and a private S3 photo bucket for
 [the shopping history migration](https://github.com/Maratatasan/cheapo-app/issues/171).
 The [temporary access stack](shopping-migration-access.yaml) gives the offline
 importer one migration session. Both templates target `eu-north-1`. The guest
-photo bucket and current app configuration are outside these stacks. See the
-[hosting decision](decision.md) for the cost review and switching criteria.
+photo bucket and current app configuration are outside these stacks. See D-09
+in the [Cheapo decision log](https://docs.google.com/document/d/1RiVeT6NU-aVZa9y-uvB5qSQ1OYPbxUB8tzFhrNS7Z84/edit)
+for the hosting decision and when to revisit it.
 
 ## Review and cost
 
