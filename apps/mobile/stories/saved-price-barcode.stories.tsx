@@ -6,7 +6,7 @@ import { expect } from 'storybook/test';
 import { CameraActionButton } from '../component/camera-actions';
 import { PhotoReview } from '../component/photo-review';
 import { SavedPriceBarcode } from '../component/saved-price-barcode';
-import { emptyReview, savedProductDetails } from '../data/photo-review';
+import { emptyReview, savedProductDetails, type ManualReview } from '../data/photo-review';
 
 const meta = { title: 'Screens/Saved price barcode link' } satisfies Meta;
 export default meta;
@@ -19,7 +19,7 @@ const savedReview = { ...emptyReview('Example shop'), productName: 'Example jerk
 const record = { id: 'example-price', review: savedReview, original: photo, selected: photo, capturedAt: '2026-11-19T11:00:00Z' };
 
 function LinkExample({ known }: { known: boolean }) {
-  const [review, setReview] = useState(savedReview);
+  const [review, setReview] = useState<ManualReview>(savedReview);
   const [editing, setEditing] = useState(false);
   const [savedBarcode, setSavedBarcode] = useState<string>();
   const product = { ...savedProductDetails(savedReview), name: known ? 'Example pork jerky, 50 g' : savedReview.productName,
