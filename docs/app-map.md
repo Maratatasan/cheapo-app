@@ -1,5 +1,8 @@
 # Cheapo app map
 
+The [domain glossary](domain-glossary.md) defines the shopping terms used here and
+in planned work.
+
 ## Current user flow
 
 The [Home route](../apps/mobile/app/index.tsx) shows the current shop and opens
