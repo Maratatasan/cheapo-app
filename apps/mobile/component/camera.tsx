@@ -5,6 +5,7 @@ import {
   StyleSheet,
   Dimensions,
   Image,
+  Keyboard,
   Alert,
   Platform,
 } from "react-native";
@@ -14,12 +15,17 @@ import { CameraActionButton, CameraCaptureActions, CameraPermissionActions, Came
 import { GalleryCopy } from "./gallery-copy";
 import { PhotoReview, type ReviewSuggestion } from "./photo-review";
 import { PhotoCrop } from "./photo-crop";
+import { PhotoBarcodeReview } from "./photo-barcode-review";
+import { cameraPermissionMessage, PhotoBarcodeScan } from "./photo-barcode-scan";
 import { emptyReview, loadLocalPhotos, reviewComplete, saveLocalPhoto, type DraftShop, type LocalPhotoDraft, type ManualReview, type PhotoAsset } from "@/data/local-photo";
 import { MobileDraft } from "./mobile-draft";
 import { DirectPhotoAnalysis } from "./direct-photo-analysis";
 import { fieldPhotoAnalysisEnabled } from "@/lib/direct-auth/phone-session";
 import type { PhotoShopCountry } from "@/lib/direct-auth/shop-country";
-import { applyPhotoSuggestion } from "@/data/photo-review";
+import { applyPhotoSuggestion, productPackFromText } from "@/data/photo-review";
+import { addLocalProduct } from "@/data/local-products";
+import { decodePhotoBarcodes, type PhotoBarcodeResult } from "@/data/photo-barcode";
+import { canonicalProductBarcode } from "@/data/product-barcode";
 import { choosePhoto } from "@/lib/choose-photo";
 
 type LinkedPriceCapture = {
@@ -46,6 +52,10 @@ export const CameraComponent = ({ currentShop, currentShopCountry, onScanBarcode
   const [visitShop, setVisitShop] = useState("");
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [barcode, setBarcode] = useState<{ value: string; confirmed?: string; error?: string }>({ value: "" });
+  const [barcodeScanOpen, setBarcodeScanOpen] = useState(false);
+  const [decodedBarcodes, setDecodedBarcodes] = useState<{ draftId: string; result: PhotoBarcodeResult }>();
+  const [saveError, setSaveError] = useState<string>();
   const [savedPhotos, setSavedPhotos] = useState<LocalPhotoDraft[]>([]);
   const busy = saving;
   const savePending = useRef(false);
@@ -53,28 +63,106 @@ export const CameraComponent = ({ currentShop, currentShopCountry, onScanBarcode
     if (linkedPrice) return;
     loadLocalPhotos().then(photos => { setSavedPhotos(photos); if (photos[0]?.review?.shop) setVisitShop(photos[0].review.shop); }).catch(() => Alert.alert('Saved photos unavailable', 'Your saved photos could not be read. Try reopening Scan.'));
   }, [linkedPrice]);
+  const barcodePhoto = !linkedPrice && !draft?.productId ? draft?.original.uri : undefined;
+  const barcodeDraftId = barcodePhoto ? draft?.id : undefined;
+  useEffect(() => {
+    if (!barcodeDraftId || !barcodePhoto) return;
+    let active = true;
+    void decodePhotoBarcodes(barcodePhoto).then(result => {
+      if (active) setDecodedBarcodes({ draftId: barcodeDraftId, result });
+    });
+    return () => { active = false; };
+  }, [barcodeDraftId, barcodePhoto]);
+
+  function changeBarcode(value: string) {
+    setBarcode({ value });
+    setSaveError(undefined);
+  }
+
+  function openBarcodeScan() {
+    if (!permission || savePending.current || draft?.productId) return;
+    Keyboard.dismiss();
+    if (!permission.granted && !permission.canAskAgain) {
+      setBarcode(current => ({ ...current, error: cameraPermissionMessage }));
+      return;
+    }
+    setBarcodeScanOpen(true);
+  }
+
+  function confirmBarcode() {
+    if (savePending.current || draft?.productId) return;
+    const confirmed = canonicalProductBarcode(barcode.value);
+    if (!confirmed) {
+      setBarcode({ ...barcode, error: 'Enter a valid product barcode.' });
+      return;
+    }
+    setBarcode({ value: barcode.value.trim(), confirmed });
+    setSaved(false);
+    setSaveError(undefined);
+  }
+
   function selectPhoto(photo: PhotoAsset, cropBox?: CropBox) {
     editedFields.current.clear();
+    changeBarcode("");
     setCropping(cropBox !== undefined);
     setDraft({ id: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`, capturedAt: new Date().toISOString(),
       original: photo, selected: photo, review: linkedPrice?.initialReview ?? emptyReview(currentShop?.displayName ?? visitShop),
       cropBox, shop: currentShop, productId: linkedPrice?.productId });
     setSaved(false);
   }
-  async function persistPhoto(): Promise<LocalPhotoDraft> {
-    if (!draft || savePending.current) throw Error("Please wait before saving this photo.");
-    savePending.current = true; setSaving(true);
-    try {
-      const persisted = await saveLocalPhoto(draft);
-      setDraft(persisted); setSaved(true);
-      setSavedPhotos(current => [persisted, ...current.filter(item => item.id !== persisted.id)]);
-      return persisted;
-    }
-    finally { savePending.current = false; setSaving(false); }
-  }
   async function savePhoto() {
-    if (linkedPrice && !reviewComplete(draft?.review, currentShop?.displayName)) return;
-    try { await persistPhoto(); linkedPrice?.onSaved(); } catch { Alert.alert('Photo not saved', 'Your preview is kept. Check free storage and try Save on this phone again.'); }
+    if (!draft || savePending.current) return;
+    const complete = reviewComplete(draft.review, draft.shop?.displayName);
+    if ((linkedPrice || (draft.productId && barcode.confirmed)) && !complete) return;
+    if (!barcode.confirmed && barcode.value.trim()) {
+      setSaveError('Confirm the barcode to include it, or clear the entry to save without a barcode.');
+      return;
+    }
+
+    savePending.current = true;
+    setSaving(true);
+    setSaveError(undefined);
+    let pendingDraft = draft;
+    try {
+      if (barcode.confirmed && !draft.productId) {
+        const review = draft.review;
+        if (!review || !complete || !review.productType?.trim()) {
+          setSaveError('Enter the product name, type and price to save with this barcode, or clear the barcode to save a photo draft.');
+          return;
+        }
+        try {
+          const product = await addLocalProduct({
+            id: draft.id,
+            barcode: barcode.confirmed,
+            name: review.productName,
+            productType: review.productType,
+            variety: review.variety?.trim() || undefined,
+            brand: review.brand?.trim() || undefined,
+            pack: productPackFromText(review.packSize ?? ''),
+          });
+          pendingDraft = { ...draft, productId: product.id };
+          // Keep the catalog link if photo storage fails so retry can reuse the product.
+          setDraft(pendingDraft);
+        } catch (error) {
+          setSaveError(error instanceof Error ? error.message : 'Couldn’t save the product barcode. Try again.');
+          return;
+        }
+      }
+      const persisted = await saveLocalPhoto(pendingDraft);
+      setDraft(persisted);
+      setSaved(true);
+      setSavedPhotos(current => [persisted, ...current.filter(item => item.id !== persisted.id)]);
+      linkedPrice?.onSaved();
+    } catch {
+      if (barcode.confirmed && pendingDraft.productId) {
+        setSaveError('Product saved. Your photo is kept here. Try saving the price again.');
+      } else {
+        Alert.alert('Photo not saved', 'Your preview is kept. Check free storage and try Save on this phone again.');
+      }
+    } finally {
+      savePending.current = false;
+      setSaving(false);
+    }
   }
   const [cameraReady, setCameraReady] = useState(false);
   const [photoAction, setPhotoAction] = useState<"capture" | "choose" | null>(null);
@@ -84,6 +172,7 @@ export const CameraComponent = ({ currentShop, currentShopCountry, onScanBarcode
     disabled={photoAction !== null}
     onReview={item => {
       editedFields.current.clear();
+      changeBarcode("");
       setDraft({ ...item, review: item.review ?? emptyReview() });
       setVisitShop(item.review?.shop ?? "");
       setSaved(true);
@@ -172,6 +261,7 @@ export const CameraComponent = ({ currentShop, currentShopCountry, onScanBarcode
   };
 
   const retakePhoto = () => {
+    changeBarcode("");
     setDraft(null); setSaved(false); setCropping(false);
   };
 
@@ -202,11 +292,19 @@ export const CameraComponent = ({ currentShop, currentShopCountry, onScanBarcode
           setDraft({ ...draft, review });
           setSaved(false);
           setVisitShop(review.shop);
+          setSaveError(undefined);
         }}
         galleryAction={<GalleryCopy key={draft.selected.uri} photo={draft.selected} />}
         onSave={savePhoto}
         suggestion={suggestion}
-        recordingPrice={!!linkedPrice}
+        recordingPrice={Boolean(linkedPrice || (draft.productId && barcode.confirmed))}
+        saveError={saveError}
+        barcodeReview={!linkedPrice && (!draft.productId || barcode.confirmed) ? (
+          <PhotoBarcodeReview result={decodedBarcodes?.draftId === draft.id ? decodedBarcodes.result : undefined}
+            value={barcode.value} confirmed={Boolean(barcode.confirmed)} locked={Boolean(draft.productId)} busy={busy}
+            error={barcode.error} onChange={changeBarcode} onConfirm={confirmBarcode} onClear={() => changeBarcode("")}
+            onScan={Platform.OS !== "web" ? openBarcodeScan : undefined} />
+        ) : undefined}
         onCancel={linkedPrice?.onCancel}
         onRetake={retakePhoto}
         onCrop={() => setCropping(true)}
@@ -228,13 +326,19 @@ export const CameraComponent = ({ currentShop, currentShopCountry, onScanBarcode
           const review = draft.review ?? emptyReview(draft.shop?.displayName);
           setDraft({
             ...draft,
-            review: applyPhotoSuggestion(review, suggestion, editedFields.current, Boolean(linkedPrice)),
+            review: applyPhotoSuggestion(review, suggestion, editedFields.current, Boolean(linkedPrice || draft.productId)),
           });
           setSaved(false);
         }}>
           {renderReview}
         </DirectPhotoAnalysis>
       ) : renderReview(__DEV__ ? <MobileDraft key={draft.selected.uri} photoUri={draft.selected.uri} /> : null)}
+      {barcodeScanOpen ? (
+        <PhotoBarcodeScan permission={permission} requestPermission={requestPermission}
+          onCancel={() => setBarcodeScanOpen(false)}
+          onRead={code => { changeBarcode(code); setBarcodeScanOpen(false); }}
+          onError={error => { setBarcode(current => ({ ...current, error })); setBarcodeScanOpen(false); }} />
+      ) : null}
     </View>;
   }
 

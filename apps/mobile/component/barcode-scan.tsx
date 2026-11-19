@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from 'react';
-import { CameraView, useCameraPermissions, type BarcodeScanningResult } from 'expo-camera';
+import { useCameraPermissions } from 'expo-camera';
 import { randomUUID } from 'expo-crypto';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -11,6 +11,7 @@ import { DisplayState } from './results/display-state';
 import { ShopComparison, type ComparisonRow } from './results/shop-comparison';
 import { CurrentShopPrice } from './results/current-shop-price';
 import { CameraComponent } from './camera';
+import { ProductBarcodeCamera } from './product-barcode-camera';
 import { PhotoReview } from './photo-review';
 import { ui } from './results/theme';
 import { CameraActionButton, CameraPermissionActions } from './camera-actions';
@@ -105,9 +106,7 @@ export function BarcodeScan({ currentShop, onScanLabel }: { currentShop: DraftSh
     }
   }
 
-  function onBarcodeScanned({ data }: BarcodeScanningResult) {
-    const barcode = canonicalProductBarcode(data);
-    if (!barcode) return;
+  function onBarcodeScanned(barcode: string) {
     if (barcodeEdit?.mode === 'scan') {
       setBarcodeEdit(current => current?.mode === 'scan'
         ? { ...current, mode: 'choose', proposed: barcode, error: undefined } : current);
@@ -273,8 +272,7 @@ export function BarcodeScan({ currentShop, onScanLabel }: { currentShop: DraftSh
   );
   return (
     <View style={styles.camera}>
-      {focused ? <CameraView style={styles.camera} barcodeScannerSettings={{ barcodeTypes: ['ean8', 'ean13', 'upc_a'] }}
-        onBarcodeScanned={onBarcodeScanned} /> : <View style={styles.camera} />}
+      {focused ? <ProductBarcodeCamera onRead={(_, barcode) => onBarcodeScanned(barcode)} /> : <View style={styles.camera} />}
       <SafeAreaView edges={['bottom']} style={styles.actions}>
         <Text style={styles.guide}>Point the camera at the product barcode.</Text>
         <CameraActionButton label={returnFromScan ? 'Back to barcode editor' : 'Scan label'} onPress={returnFromScan ?? onScanLabel} />
