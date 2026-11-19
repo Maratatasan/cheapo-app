@@ -42,6 +42,28 @@ Physical-device acceptance: capture a harmless label, adjust/cancel/apply crop,
 edit values with the keyboard open, save, restart and reopen it, then explicitly
 copy the selected crop to the gallery. Confirm the original remains available.
 
+## Mobile AI extraction acceptance
+
+Use private Home Bargains shelf and product photos by default when accepting
+changes to mobile AI extraction on a physical phone. Choose photos that exercise
+the changed fields. Keep deterministic synthetic fixtures for unit and component
+tests and use synthetic or sanitized fixtures in public Storybook and PR
+screenshots. Report real-photo acceptance separately and keep it pending if a
+real-photo run is unavailable.
+
+1. Read the relevant shelf and package facts from the original. Check that a
+   shelf label belongs to the product being reviewed if several products appear.
+   Record whether analysis received the original or a crop and what was legible
+   in that exact image. If the sent image cannot be verified, record the gap.
+2. Compare the visible facts with the raw AI response when available, the parsed
+   suggestions, and the form after **Use suggested details**. Check the price and
+   currency, pack count, per-pack quantity, total quantity, and printed unit rate
+   as applicable. Leave missing or unreadable values unconfirmed. Flag unsupported
+   values as failures and record the first stage where they appear.
+3. Record the phone, build revision, fields checked, and outcome. Keep the photos
+   and raw diagnostics private. In public issues and PRs, share a sanitized
+   summary without photos, raw responses, or private links.
+
 ## Standalone field-test build
 
 Set `CHEAPO_FIELD_TEST=1` for prebuild, build and export commands. This uses the

@@ -22,6 +22,9 @@ Verify changed camera, OS permission, keyboard and navigation behavior on the
 relevant native target. Check real camera capture on a physical device. Record
 browser Storybook, bundle exports, simulators and physical devices separately.
 
+For changes to mobile AI extraction, also follow the
+[real-photo acceptance checks](local-photo-review.md#mobile-ai-extraction-acceptance).
+
 ## Screenshots in pull requests
 
 For every UI-affecting PR, embed screenshots of the changed states in the PR
