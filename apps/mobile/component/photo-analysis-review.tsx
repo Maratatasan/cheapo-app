@@ -82,7 +82,9 @@ export function PhotoSuggestion({ draft, disabled, onApply, onFirstLayout }: {
       {readings('brand', 'Brand')}
       {draft.productType ? readings('productType', 'Product type') : null}
       {draft.variety ? readings('variety', 'Variety') : null}
-      {readings('currency', 'Currency')}
+      {currency
+        ? readings('currency', 'Currency')
+        : <Text style={styles.note}>Currency unconfirmed. Check the label and enter prices in the form.</Text>}
       {readings('unit_price', 'Printed unit price', unit_price => unitPriceLabel({ unit_price, currency }))}
       {draft.uncertainty ? <Text style={styles.note}>{draft.uncertainty}</Text> : null}
     </View>

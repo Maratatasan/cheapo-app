@@ -32,6 +32,7 @@ export const LongDetails: Story = {
   },
   render: args => <div style={{ maxWidth: 320 }}><PhotoSuggestion {...args} /></div>,
   play: async ({ canvas }) => {
+    await expect(canvas.getByText('Currency unconfirmed. Check the label and enter prices in the form.')).toBeVisible();
     await expect(canvas.getByRole('button', { name: 'Use suggested details' })).toBeVisible();
   },
 };

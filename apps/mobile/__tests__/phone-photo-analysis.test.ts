@@ -111,7 +111,7 @@ test.each([
   { raw: '£', suggestion: null, applied: 'GBP' },
   { raw: 'GBP', suggestion: 'GBP', applied: 'GBP' },
   { raw: 'USD', suggestion: 'USD', applied: 'USD' },
-])('applies only currency codes without losing the shelf price ($raw)', async ({ raw, suggestion, applied }) => {
+])('only applies pack and printed unit prices when their currency is confirmed ($raw)', async ({ raw, suggestion, applied }) => {
   catalog();
   bodyResponse([new TextEncoder().encode(completed([{ type: 'output_text', text: JSON.stringify({
     ...draft,
@@ -126,9 +126,27 @@ test.each([
   const extracted = await analyze();
   expect(extracted.currency).toBe(suggestion);
   const review = applyPhotoSuggestion(emptyReview('Selected branch'), extracted, new Set());
-  expect(review).toMatchObject({ currency: applied, price: '3.19', packSize: '560 g', unitPrice: '0.5696', unit: '100 g' });
-  expect(reviewComplete(review)).toBe(true);
-  expect(reviewUnitPrice(review)).toEqual({ amount: 0.5696, unit: '100 g' });
+  expect(review).toMatchObject({
+    currency: applied, packSize: '560 g',
+    price: suggestion ? '3.19' : '',
+    unitPrice: suggestion ? '0.5696' : '',
+    unit: suggestion ? '100 g' : '',
+  });
+  expect(reviewComplete(review)).toBe(Boolean(suggestion));
+  expect(reviewUnitPrice(review)).toEqual(suggestion ? { amount: 0.5696, unit: '100 g' } : null);
+});
+
+test.each([
+  { field: 'currency' as const, review: { currency: 'EUR' } },
+  { field: 'price' as const, review: { price: '7.50' } },
+  { field: 'unitPrice' as const, review: { unitPrice: '3.75', unit: 'kg' } },
+])('keeps existing money terms when $field was edited in another currency', ({ field, review }) => {
+  const manual = { ...emptyReview('Selected branch'), ...review };
+  const applied = applyPhotoSuggestion(manual, { ...draft, currency: 'USD' }, new Set([field]));
+  expect(applied).toMatchObject({
+    currency: manual.currency, price: manual.price, unitPrice: manual.unitPrice, unit: manual.unit,
+  });
+  expect(applied.productName).toBe(draft.product);
 });
 
 test('withholds the photo when the catalog has no supported listed model', async () => {

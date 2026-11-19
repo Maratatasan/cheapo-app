@@ -1,7 +1,7 @@
 import { normalizeName } from '@cheapo/domain/names';
 import { fetch } from 'expo/fetch';
 import type { AiPriceDraft, PriceAlternatives } from '@/data/ai-observation';
-import { calculatePackUnitPrice, packSizeMaxLength } from '@/data/photo-review';
+import { calculatePackUnitPrice, isCurrencyCode, packSizeMaxLength } from '@/data/photo-review';
 import { productMetadataMaxLength } from '@/data/product-metadata';
 
 const RESOURCE = 'https://api.openai.com/v1';
@@ -34,7 +34,8 @@ const extractionInstructions = [
   'Read one product from its matching shelf label. Do not combine details from neighbouring products or varieties.',
   'Extract the product, product type, variety, brand, pack size, pack price, currency and printed unit price.',
   'Use a short comparison category for product type, such as dry rice, microwave rice, fresh potatoes or frozen chips. Only fill variety and brand when visible.',
-  'Read the price and its currency from the same shelf label. Return the ISO 4217 code only when the currency is clear from the image.',
+  'Read the current selling price and its currency from the same shelf label. Do not use a savings amount, previous price, recommended retail price, or pack count as the selling price.',
+  'Copy only a legible selling price and return the ISO 4217 code only when the currency is clear from the image.',
   'Use GBP for a price clearly shown in British pounds sterling or British pence. Never assume USD from a number or an ambiguous symbol. Do not convert between currencies.',
   'For packSize, use a printed quantity with g, kg, ml, l, litre or items. Preserve an explicit expression such as 6 × 125 g printed for this product.',
   'If a pack count and total are printed separately, such as 6PK and 750 g, keep the supported total as 750 g. Never invent a per-item size or copy one from a neighbouring product.',
@@ -103,7 +104,7 @@ function readUnitPrice(value: unknown) {
 }
 
 function readCurrency(value: unknown) {
-  return typeof value === 'string' && /^[A-Z]{3}$/.test(value) ? value : null;
+  return isCurrencyCode(value) ? value : null;
 }
 
 function validAlternatives<T>(input: unknown, primary: T | null | undefined, parse: (value: unknown) => T | null | undefined, key: (value: T) => string = String) {
