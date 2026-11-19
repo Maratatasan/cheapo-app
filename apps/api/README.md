@@ -84,3 +84,19 @@ database. Product presentation photos have a separate lifecycle.
 The PostgreSQL test runs synthetic fixtures for these relationships and the
 existing preference API tests. The offline importer and the real collection
 restore are subsequent work on #171.
+
+### Check an offline backup before restore
+
+Use an independently verified Cheapo ZIP from a known source. Extract it into a
+private directory first, retaining `manifest.json` and its `photos` tree. Run:
+
+```sh
+pnpm --silent --filter @cheapo/api import:plan /path/to/extracted-backup
+```
+
+The planner accepts manifests v1, v2 and v3, checks their relationships and
+hashes the referenced JPEG bytes. The summary shows counts and unresolved
+legacy links. It does not print names, IDs, photo hashes or absolute paths. A
+legacy archive can have observations without the catalog or current-shop state;
+use v3 for a complete backup. The command neither writes to PostgreSQL nor
+copies the original photos. Use the verified ZIP as the backup of record.

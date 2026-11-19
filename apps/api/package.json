@@ -4,12 +4,15 @@
   "type": "module",
   "scripts": {
     "start": "node start.ts",
-    "test": "node --test test/preferences.test.ts",
+    "test": "node --test test/preferences.test.ts test/shopping-import.test.ts",
     "test:postgres": "sh test/run-postgres.sh",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "import:plan": "node shopping-import-plan.ts"
   },
   "dependencies": {
-    "pg": "8.23.1"
+    "@cheapo/domain": "workspace:*",
+    "pg": "8.23.1",
+    "zod": "4.6.7"
   },
   "devDependencies": {
     "@types/node": "22.15.21",
