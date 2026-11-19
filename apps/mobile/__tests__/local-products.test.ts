@@ -1,17 +1,20 @@
-import { addLocalProduct, findLocalProductByBarcode } from '@/data/local-products';
+import { addLocalProduct, findLocalProductByBarcode, replaceLocalProductBarcode } from '@/data/local-products';
 
 const mockFiles = new Map<string, string>();
 let mockFailWrite = false;
 const mockCatalog = 'file:///test-documents/saved-products.json';
-jest.mock('expo-file-system', () => ({
-  Directory: class {
+jest.mock('expo-file-system', () => {
+  class Directory {
     uri: string;
     constructor(parent: string, name: string) { this.uri = `${parent}/${name}`; }
     create() {}
-  },
-  File: class {
+    get exists() { return [...mockFiles.keys()].some(key => key.startsWith(this.uri + '/')); }
+    list() { return [...mockFiles.keys()].filter(key => key.startsWith(this.uri + '/')).map(key => new File(this, key.split('/').at(-1)!)); }
+  }
+  class File {
     uri: string;
     constructor(parent: string | { uri: string }, name: string) { this.uri = `${typeof parent === 'string' ? parent : parent.uri}/${name}`; }
+    get name() { return this.uri.split('/').at(-1)!; }
     get exists() { return mockFiles.has(this.uri); }
     async text() { return mockFiles.get(this.uri); }
     async write(value: string) { if (mockFailWrite) throw Error('Disk full'); mockFiles.set(this.uri, value); }
@@ -22,9 +25,9 @@ jest.mock('expo-file-system', () => ({
       this.uri = to.uri;
     }
     delete() { mockFiles.delete(this.uri); }
-  },
-  Paths: { document: 'file:///test-documents' },
-}));
+  }
+  return { Directory, File, Paths: { document: 'file:///test-documents' } };
+});
 
 const product = { id: 'saved-product', name: 'Example product', barcode: '012345678905' };
 const addable = { ...product, productType: 'Dry rice' };
@@ -60,4 +63,32 @@ test('preserves the winner of concurrent barcode claims and supports retry after
   const successes = results.flatMap(result => result.status === 'fulfilled' ? [result.value] : []);
   expect(successes).toHaveLength(1);
   await expect(findLocalProductByBarcode(product.barcode)).resolves.toEqual(successes[0]);
+});
+
+test('replaces a barcode without changing product identity or photo references', async () => {
+  const saved = await addLocalProduct({ ...addable, photoIds: ['photo-1'] });
+  const updated = await replaceLocalProductBarcode(saved.id, product.barcode, '4006381333931');
+  expect(updated).toEqual({ ...saved, barcode: '04006381333931' });
+  await expect(findLocalProductByBarcode(product.barcode)).resolves.toBeUndefined();
+  await expect(findLocalProductByBarcode('4006381333931')).resolves.toEqual(updated);
+  let reopened!: typeof findLocalProductByBarcode;
+  jest.isolateModules(() => { reopened = jest.requireActual('@/data/local-products').findLocalProductByBarcode; });
+  await expect(reopened('4006381333931')).resolves.toEqual(updated);
+  await expect(reopened(product.barcode)).resolves.toBeUndefined();
+  const independent = await addLocalProduct({ ...addable, id: 'independent' });
+  await expect(findLocalProductByBarcode(product.barcode)).resolves.toEqual(independent);
+});
+
+test('keeps both mappings on conflict and the original on a failed correction', async () => {
+  const saved = await addLocalProduct(addable);
+  const other = await addLocalProduct({ ...addable, id: 'other', name: 'Other product', barcode: '4006381333931' });
+  await expect(replaceLocalProductBarcode(saved.id, product.barcode, other.barcode!)).rejects.toThrow('Other product');
+  await expect(findLocalProductByBarcode(other.barcode!)).resolves.toEqual(other);
+  mockFailWrite = true;
+  await expect(replaceLocalProductBarcode(saved.id, product.barcode, '96385074')).rejects.toThrow('Disk full');
+  await expect(findLocalProductByBarcode(product.barcode)).resolves.toEqual(saved);
+  await expect(findLocalProductByBarcode('96385074')).resolves.toBeUndefined();
+  mockFailWrite = false;
+  await expect(replaceLocalProductBarcode(saved.id, product.barcode, '96385074')).resolves.toMatchObject({ id: saved.id });
+  await expect(replaceLocalProductBarcode(saved.id, product.barcode, '4006381333931')).rejects.toThrow('changed');
 });

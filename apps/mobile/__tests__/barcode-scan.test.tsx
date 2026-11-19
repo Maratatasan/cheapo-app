@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { BarcodeScan } from '@/component/barcode-scan';
-import { addLocalProduct, findLocalProductByBarcode } from '@/data/local-products';
+import { addLocalProduct, findLocalProductByBarcode, replaceLocalProductBarcode } from '@/data/local-products';
 import { emptyReview } from '@/data/photo-review';
 import { loadSavedPriceRecords, saveManualPrice, type LocalPhotoDraft } from '@/data/local-photo';
 
@@ -16,7 +16,7 @@ jest.mock('expo-camera', () => ({
     return <View testID="barcode-preview" onBarcodeScanned={onBarcodeScanned} />;
   },
 }));
-jest.mock('@/data/local-products', () => ({ addLocalProduct: jest.fn(), findLocalProductByBarcode: jest.fn() }));
+jest.mock('@/data/local-products', () => ({ addLocalProduct: jest.fn(), findLocalProductByBarcode: jest.fn(), replaceLocalProductBarcode: jest.fn() }));
 jest.mock('@/data/local-photo', () => ({ loadSavedPriceRecords: jest.fn(), saveManualPrice: jest.fn() }));
 jest.mock('@/component/camera', () => ({ CameraComponent: () => null }));
 jest.mock('expo-crypto', () => ({ randomUUID: () => 'manual-price-id' }));
@@ -37,6 +37,64 @@ beforeEach(() => {
 async function scan(data = '012345678905') {
   await fireEvent(screen.getByTestId('barcode-preview'), 'barcodeScanned', { data });
 }
+
+test('rescans a proposed barcode and saves it only after confirmation for the named product', async () => {
+  jest.mocked(findLocalProductByBarcode).mockResolvedValue(product);
+  jest.mocked(loadSavedPriceRecords).mockResolvedValue([]);
+  jest.mocked(replaceLocalProductBarcode).mockResolvedValue({ ...product, barcode: '04006381333931' });
+  await render(<BarcodeScan currentShop={currentShop} onScanLabel={jest.fn()} />);
+  await scan();
+  await fireEvent.press(screen.getByRole('button', { name: 'Edit barcode' }));
+  expect(screen.getByText(product.name)).toBeOnTheScreen();
+  await fireEvent.press(screen.getByRole('button', { name: 'Scan barcode' }));
+  await scan('4006381333931');
+
+  expect(screen.getByText('Proposed barcode 04006381333931')).toBeOnTheScreen();
+  expect(replaceLocalProductBarcode).not.toHaveBeenCalled();
+  await fireEvent.press(screen.getByRole('button', { name: 'Save barcode' }));
+  expect(replaceLocalProductBarcode).toHaveBeenCalledWith(product.id, '00012345678905', '04006381333931');
+  expect(screen.getByText('Barcode 04006381333931')).toBeOnTheScreen();
+});
+
+test('validates and corrects a lookup without writing to the displayed product', async () => {
+  jest.mocked(findLocalProductByBarcode).mockResolvedValueOnce(product).mockResolvedValueOnce(undefined);
+  jest.mocked(loadSavedPriceRecords).mockResolvedValue([]);
+  await render(<BarcodeScan currentShop={currentShop} onScanLabel={jest.fn()} />);
+  await scan();
+  await fireEvent.press(screen.getByRole('button', { name: 'Correct lookup code' }));
+  await fireEvent.press(screen.getByRole('button', { name: 'Enter manually' }));
+  await fireEvent.changeText(screen.getByLabelText('Proposed barcode'), '00012345678904');
+  await fireEvent.press(screen.getByRole('button', { name: 'Look up barcode' }));
+  expect(screen.getByRole('alert')).toHaveTextContent('Enter a valid product barcode.');
+  await fireEvent.press(screen.getByRole('button', { name: 'Cancel' }));
+  expect(screen.getByRole('header', { name: product.name })).toBeOnTheScreen();
+  expect(findLocalProductByBarcode).toHaveBeenCalledTimes(1);
+
+  await fireEvent.press(screen.getByRole('button', { name: 'Correct lookup code' }));
+  await fireEvent.press(screen.getByRole('button', { name: 'Enter manually' }));
+  await fireEvent.changeText(screen.getByLabelText('Proposed barcode'), '4006381333931');
+  await fireEvent.press(screen.getByRole('button', { name: 'Look up barcode' }));
+  expect(await screen.findByText('Product not found')).toBeOnTheScreen();
+  expect(findLocalProductByBarcode).toHaveBeenLastCalledWith('04006381333931');
+  expect(replaceLocalProductBarcode).not.toHaveBeenCalled();
+  expect(addLocalProduct).not.toHaveBeenCalled();
+});
+
+test('keeps a saved correction proposal after a conflicting barcode and allows cancellation', async () => {
+  jest.mocked(findLocalProductByBarcode).mockResolvedValue(product);
+  jest.mocked(loadSavedPriceRecords).mockResolvedValue([]);
+  jest.mocked(replaceLocalProductBarcode).mockRejectedValue(Error('This barcode belongs to Example brown rice.'));
+  await render(<BarcodeScan currentShop={currentShop} onScanLabel={jest.fn()} />);
+  await scan();
+  await fireEvent.press(screen.getByRole('button', { name: 'Edit barcode' }));
+  await fireEvent.press(screen.getByRole('button', { name: 'Enter manually' }));
+  await fireEvent.changeText(screen.getByLabelText('Proposed barcode'), '04006381333931');
+  await fireEvent.press(screen.getByRole('button', { name: 'Save barcode' }));
+  expect(await screen.findByRole('alert')).toHaveTextContent('This barcode belongs to Example brown rice.');
+  expect(screen.getByLabelText('Proposed barcode')).toHaveDisplayValue('04006381333931');
+  await fireEvent.press(screen.getByRole('button', { name: 'Cancel' }));
+  expect(screen.getByText('Barcode 00012345678905')).toBeOnTheScreen();
+});
 
 test('opens a known product’s comparisons and filters saved prices by brand and variety', async () => {
   jest.mocked(findLocalProductByBarcode).mockResolvedValue(product);
