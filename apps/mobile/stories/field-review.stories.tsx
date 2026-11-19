@@ -1,5 +1,5 @@
 /// <reference types="vite/client" />
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Text, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import type { Meta, StoryObj } from '@storybook/react-native-web-vite';
@@ -7,7 +7,7 @@ import { expect, fireEvent, waitFor } from 'storybook/test';
 import { PhotoAnalysisControls } from '../component/photo-analysis-review';
 import { PhotoReview } from '../component/photo-review';
 import { CurrentShopPrice } from '../component/results/current-shop-price';
-import { emptyReview, type ManualReview } from '../data/photo-review';
+import { applyPhotoSuggestion, emptyReview, type ManualReview } from '../data/photo-review';
 
 const meta = { title: 'Screens/Field review', component: PhotoReview } satisfies Meta<typeof PhotoReview>;
 export default meta;
@@ -101,8 +101,16 @@ const longSuggestion = {
 const readyMessage = 'Suggestions ready. Check the details before applying.';
 const errorMessage = 'Photo analysis failed. You can still enter details manually.';
 
-function SuggestionsExample({ fails = false, long = false }: { fails?: boolean; long?: boolean }) {
-  const suggestion = long ? longSuggestion : exampleSuggestion;
+const uncertainSuggestion = {
+  ...exampleSuggestion,
+  brand: 'Orchard Pantry',
+  packSize: null,
+  alternatives: { price: [1.79] },
+};
+
+function SuggestionsExample({ fails = false, long = false, uncertain = false }: { fails?: boolean; long?: boolean; uncertain?: boolean }) {
+  const suggestion = uncertain ? uncertainSuggestion : long ? longSuggestion : exampleSuggestion;
+  const edited = useRef(new Set<keyof ManualReview>());
   const [state, setState] = useState<'idle' | 'loading' | 'ready' | 'failed' | 'applied'>('idle');
   const [review, setReview] = useState<ManualReview>(() => emptyReview('Example shop'));
   const [saved, setSaved] = useState(false);
@@ -121,15 +129,13 @@ function SuggestionsExample({ fails = false, long = false }: { fails?: boolean; 
       </View>
       <View testID="short-review-viewport" style={{ height: 318 }}>
         <SafeAreaProvider initialMetrics={{ frame: { x: 0, y: 0, width: 320, height: 318 }, insets: { top: 0, bottom: 8, left: 0, right: 0 } }}>
-          <PhotoReview review={review} selectedShopName="Example shop" saved={saved} busy={false} onReviewChange={setReview}
-            onRetake={() => { setReview(emptyReview('Example shop')); setState('idle'); setSaved(false); }}
+          <PhotoReview review={review} selectedShopName="Example shop" saved={saved} busy={false}
+            onReviewChange={(next, field) => { edited.current.add(field); setReview(next); }}
+            onRetake={() => { edited.current.clear(); setReview(emptyReview('Example shop')); setState('idle'); setSaved(false); }}
             onSave={() => setSaved(true)} suggestion={state === 'ready' ? {
               draft: suggestion,
-              onApply: () => {
-                setReview(current => ({
-                  ...current, productName: suggestion.product, price: suggestion.price.toString(),
-                  packSize: current.packSize ?? suggestion.packSize,
-                }));
+              onApply: selected => {
+                setReview(current => applyPhotoSuggestion(current, selected, edited.current));
                 setState('applied');
               },
             } : undefined}>
@@ -165,7 +171,7 @@ export const SuggestionsWithShortViewport: Story = {
     const bounds = verticalBounds(viewport);
     const suggestionHeading = canvas.getByRole('heading', { name: 'Suggested details' });
     await waitFor(() => expect(verticalBounds(suggestionHeading).top).toBeCloseTo(bounds.top, 0));
-    await expect(canvas.getByText('Chopped tomatoes · £1.49')).toBeVisible();
+    await expect(canvas.getByRole('radio', { name: 'Total price: £1.49' })).toBeChecked();
     await expect(packSize).toHaveFocus();
     await expect(packSize).toHaveValue('450 g');
     await expect(product).toHaveValue('');
@@ -205,6 +211,29 @@ export const LongSuggestionsScrollWithReview: Story = {
     await expect(verticalBounds(finalDetail).bottom).toBeGreaterThan(verticalBounds(viewport).top);
     await userEvent.click(apply);
     await expect(canvas.getByLabelText('Product name')).toHaveValue(longSuggestion.product);
+  },
+};
+
+export const ChooseUncertainPrice: Story = {
+  render: () => <SuggestionsExample uncertain />,
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole('button', { name: 'Analyse photo' }));
+    const brand = canvas.getByLabelText('Brand');
+    await fireEvent.change(brand, { target: { value: 'My corrected brand' } });
+    await userEvent.click(canvas.getByRole('button', { name: 'Complete sample analysis' }));
+    const primary = canvas.getByRole('radio', { name: 'Total price: £1.49' });
+    const other = canvas.getByRole('radio', { name: 'Total price: £1.79' });
+    const packPrice = canvas.getByLabelText('Pack price');
+    await expect(primary).toBeChecked();
+    await expect(canvas.getByText('Pack size unconfirmed')).toBeVisible();
+    await userEvent.click(other);
+    await expect(other).toBeChecked();
+    await expect(packPrice).toHaveValue('');
+
+    await userEvent.click(canvas.getByRole('button', { name: 'Use suggested details' }));
+    await expect(packPrice).toHaveValue('1.79');
+    await expect(brand).toHaveValue('My corrected brand');
+    await expect(canvas.queryByText('On this phone')).not.toBeInTheDocument();
   },
 };
 

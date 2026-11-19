@@ -167,6 +167,54 @@ describe("CameraComponent", () => {
     expect(mockSaveLocalPhoto).not.toHaveBeenCalled();
   });
 
+  it.each(['active-shop', 'other-shop'])('only sends the active shop hint for a matching saved photo (%s)', async (savedShopId) => {
+    mockFieldPhotoAnalysisEnabled = true;
+    mockPermission = { granted: false };
+    const photo = { uri: 'file:///label.jpg', width: 1200, height: 800, mimeType: 'image/jpeg' };
+    const shopCountry = { country: 'United Kingdom', source: 'postcode pattern' } as const;
+    mockLoadLocalPhotos.mockResolvedValue([{
+      id: 'saved', capturedAt: '2026-11-18T15:00:00Z',
+      original: photo, selected: photo, shop: { id: savedShopId, displayName: 'Saved branch' },
+    }]);
+    mockRequestPhotoDraft.mockResolvedValue({ product: 'Tomatoes', price: 1.49, currency: 'GBP', unit_price: null, uncertainty: '' });
+    await render(<CameraComponent currentShop={{ id: 'active-shop', displayName: 'Active branch' }} currentShopCountry={shopCountry} />);
+    await fireEvent.press(await screen.findByRole('button', { name: /^Review / }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Analyse photo' }));
+    await waitFor(() => expect(mockRequestPhotoDraft).toHaveBeenCalledWith(expect.objectContaining({
+      shopCountry: savedShopId === 'active-shop' ? shopCountry : undefined,
+    })));
+  });
+
+  it('applies the chosen price only on request and preserves a manual correction', async () => {
+    mockFieldPhotoAnalysisEnabled = true;
+    mockPermission = { granted: false };
+    mockChoosePhoto.mockResolvedValue({ uri: 'file:///label.jpg', width: 1200, height: 800, mimeType: 'image/jpeg' });
+    mockRequestPhotoDraft.mockResolvedValue({
+      product: 'Tomatoes', brand: 'Original brand', price: 1.49, currency: 'GBP', packSize: '500 g',
+      unit_price: null, uncertainty: '', alternatives: { price: [1.79], brand: ['Other brand'] },
+    });
+    await render(<CameraComponent currentShop={{ id: 'test-shop', displayName: 'Test shop' }} />);
+
+    await fireEvent.press(screen.getByRole('button', { name: 'Choose photo' }));
+    await fireEvent.press(await screen.findByRole('button', { name: 'Apply crop' }));
+    await fireEvent.changeText(screen.getByLabelText('Brand'), 'My corrected brand');
+    await fireEvent.press(screen.getByRole('button', { name: 'Analyse photo' }));
+
+    const primaryPrice = await screen.findByRole('radio', { name: 'Total price: £1.49' });
+    expect(primaryPrice).toBeChecked();
+    expect(screen.getByText('Printed unit price unconfirmed')).toBeOnTheScreen();
+    await fireEvent.press(screen.getByRole('radio', { name: 'Total price: £1.79' }));
+    await fireEvent.press(screen.getByRole('radio', { name: 'Brand: Other brand' }));
+    expect(primaryPrice).not.toBeChecked();
+    expect(screen.getByLabelText('Pack price')).toHaveDisplayValue('');
+
+    await fireEvent.press(screen.getByRole('button', { name: 'Use suggested details' }));
+
+    expect(screen.getByLabelText('Pack price')).toHaveDisplayValue('1.79');
+    expect(screen.getByLabelText('Brand')).toHaveDisplayValue('My corrected brand');
+    expect(mockSaveLocalPhoto).not.toHaveBeenCalled();
+  });
+
   it.each([
     { label: 'suggested size', suggestion: '500 g', editBefore: undefined, editAfter: undefined, savedSize: '500 g' },
     { label: 'previously entered size', suggestion: '500 g', editBefore: '450 g', editAfter: undefined, savedSize: '450 g' },
@@ -184,7 +232,8 @@ describe("CameraComponent", () => {
     await fireEvent.press(await screen.findByRole('button', { name: 'Apply crop' }));
     await fireEvent.press(screen.getByRole('button', { name: 'Analyse photo' }));
     const applySuggestion = await screen.findByRole('button', { name: 'Use suggested details' });
-    expect(screen.getByText(`Brand unconfirmed · ${suggestion ?? 'Pack size unconfirmed'}`)).toBeOnTheScreen();
+    if (suggestion) expect(screen.getByRole('radio', { name: `Pack size: ${suggestion}` })).toBeChecked();
+    else expect(screen.getByText('Pack size unconfirmed')).toBeOnTheScreen();
     if (editBefore) await fireEvent.changeText(screen.getByLabelText('Pack size'), editBefore);
     await fireEvent.press(applySuggestion);
     expect(screen.getByLabelText('Pack size')).toHaveDisplayValue(editBefore ?? suggestion ?? '');

@@ -1,5 +1,7 @@
 import { fetch } from 'expo/fetch';
+import { applyPhotoSuggestion, emptyReview, reviewComplete, reviewUnitPrice } from '@/data/photo-review';
 import { requestPhotoDraft } from '@/lib/direct-auth/photo-analysis';
+import { photoShopCountry } from '@/lib/direct-auth/shop-country';
 
 jest.mock('expo/fetch', () => ({ fetch: jest.fn() }));
 
@@ -35,6 +37,28 @@ function analyze(signal = new AbortController().signal) {
 }
 
 beforeEach(() => provider.mockReset());
+
+test.each([
+  [undefined, undefined],
+  ['Shop 7, Wimbledon SW19 1AA', { country: 'United Kingdom', source: 'postcode pattern' }],
+  ['Shop 7, London, United Kingdom', { country: 'United Kingdom', source: 'address country' }],
+  ['Shop 7, SW19 1AA, United States', undefined],
+  ['SW19 1AA', undefined],
+])('uses bounded country evidence from the saved shop address (%s)', (address, expected) => {
+  expect(photoShopCountry(address)).toEqual(expected);
+});
+
+test('sends only the optional country hint and does not replace the photographed currency', async () => {
+  catalog();
+  bodyResponse([new TextEncoder().encode(completed([{ type: 'output_text', text: JSON.stringify({ ...draft, currency: 'USD' }) }]))]);
+  const address = 'Shop 7, Wimbledon SW19 1AA';
+  const shopCountry = photoShopCountry(address);
+  await expect(requestPhotoDraft({ accessToken: 'test-token', image, signal: new AbortController().signal, shopCountry }))
+    .resolves.toMatchObject({ currency: 'USD' });
+  const request = JSON.parse(String(provider.mock.calls[1][1]?.body));
+  expect(request.input[0].content[0].text).toContain('Selected shop country hint: United Kingdom (postcode pattern).');
+  expect(JSON.stringify(request)).not.toContain(address);
+});
 
 test('uses the preferred listed model and returns only the completed structured image draft', async () => {
   catalog([{ slug: 'gpt-6-luna', visibility: 'list' }, { slug: 'gpt-5.6-luna', visibility: 'list' }]);
@@ -84,6 +108,68 @@ test.each([
     type: 'output_text', text: JSON.stringify({ ...draft, packSize: raw, unit_price: null }),
   }]))]);
   await expect(analyze()).resolves.toMatchObject({ packSize: expected, unit_price: null });
+});
+
+test('keeps only distinct valid alternatives for fields with a confirmed primary reading', async () => {
+  catalog();
+  bodyResponse([new TextEncoder().encode(completed([{ type: 'output_text', text: JSON.stringify({
+    ...draft,
+    alternatives: {
+      price: [2.5, 2.8, -5, 2.9, 3],
+      packSize: ['500 g', '0 g', '750 g'],
+      variety: ['Medium roast'],
+      unit_price: [{ amount: 5, unit: 'kg' }, { amount: 5.6, unit: 'kg' }, { amount: 5, unit: '' }],
+    },
+  }) }]))]);
+
+  await expect(analyze()).resolves.toEqual({ ...draft, alternatives: {
+    price: [2.8, 2.9], packSize: ['750 g'], unit_price: [{ amount: 5.6, unit: 'kg' }],
+  } });
+  const request = JSON.parse(String(provider.mock.calls[1][1]?.body));
+  expect(request.text.format.schema.required).toContain('alternatives');
+});
+
+test.each([
+  { raw: '$', suggestion: null, applied: 'GBP' },
+  { raw: '£', suggestion: null, applied: 'GBP' },
+  { raw: 'GBP', suggestion: 'GBP', applied: 'GBP' },
+  { raw: 'USD', suggestion: 'USD', applied: 'USD' },
+])('only applies pack and printed unit prices when their currency is confirmed ($raw)', async ({ raw, suggestion, applied }) => {
+  catalog();
+  bodyResponse([new TextEncoder().encode(completed([{ type: 'output_text', text: JSON.stringify({
+    ...draft,
+    product: 'Tuna in brine',
+    brand: 'Princes',
+    packSize: '560 g',
+    price: 3.19,
+    currency: raw,
+    unit_price: { amount: 0.5696, unit: '100 g' },
+  }) }]))]);
+
+  const extracted = await analyze();
+  expect(extracted.currency).toBe(suggestion);
+  const review = applyPhotoSuggestion(emptyReview('Selected branch'), extracted, new Set());
+  expect(review).toMatchObject({
+    currency: applied, packSize: '560 g',
+    price: suggestion ? '3.19' : '',
+    unitPrice: suggestion ? '0.5696' : '',
+    unit: suggestion ? '100 g' : '',
+  });
+  expect(reviewComplete(review)).toBe(Boolean(suggestion));
+  expect(reviewUnitPrice(review)).toEqual(suggestion ? { amount: 0.5696, unit: '100 g' } : null);
+});
+
+test.each([
+  { field: 'currency' as const, review: { currency: 'EUR' } },
+  { field: 'price' as const, review: { price: '7.50' } },
+  { field: 'unitPrice' as const, review: { unitPrice: '3.75', unit: 'kg' } },
+])('keeps existing money terms when $field was edited in another currency', ({ field, review }) => {
+  const manual = { ...emptyReview('Selected branch'), ...review };
+  const applied = applyPhotoSuggestion(manual, { ...draft, currency: 'USD' }, new Set([field]));
+  expect(applied).toMatchObject({
+    currency: manual.currency, price: manual.price, unitPrice: manual.unitPrice, unit: manual.unit,
+  });
+  expect(applied.productName).toBe(draft.product);
 });
 
 test('withholds the photo when the catalog has no supported listed model', async () => {

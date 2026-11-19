@@ -1,14 +1,15 @@
 import type { ObservationCardItem } from '@/component/results/observation-card';
 import type { ProductMetadata } from './product-metadata';
 
-export type AiPriceDraft = {
+export type PriceReadings = {
   product: string | null;
   packSize?: string | null;
   price: number | null;
   currency: string | null;
   unit_price: { amount:number; unit:string } | null;
-  uncertainty: string;
 } & { [Field in keyof ProductMetadata]?: string | null };
+export type PriceAlternatives = { [Field in keyof PriceReadings]?: NonNullable<PriceReadings[Field]>[] };
+export type AiPriceDraft = PriceReadings & { uncertainty: string; alternatives?: PriceAlternatives };
 /** AI extraction supplies no shop, location or observation date. Never borrow samples. */
 export function observationFromDraft(draft:AiPriceDraft):ObservationCardItem {
   return {

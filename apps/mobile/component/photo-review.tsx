@@ -9,12 +9,12 @@ import { unitPriceLabel } from '@/data/observation';
 import { PhotoSuggestion } from './photo-analysis-review';
 import { marketColor as color } from './results/theme';
 
-export type ReviewSuggestion = { draft: AiPriceDraft; onApply: () => void };
+export type ReviewSuggestion = { draft: AiPriceDraft; onApply: (draft: AiPriceDraft) => void };
 
 type Props = {
   photo?: PhotoAsset; review: ManualReview; saved: boolean; busy: boolean;
   selectedShopName?: string;
-  onReviewChange: (review: ManualReview) => void;
+  onReviewChange: (review: ManualReview, field: keyof ManualReview) => void;
   onSave: () => void; onRetake?: () => void; onCrop?: () => void; onCancel?: () => void;
   galleryAction?: ReactNode; onOriginal?: () => void; onImageError?: () => void; children?: ReactNode;
   saveError?: string;
@@ -105,9 +105,9 @@ export function PhotoReview({ photo, review, selectedShopName, saved, busy, onRe
             alignAfterKeyboardOpens.current = false;
             revealPosition(y, 0);
           }}
-          onApply={() => {
+          onApply={selected => {
             alignAfterKeyboardOpens.current = false;
-            suggestion.onApply();
+            suggestion.onApply(selected);
             // Applying removes the suggestions. Measure the first field after the form updates.
             requestAnimationFrame(() => revealMeasuredField(firstFieldKey));
           }} /> : null}
@@ -123,7 +123,7 @@ export function PhotoReview({ photo, review, selectedShopName, saved, busy, onRe
           {field === 'packSize' && invalidPack ? <Text style={styles.note}>Enter the quantity and unit. For multipacks, include the count and size of each pack, for example 8 × 500 ml.</Text> : null}
           {field === 'productType' ? <Text style={styles.note}>Use the same type for products you would compare. For example, use different types for fresh potatoes and frozen chips.</Text> : null}
           {field === 'shop' && selectedShopName ? <Text accessibilityLabel={`${accessibilityLabel}: ${selectedShopName}`} style={styles.input}>{selectedShopName}</Text> : (
-            <TextInput accessibilityLabel={accessibilityLabel} placeholder={placeholder} placeholderTextColor="#666" value={review[field] ?? ''} maxLength={maxLength} editable={!busy} keyboardType={field === 'price' || field === 'unitPrice' ? 'decimal-pad' : 'default'} autoCapitalize={field === 'currency' ? 'characters' : 'sentences'} style={styles.input} onFocus={() => { focused.current = field; revealField(field); }} onBlur={() => { if (focused.current === field) focused.current = null; }} onChangeText={value => onReviewChange({ ...review, [field]: field === 'currency' ? value.toUpperCase().slice(0, 3) : value })} />
+            <TextInput accessibilityLabel={accessibilityLabel} placeholder={placeholder} placeholderTextColor="#666" value={review[field] ?? ''} maxLength={maxLength} editable={!busy} keyboardType={field === 'price' || field === 'unitPrice' ? 'decimal-pad' : 'default'} autoCapitalize={field === 'currency' ? 'characters' : 'sentences'} style={styles.input} onFocus={() => { focused.current = field; revealField(field); }} onBlur={() => { if (focused.current === field) focused.current = null; }} onChangeText={value => onReviewChange({ ...review, [field]: field === 'currency' ? value.toUpperCase().slice(0, 3) : value }, field)} />
           )}
           {field === 'price' && amount ? (
             <View style={styles.unitSummary}>

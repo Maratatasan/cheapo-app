@@ -16,7 +16,7 @@ type Story = StoryObj<typeof meta>;
 
 export const Ready: Story = {
   play: async ({ args, canvas, userEvent }) => {
-    await expect(canvas.getByText('Chopped tomatoes · £1.49')).toBeVisible();
+    await expect(canvas.getByRole('radio', { name: 'Total price: £1.49' })).toBeChecked();
     await userEvent.click(canvas.getByRole('button', { name: 'Use suggested details' }));
     await expect(args.onApply).toHaveBeenCalledOnce();
   },
@@ -32,6 +32,26 @@ export const LongDetails: Story = {
   },
   render: args => <div style={{ maxWidth: 320 }}><PhotoSuggestion {...args} /></div>,
   play: async ({ canvas }) => {
+    await expect(canvas.getByText('Currency unconfirmed. Check the label and enter prices in the form.')).toBeVisible();
     await expect(canvas.getByRole('button', { name: 'Use suggested details' })).toBeVisible();
+  },
+};
+
+export const UncertainPrice: Story = {
+  args: {
+    draft: { product: 'Chopped tomatoes', packSize: null, price: 1.49, currency: 'GBP', unit_price: null,
+      uncertainty: 'The last digit of the comparison price is partly obscured.', alternatives: { price: [1.79] } },
+  },
+  play: async ({ args, canvas, userEvent }) => {
+    const other = canvas.getByRole('radio', { name: 'Total price: £1.79' });
+    await expect(canvas.getByText('Total price · Uncertain')).toBeVisible();
+    await expect(canvas.getByText('Pack size unconfirmed')).toBeVisible();
+    canvas.getByRole('radio', { name: 'Total price: £1.49' }).focus();
+    await userEvent.keyboard('{ArrowRight}');
+    await expect(other).toBeChecked();
+    await expect(other).toHaveFocus();
+    await expect(args.onApply).not.toHaveBeenCalled();
+    await userEvent.click(canvas.getByRole('button', { name: 'Use suggested details' }));
+    await expect(args.onApply).toHaveBeenCalledWith(expect.objectContaining({ price: 1.79, packSize: null }));
   },
 };

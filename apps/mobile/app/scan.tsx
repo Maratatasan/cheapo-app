@@ -5,6 +5,7 @@ import { CameraComponent } from "@/component/camera";
 import { BarcodeScan } from "@/component/barcode-scan";
 import { ShopChooser, ShopLoadFeedback } from "@/component/shop/shop-chooser";
 import { useSavedShops } from "@/hooks/use-saved-shops";
+import { photoShopCountry } from "@/lib/direct-auth/shop-country";
 
 export default function ScanScreen() {
   const router = useRouter();
@@ -33,6 +34,7 @@ export default function ScanScreen() {
           onScanLabel={() => router.setParams({ mode: "label" })} />
       ) : (
         <CameraComponent currentShop={{ id: shop.id, displayName }}
+          currentShopCountry={photoShopCountry(shop.address)}
           onScanBarcode={Platform.OS === "web" ? undefined : () => router.setParams({ mode: "barcode" })} />
       )}
     </View>

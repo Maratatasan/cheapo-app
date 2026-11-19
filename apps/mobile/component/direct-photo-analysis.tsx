@@ -7,6 +7,7 @@ import type { AiPriceDraft } from '@/data/ai-observation';
 import type { PhotoAsset } from '@/data/local-photo';
 import { requestPhotoDraft } from '@/lib/direct-auth/photo-analysis';
 import { phoneAuth } from '@/lib/direct-auth/phone-session';
+import type { PhotoShopCountry } from '@/lib/direct-auth/shop-country';
 import { PhotoAnalysisControls } from './photo-analysis-review';
 import type { ReviewSuggestion } from './photo-review';
 
@@ -21,8 +22,9 @@ async function photoDataUrl(photo: PhotoAsset): Promise<string> {
   catch { throw new Error('Could not read the selected photo.'); }
 }
 
-export function DirectPhotoAnalysis({ photo, busy, onApply, children }: {
+export function DirectPhotoAnalysis({ photo, shopCountry, busy, onApply, children }: {
   photo: PhotoAsset;
+  shopCountry?: PhotoShopCountry;
   busy: boolean;
   onApply: (draft: AiPriceDraft) => void;
   children: (controls: ReactNode, suggestion?: ReviewSuggestion) => ReactNode;
@@ -58,7 +60,7 @@ export function DirectPhotoAnalysis({ photo, busy, onApply, children }: {
       if (controller.signal.aborted) return;
       const suggestion = await phoneAuth.withPlanAccess((accessToken) => {
         if (controller.signal.aborted) throw new Error('Photo analysis was cancelled.');
-        return requestPhotoDraft({ accessToken, image, signal: controller.signal });
+        return requestPhotoDraft({ accessToken, image, signal: controller.signal, shopCountry });
       });
       if (!controller.signal.aborted) {
         setDraft(suggestion);
@@ -92,8 +94,8 @@ export function DirectPhotoAnalysis({ photo, busy, onApply, children }: {
 
   return children(controls, draft ? {
     draft,
-    onApply: () => {
-      onApply(draft);
+    onApply: selected => {
+      onApply(selected);
       setDraft(undefined);
       setStatus('Suggestions added. Review or edit before saving.');
     },
