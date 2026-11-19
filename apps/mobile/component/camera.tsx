@@ -30,16 +30,25 @@ import { choosePhoto } from "@/lib/choose-photo";
 
 type LinkedPriceCapture = {
   productId: string;
+  barcode?: string;
   initialReview: ManualReview;
   onCancel: () => void;
   onSaved: () => void;
 };
 
-export const CameraComponent = ({ currentShop, currentShopCountry, onScanBarcode, linkedPrice }: {
+type BarcodeCapture = {
+  barcode: string;
+  initialReview?: ManualReview;
+  onCancel: () => void;
+  onSaved: () => void;
+};
+
+export const CameraComponent = ({ currentShop, currentShopCountry, onScanBarcode, linkedPrice, barcodeCapture }: {
   currentShop?: DraftShop;
   currentShopCountry?: PhotoShopCountry;
   onScanBarcode?: () => void;
   linkedPrice?: LinkedPriceCapture;
+  barcodeCapture?: BarcodeCapture;
 }) => {
   const [captureStage, setCaptureStage] = useState(() => Dimensions.get("window"));
   const captureFrame = fittedCameraFrame(captureStage);
@@ -52,7 +61,10 @@ export const CameraComponent = ({ currentShop, currentShopCountry, onScanBarcode
   const [visitShop, setVisitShop] = useState("");
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [barcode, setBarcode] = useState<{ value: string; confirmed?: string; error?: string }>({ value: "" });
+  const [barcode, setBarcode] = useState<{ value: string; confirmed?: string; error?: string }>(() => {
+    const value = barcodeCapture?.barcode.trim() ?? "";
+    return { value: canonicalProductBarcode(value) ? value : "" };
+  });
   const [barcodeScanOpen, setBarcodeScanOpen] = useState(false);
   const [decodedBarcodes, setDecodedBarcodes] = useState<{ draftId: string; result: PhotoBarcodeResult }>();
   const [saveError, setSaveError] = useState<string>();
@@ -60,9 +72,9 @@ export const CameraComponent = ({ currentShop, currentShopCountry, onScanBarcode
   const busy = saving;
   const savePending = useRef(false);
   useEffect(() => {
-    if (linkedPrice) return;
+    if (linkedPrice || barcodeCapture) return;
     loadLocalPhotos().then(photos => { setSavedPhotos(photos); if (photos[0]?.review?.shop) setVisitShop(photos[0].review.shop); }).catch(() => Alert.alert('Saved photos unavailable', 'Your saved photos could not be read. Try reopening Scan.'));
-  }, [linkedPrice]);
+  }, [linkedPrice, barcodeCapture]);
   const barcodePhoto = !linkedPrice && !draft?.productId ? draft?.original.uri : undefined;
   const barcodeDraftId = barcodePhoto ? draft?.id : undefined;
   useEffect(() => {
@@ -103,10 +115,16 @@ export const CameraComponent = ({ currentShop, currentShopCountry, onScanBarcode
 
   function selectPhoto(photo: PhotoAsset, cropBox?: CropBox) {
     editedFields.current.clear();
-    changeBarcode("");
+    if (barcodeCapture?.initialReview) {
+      for (const field of ["productName", "productType", "variety", "brand", "packSize"] as const) {
+        if (barcodeCapture.initialReview[field]?.trim()) editedFields.current.add(field);
+      }
+    }
+    if (!barcodeCapture) changeBarcode("");
+    setSaveError(undefined);
     setCropping(cropBox !== undefined);
     setDraft({ id: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`, capturedAt: new Date().toISOString(),
-      original: photo, selected: photo, review: linkedPrice?.initialReview ?? emptyReview(currentShop?.displayName ?? visitShop),
+      original: photo, selected: photo, review: linkedPrice?.initialReview ?? barcodeCapture?.initialReview ?? emptyReview(currentShop?.displayName ?? visitShop),
       cropBox, shop: currentShop, productId: linkedPrice?.productId });
     setSaved(false);
   }
@@ -152,7 +170,7 @@ export const CameraComponent = ({ currentShop, currentShopCountry, onScanBarcode
       setDraft(persisted);
       setSaved(true);
       setSavedPhotos(current => [persisted, ...current.filter(item => item.id !== persisted.id)]);
-      linkedPrice?.onSaved();
+      (linkedPrice ?? barcodeCapture)?.onSaved();
     } catch {
       if (barcode.confirmed && pendingDraft.productId) {
         setSaveError('Product saved. Your photo is kept here. Try saving the price again.');
@@ -200,8 +218,10 @@ export const CameraComponent = ({ currentShop, currentShopCountry, onScanBarcode
   const barcodeButton = onScanBarcode ? (
     <CameraActionButton label="Scan product barcode" disabled={photoAction !== null} onPress={onScanBarcode} />
   ) : null;
-  const linkedCancel = linkedPrice ? (
-    <CameraActionButton label="Back to price entry" disabled={photoAction !== null} onPress={linkedPrice.onCancel} />
+  const captureContext = linkedPrice ?? barcodeCapture;
+  const captureCancel = captureContext ? (
+    <CameraActionButton label={linkedPrice ? "Back to price entry" : "Back to Add product"}
+      disabled={photoAction !== null} onPress={captureContext.onCancel} />
   ) : null;
   const choosePhotoButton = Platform.OS !== "web" ? (
     <CameraActionButton
@@ -232,7 +252,7 @@ export const CameraComponent = ({ currentShop, currentShopCountry, onScanBarcode
       <View key="permission" collapsable={false} style={styles.permissionContainer}>
         <CameraPermissionActions onGrant={requestPermission} disabled={photoAction !== null} choosePhoto={choosePhotoButton}>
           {barcodeButton}
-          {linkedCancel}
+          {captureCancel}
           {testPhotoButton}
           {savedPhotoButtons}
         </CameraPermissionActions>
@@ -261,7 +281,7 @@ export const CameraComponent = ({ currentShop, currentShopCountry, onScanBarcode
   };
 
   const retakePhoto = () => {
-    changeBarcode("");
+    if (!barcodeCapture) changeBarcode("");
     setDraft(null); setSaved(false); setCropping(false);
   };
 
@@ -299,14 +319,16 @@ export const CameraComponent = ({ currentShop, currentShopCountry, onScanBarcode
         suggestion={suggestion}
         recordingPrice={Boolean(linkedPrice || (draft.productId && barcode.confirmed))}
         saveError={saveError}
+        savedBarcode={linkedPrice?.barcode}
         barcodeReview={!linkedPrice && (!draft.productId || barcode.confirmed) ? (
           <PhotoBarcodeReview result={decodedBarcodes?.draftId === draft.id ? decodedBarcodes.result : undefined}
-            value={barcode.value} confirmed={Boolean(barcode.confirmed)} locked={Boolean(draft.productId)} busy={busy}
+            value={barcode.value} confirmed={Boolean(barcode.confirmed)}
+            carried={barcode.value === barcodeCapture?.barcode.trim()} locked={Boolean(draft.productId)} busy={busy}
             error={barcode.error} onChange={changeBarcode} onConfirm={confirmBarcode} onClear={() => changeBarcode("")}
             onScan={Platform.OS !== "web" ? openBarcodeScan : undefined} />
         ) : undefined}
-        onCancel={linkedPrice?.onCancel}
-        onRetake={retakePhoto}
+        onCancel={captureContext?.onCancel}
+        onRetake={barcodeCapture && draft.productId ? undefined : retakePhoto}
         onCrop={() => setCropping(true)}
         onOriginal={draft.selected.uri !== draft.original.uri ? () => { setDraft({ ...draft, selected: draft.original, cropBox: fullPhoto }); setSaved(false); } : undefined}
         onImageError={() => {
@@ -365,7 +387,7 @@ export const CameraComponent = ({ currentShop, currentShopCountry, onScanBarcode
         choosePhoto={choosePhotoButton}
       >
         {barcodeButton}
-        {linkedCancel}
+        {captureCancel}
         {testPhotoButton}
         {savedPhotoButtons}
       </CameraCaptureActions>

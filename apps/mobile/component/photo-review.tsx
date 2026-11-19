@@ -20,10 +20,11 @@ type Props = {
   saveError?: string;
   suggestion?: ReviewSuggestion;
   barcodeReview?: ReactNode;
+  savedBarcode?: string;
   recordingPrice?: boolean;
 };
 
-export function PhotoReview({ photo, review, selectedShopName, saved, busy, onReviewChange, onSave, onRetake, onCrop, onCancel, onOriginal, onImageError, galleryAction, children, saveError, recordingPrice, suggestion, barcodeReview }: Props) {
+export function PhotoReview({ photo, review, selectedShopName, saved, busy, onReviewChange, onSave, onRetake, onCrop, onCancel, onOriginal, onImageError, galleryAction, children, saveError, recordingPrice, suggestion, barcodeReview, savedBarcode }: Props) {
   const container = useRef<ComponentRef<typeof View>>(null);
   const scroll = useRef<ComponentRef<typeof ScrollView>>(null);
   const fieldViews = useRef<Partial<Record<keyof ManualReview, ComponentRef<typeof View> | null>>>({});
@@ -34,7 +35,7 @@ export function PhotoReview({ photo, review, selectedShopName, saved, busy, onRe
   const [headerOffset, setHeaderOffset] = useState(0);
   const hasPhoto = Boolean(photo);
   const complete = reviewComplete(review, selectedShopName);
-  const editing = !!onCancel && !recordingPrice;
+  const editing = !!onCancel && !recordingPrice && !onRetake;
   const requireComplete = editing || recordingPrice;
   const revealPosition = useCallback((y: number, margin = 12) => {
     scroll.current?.scrollTo({ y: Math.max(0, y - margin), animated: false });
@@ -112,7 +113,10 @@ export function PhotoReview({ photo, review, selectedShopName, saved, busy, onRe
             // Applying removes the suggestions. Measure the first field after the form updates.
             requestAnimationFrame(() => revealMeasuredField(firstFieldKey));
           }} /> : null}
-        {barcodeReview}
+        {savedBarcode ? <View style={styles.field}>
+          <Text style={styles.label}>Product barcode</Text>
+          <Text selectable style={styles.input}>{savedBarcode}</Text>
+        </View> : barcodeReview}
         {fields.map(([field, label, accessibilityLabel, placeholder, maxLength]) => <View key={field} ref={view => { fieldViews.current[field] = view; }}
           collapsable={false} style={styles.field} onLayout={event => {
           positions.current[field] = event.nativeEvent.layout.y;

@@ -1,10 +1,12 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { BarcodeScan } from '@/component/barcode-scan';
+import type { CameraComponent } from '@/component/camera';
 import { addLocalProduct, findLocalProductByBarcode, replaceLocalProductBarcode } from '@/data/local-products';
 import { emptyReview } from '@/data/photo-review';
 import { loadSavedPriceRecords, saveManualPrice, type LocalPhotoDraft } from '@/data/local-photo';
 
 const mockPush = jest.fn();
+const mockCameraProps = jest.fn<unknown, [Parameters<typeof CameraComponent>[0]]>();
 jest.mock('expo-router', () => ({
   useRouter: () => ({ push: mockPush }),
   useFocusEffect: (callback: () => void) => require('react').useEffect(callback, [callback]),
@@ -18,7 +20,11 @@ jest.mock('expo-camera', () => ({
 }));
 jest.mock('@/data/local-products', () => ({ addLocalProduct: jest.fn(), findLocalProductByBarcode: jest.fn(), replaceLocalProductBarcode: jest.fn() }));
 jest.mock('@/data/local-photo', () => ({ loadSavedPriceRecords: jest.fn(), saveManualPrice: jest.fn() }));
-jest.mock('@/component/camera', () => ({ CameraComponent: () => null }));
+jest.mock('@/component/camera', () => ({ CameraComponent: (props: Parameters<typeof CameraComponent>[0]) => {
+  const { Button } = require('react-native');
+  mockCameraProps(props);
+  return <Button title="Return from photo" onPress={(props.barcodeCapture ?? props.linkedPrice)?.onCancel} />;
+} }));
 jest.mock('expo-crypto', () => ({ randomUUID: () => 'manual-price-id' }));
 
 const currentShop = { id: 'selected-shop', displayName: 'Selected shop' };
@@ -247,9 +253,47 @@ test('carries an unknown barcode into product entry without a shop or an automat
   await scan();
   await fireEvent.press(screen.getByRole('button', { name: 'Add product' }));
   expect(screen.getByText('Barcode 00012345678905')).toBeOnTheScreen();
+  expect(screen.queryByRole('button', { name: 'Add product and price from photo' })).not.toBeOnTheScreen();
   expect(addLocalProduct).not.toHaveBeenCalled();
   await fireEvent.changeText(screen.getByLabelText('Product name'), 'Unsaved product');
   await fireEvent.press(screen.getByRole('button', { name: 'Cancel' }));
   expect(screen.getByTestId('barcode-preview')).toBeOnTheScreen();
   expect(addLocalProduct).not.toHaveBeenCalled();
+});
+
+
+test('shows the catalog barcode in known price entry and passes it to linked photo review', async () => {
+  const barcode = '00012345678905';
+  jest.mocked(findLocalProductByBarcode).mockResolvedValue({ ...product, barcode });
+  jest.mocked(loadSavedPriceRecords).mockResolvedValue([]);
+  await render(<BarcodeScan currentShop={currentShop} onScanLabel={jest.fn()} />);
+  await scan();
+  await fireEvent.press(screen.getByRole('button', { name: 'Add price' }));
+  expect(screen.getByText(barcode)).toBeOnTheScreen();
+  expect(screen.queryByLabelText('Product barcode')).not.toBeOnTheScreen();
+  await fireEvent.changeText(screen.getByLabelText('Pack price'), '1.95');
+  await fireEvent.press(screen.getByRole('button', { name: 'Scan shelf label' }));
+  expect(mockCameraProps).toHaveBeenCalledWith(expect.objectContaining({
+    currentShop,
+    linkedPrice: expect.objectContaining({ productId: product.id, barcode, initialReview: expect.objectContaining({ price: '1.95' }) }),
+  }));
+  expect(addLocalProduct).not.toHaveBeenCalled();
+});
+
+test('opens a price photo with the unknown scan and keeps Add product fields when cancelled', async () => {
+  jest.mocked(findLocalProductByBarcode).mockResolvedValue(undefined);
+  await render(<BarcodeScan currentShop={currentShop} onScanLabel={jest.fn()} />);
+  await scan();
+  await fireEvent.press(screen.getByRole('button', { name: 'Add product' }));
+  await fireEvent.changeText(screen.getByLabelText('Product name'), 'Entered name');
+  await fireEvent.press(screen.getByRole('button', { name: 'Add product and price from photo' }));
+  expect(mockCameraProps).toHaveBeenCalledWith(expect.objectContaining({
+    currentShop,
+    barcodeCapture: expect.objectContaining({ barcode: '00012345678905', initialReview: expect.objectContaining({ productName: 'Entered name', price: '' }) }),
+  }));
+  expect(screen.queryByLabelText('Product name')).not.toBeOnTheScreen();
+  await fireEvent.press(screen.getByRole('button', { name: 'Return from photo' }));
+  expect(screen.getByLabelText('Product name')).toHaveDisplayValue('Entered name');
+  expect(addLocalProduct).not.toHaveBeenCalled();
+  expect(saveManualPrice).not.toHaveBeenCalled();
 });

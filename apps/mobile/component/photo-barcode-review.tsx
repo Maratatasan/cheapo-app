@@ -7,6 +7,7 @@ type Props = {
   result?: PhotoBarcodeResult;
   value: string;
   confirmed: boolean;
+  carried?: boolean;
   locked?: boolean;
   busy: boolean;
   error?: string;
@@ -24,7 +25,7 @@ const messages = {
   unavailable: 'Photo barcode reading is unavailable.',
 };
 
-export function PhotoBarcodeReview({ result, value, confirmed, locked, busy, error, onChange, onConfirm, onClear, onScan }: Props) {
+export function PhotoBarcodeReview({ result, value, confirmed, carried, locked, busy, error, onChange, onConfirm, onClear, onScan }: Props) {
   const scanButton = onScan && !locked ? (
     <Pressable accessibilityRole="button" accessibilityLabel="Scan barcode"
       disabled={busy} onPress={onScan} style={[styles.scan, busy && styles.disabled]}>
@@ -51,7 +52,7 @@ export function PhotoBarcodeReview({ result, value, confirmed, locked, busy, err
         </>
       ) : (
         <>
-          <Text accessibilityLiveRegion="polite" style={styles.note}>{messages[result?.status ?? 'pending']}</Text>
+          <Text accessibilityLiveRegion="polite" style={styles.note}>{carried ? 'Review the barcode from your scan.' : messages[result?.status ?? 'pending']}</Text>
           {result?.status === 'found' ? <View style={styles.choices}>
             {result.codes.map(code => (
               <Pressable key={code} accessibilityRole="button" accessibilityLabel={`Barcode ${code}`}
