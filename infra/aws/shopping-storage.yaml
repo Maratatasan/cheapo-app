@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: Private Cheapo shopping-history database and photo storage in Stockholm.
+Description: Private Cheapo Aurora PostgreSQL and photo storage in Stockholm.
 
 Metadata:
   AWSToolsMetrics:
@@ -27,7 +27,7 @@ Resources:
     Type: AWS::EC2::Subnet
     Metadata:
       com.aws.cloudformation.Context:
-        why: Hosts the Single-AZ database in the first Stockholm zone.
+        why: Hosts the Aurora writer in the first Stockholm zone.
         must: Keep public IPv4 assignment disabled.
     Properties:
       VpcId: !Ref VpcId
@@ -98,33 +98,47 @@ Resources:
       VpcId: !Ref VpcId
 
   Database:
-    Type: AWS::RDS::DBInstance
+    Type: AWS::RDS::DBCluster
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
     Metadata:
       com.aws.cloudformation.Context:
-        why: Holds relational shopping data while large photo files live separately.
-        must: Keep encrypted storage, certificate-verified client TLS, backups and deletion protection.
+        why: Stores Cheapo's PostgreSQL data while photo files live separately.
+        must: Keep private networking, encryption, backups and deletion protection.
     Properties:
-      DBInstanceClass: db.t4g.micro
-      Engine: postgres
+      Engine: aurora-postgresql
+      EngineMode: provisioned
       EngineVersion: '17.11'
       EngineLifecycleSupport: open-source-rds-extended-support-disabled
-      AutoMinorVersionUpgrade: true
-      DBName: cheapo
+      DatabaseName: cheapo
       MasterUsername: cheapo_admin
       ManageMasterUserPassword: true
-      MultiAZ: false
-      AvailabilityZone: eu-north-1a
-      PubliclyAccessible: false
+      EnableHttpEndpoint: false
       DBSubnetGroupName: !Ref DatabaseSubnets
-      VPCSecurityGroups: [!Ref DatabaseSecurityGroup]
-      AllocatedStorage: '20'
-      StorageType: gp3
+      VpcSecurityGroupIds: [!GetAtt DatabaseSecurityGroup.GroupId]
+      StorageType: aurora
       StorageEncrypted: true
+      ServerlessV2ScalingConfiguration:
+        MinCapacity: 0
+        MaxCapacity: 1
+        SecondsUntilAutoPause: 900
       BackupRetentionPeriod: 7
       CopyTagsToSnapshot: true
       DeletionProtection: true
+
+  DatabaseWriter:
+    Type: AWS::RDS::DBInstance
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: Runs the single beta writer in the same zone as the migration runner.
+        must: Keep public access off and use serverless compute.
+    Properties:
+      DBClusterIdentifier: !Ref Database
+      DBInstanceClass: db.serverless
+      Engine: aurora-postgresql
+      AvailabilityZone: eu-north-1a
+      PubliclyAccessible: false
+      AutoMinorVersionUpgrade: true
 
   PhotoBucket:
     Type: AWS::S3::Bucket
@@ -179,6 +193,8 @@ Outputs:
     Value: !Ref Database
   DatabaseEndpoint:
     Value: !GetAtt Database.Endpoint.Address
+  DatabaseWriterIdentifier:
+    Value: !Ref DatabaseWriter
   DatabaseSecurityGroupId:
     Value: !GetAtt DatabaseSecurityGroup.GroupId
   PhotoBucketName:
