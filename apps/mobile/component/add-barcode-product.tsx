@@ -2,11 +2,12 @@ import { useState } from 'react';
 import { Keyboard, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { normalizeName } from '@cheapo/domain/names';
 import type { Product } from '@cheapo/domain';
-import { packSizeMaxLength, productPackFromText } from '@/data/photo-review';
+import { packSizeMaxLength, productPackFromText, type ManualReview } from '@/data/photo-review';
 import { productMetadataMaxLength } from '@/data/product-metadata';
 import { color, radius, spacing, typography, ui } from './results/theme';
 
 export type BarcodeProductDetails = Omit<Product, 'id' | 'barcode'>;
+type PhotoProductDetails = Pick<ManualReview, 'productName' | 'productType' | 'variety' | 'brand' | 'packSize'>;
 const fields = [
   ['name', 'Product name', 'For example basmati rice', 200],
   ['productType', 'Product type', 'For example dry rice', productMetadataMaxLength],
@@ -15,12 +16,13 @@ const fields = [
   ['pack', 'Pack size (optional)', 'For example 500 g or 8 × 500 mL', packSizeMaxLength],
 ] as const;
 
-export function AddBarcodeProduct({ barcode, busy, error, onSave, onCancel }: {
+export function AddBarcodeProduct({ barcode, busy, error, onSave, onCancel, onPhoto }: {
   barcode: string;
   busy: boolean;
   error?: string;
   onSave: (details: BarcodeProductDetails) => void;
   onCancel: () => void;
+  onPhoto?: (details: PhotoProductDetails) => void;
 }) {
   const [values, setValues] = useState({ name: '', productType: '', variety: '', brand: '', pack: '' });
   const [attempted, setAttempted] = useState(false);
@@ -44,6 +46,14 @@ export function AddBarcodeProduct({ barcode, busy, error, onSave, onCancel }: {
       keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
       <Text accessibilityRole="header" style={ui.title}>Add product</Text>
       <Text style={ui.body} selectable>Barcode {barcode}</Text>
+      {onPhoto ? <Pressable accessibilityRole="button" disabled={busy} style={[ui.button, styles.cancel, busy && styles.disabled]}
+        onPress={() => {
+          Keyboard.dismiss();
+          onPhoto({ productName: values.name, productType: values.productType, variety: values.variety,
+            brand: values.brand, packSize: values.pack });
+        }}>
+        <Text style={styles.label}>Add product and price from photo</Text>
+      </Pressable> : null}
       {fields.map(([key, label, placeholder, maxLength]) => (
         <View key={key} style={styles.field}>
           <Text style={styles.label}>{label}</Text>

@@ -19,7 +19,7 @@ import { loadSavedPriceRecords, saveManualPrice, type DraftShop, type ManualPric
 import { addLocalProduct, findLocalProductByBarcode, replaceLocalProductBarcode } from '@/data/local-products';
 import { canonicalProductBarcode } from '@/data/product-barcode';
 import { comparisonRowFromDraft } from '@/data/saved-comparison';
-import { calculatePackUnitPrice, emptyReview, reviewComplete } from '@/data/photo-review';
+import { calculatePackUnitPrice, emptyReview, reviewComplete, type ManualReview } from '@/data/photo-review';
 
 type ScanResult =
   | { kind: 'loading' | 'error' }
@@ -29,7 +29,7 @@ type ScanResult =
 
 type ScanEntry =
   | { kind: 'product'; id: string; barcode: string }
-  | { kind: 'price'; record: ManualPriceRecord };
+  | { kind: 'price'; record: ManualPriceRecord; barcode?: string };
 
 type BarcodeEdit = { current: string; target?: Product; proposed?: string; mode: 'choose' | 'scan' | 'manual'; error?: string };
 
@@ -58,6 +58,7 @@ export function BarcodeScan({ currentShop, onScanLabel }: { currentShop?: DraftS
   const [entry, setEntry] = useState<ScanEntry>();
   const [barcodeEdit, setBarcodeEdit] = useState<BarcodeEdit>();
   const [capture, setCapture] = useState(false);
+  const [productPhoto, setProductPhoto] = useState<{ shop: DraftShop; review: ManualReview }>();
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string>();
   const active = useRef<AbortController | null>(null);
@@ -149,6 +150,7 @@ export function BarcodeScan({ currentShop, onScanLabel }: { currentShop?: DraftS
   function scanAgain() {
     setEntry(undefined);
     setCapture(false);
+    setProductPhoto(undefined);
     setSaveError(undefined);
     selected.current = undefined;
     reading.current = false;
@@ -184,7 +186,7 @@ export function BarcodeScan({ currentShop, onScanLabel }: { currentShop?: DraftS
 
   function startPrice(product: Product, shop: DraftShop) {
     const pack = packLabel(product.pack);
-    setEntry({ kind: 'price', record: {
+    setEntry({ kind: 'price', barcode: product.barcode, record: {
       id: randomUUID(), capturedAt: new Date().toISOString(), productId: product.id, shop,
       review: { ...emptyReview(shop.displayName), productName: product.name, productType: product.productType,
         variety: product.variety, brand: product.brand, packSize: pack && calculatePackUnitPrice('1', pack) ? pack : undefined },
@@ -211,21 +213,33 @@ export function BarcodeScan({ currentShop, onScanLabel }: { currentShop?: DraftS
     }
   }
 
-  if (entry?.kind === 'product') return <AddBarcodeProduct barcode={entry.barcode} busy={saving} error={saveError}
-    onSave={saveProduct} onCancel={scanAgain} />;
+  if (entry?.kind === 'product') return (
+    <View style={ui.page}>
+      <View style={productPhoto ? styles.hidden : ui.page}>
+        <AddBarcodeProduct barcode={entry.barcode} busy={saving} error={saveError} onSave={saveProduct} onCancel={scanAgain}
+          onPhoto={currentShop ? details => setProductPhoto({
+            shop: currentShop, review: { ...emptyReview(currentShop.displayName), ...details },
+          }) : undefined} />
+      </View>
+      {productPhoto ? <CameraComponent currentShop={productPhoto.shop} barcodeCapture={{ barcode: entry.barcode,
+        initialReview: productPhoto.review, onCancel: () => setProductPhoto(undefined), onSaved: scanAgain }} /> : null}
+    </View>
+  );
 
-  const priceRecord = entry?.kind === 'price' ? entry.record : undefined;
-  if (priceRecord && capture) return (
-    <CameraComponent currentShop={priceRecord.shop} linkedPrice={{ productId: priceRecord.productId,
-      initialReview: priceRecord.review, onCancel: () => setCapture(false), onSaved: scanAgain }} />
-  );
-  if (priceRecord) return (
-    <PhotoReview review={priceRecord.review} selectedShopName={priceRecord.shop.displayName} recordingPrice
-      saved={false} busy={saving} onReviewChange={review => setEntry({ kind: 'price', record: { ...priceRecord, review } })}
-      onSave={savePrice} onCancel={() => setEntry(undefined)} saveError={saveError}>
-      <CameraActionButton label="Scan shelf label" disabled={saving} onPress={() => setCapture(true)} />
-    </PhotoReview>
-  );
+  if (entry?.kind === 'price') {
+    const { barcode, record } = entry;
+    if (capture) return (
+      <CameraComponent currentShop={record.shop} linkedPrice={{ productId: record.productId, barcode,
+        initialReview: record.review, onCancel: () => setCapture(false), onSaved: scanAgain }} />
+    );
+    return (
+      <PhotoReview review={record.review} selectedShopName={record.shop.displayName} recordingPrice savedBarcode={barcode}
+        saved={false} busy={saving} onReviewChange={review => setEntry({ ...entry, record: { ...record, review } })}
+        onSave={savePrice} onCancel={() => setEntry(undefined)} saveError={saveError}>
+        <CameraActionButton label="Scan shelf label" disabled={saving} onPress={() => setCapture(true)} />
+      </PhotoReview>
+    );
+  }
 
   if (result && !returnFromScan) return (
     <View style={ui.page}>
@@ -283,6 +297,7 @@ export function BarcodeScan({ currentShop, onScanLabel }: { currentShop?: DraftS
 }
 
 const styles = StyleSheet.create({
+  hidden: { display: 'none' },
   camera: { flex: 1, backgroundColor: '#000' },
   permission: { flex: 1, justifyContent: 'center', backgroundColor: '#000', padding: 24 },
   actions: { padding: 16, gap: 8 },

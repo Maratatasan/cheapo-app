@@ -328,13 +328,15 @@ describe("CameraComponent", () => {
     mockPermission = { granted: false };
     mockChoosePhoto.mockResolvedValue({ uri: 'file:///label.jpg', width: 1200, height: 800, mimeType: 'image/jpeg' });
     mockSaveLocalPhoto.mockImplementation(async (draft) => draft);
-    await render(<CameraComponent currentShop={shop} linkedPrice={{ productId: 'exact-product',
+    await render(<CameraComponent currentShop={shop} linkedPrice={{ productId: 'exact-product', barcode: '5449000152473',
       initialReview: { productName: 'Known rice', shop: shop.displayName, price: '', currency: 'GBP', unit: '', unitPrice: '' },
       onCancel: jest.fn(), onSaved }} />);
     await fireEvent.press(screen.getByRole('button', { name: 'Choose photo' }));
     await fireEvent.press(await screen.findByRole('button', { name: /apply crop/i }));
 
     expect(screen.getByText('Known rice')).toBeOnTheScreen();
+    expect(screen.getByText('5449000152473')).toBeOnTheScreen();
+    expect(screen.queryByRole('button', { name: 'Confirm barcode' })).not.toBeOnTheScreen();
     expect(screen.queryByLabelText('Product name')).not.toBeOnTheScreen();
     expect(screen.getByRole('button', { name: 'Save Price' })).toBeDisabled();
     await fireEvent.changeText(screen.getByLabelText('Pack price'), '2.50');
@@ -348,6 +350,31 @@ describe("CameraComponent", () => {
     expect(mockScanFromURLAsync).not.toHaveBeenCalled();
     expect(mockAddLocalProduct).not.toHaveBeenCalled();
     expect(onSaved).toHaveBeenCalledTimes(1);
+  });
+
+  it('carries a scanned barcode into new-product photos and preserves it through crop and retake', async () => {
+    jest.replaceProperty(Platform, 'OS', 'android');
+    mockPermission = { granted: false };
+    const onCancel = jest.fn();
+    mockChoosePhoto.mockResolvedValue({ uri: 'file:///package.jpg', width: 1200, height: 800, mimeType: 'image/jpeg' });
+    await render(<CameraComponent currentShop={{ id: 'shop', displayName: 'Shop' }}
+      barcodeCapture={{ barcode: '036000291452', onCancel, onSaved: jest.fn() }} />);
+
+    await fireEvent.press(screen.getByRole('button', { name: 'Choose photo' }));
+    await fireEvent.press(await screen.findByRole('button', { name: /^Apply crop$/i }));
+    expect(screen.getByLabelText('Product barcode')).toHaveDisplayValue('036000291452');
+    expect(screen.getByRole('button', { name: 'Confirm barcode' })).toBeEnabled();
+    await fireEvent.press(screen.getByRole('button', { name: 'Save on this phone' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(/confirm the barcode/i);
+
+    await fireEvent.press(screen.getByRole('button', { name: /^Retake$/i }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Choose photo' }));
+    await fireEvent.press(await screen.findByRole('button', { name: /^Cancel crop$/i }));
+    expect(screen.getByLabelText('Product barcode')).toHaveDisplayValue('036000291452');
+    await fireEvent.press(screen.getByRole('button', { name: /^Cancel$/i }));
+    expect(onCancel).toHaveBeenCalledTimes(1);
+    expect(mockAddLocalProduct).not.toHaveBeenCalled();
+    expect(mockSaveLocalPhoto).not.toHaveBeenCalled();
   });
 
   it('scrolls to completed suggestions, then to the first field after applying', async () => {

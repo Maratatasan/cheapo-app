@@ -4,6 +4,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import type { Meta, StoryObj } from '@storybook/react-native-web-vite';
 import { expect, within } from 'storybook/test';
 
+import { AddBarcodeProduct } from '../component/add-barcode-product';
 import { CameraActionButton } from '../component/camera-actions';
 import { PhotoBarcodeReview } from '../component/photo-barcode-review';
 import { PhotoReview } from '../component/photo-review';
@@ -22,10 +23,12 @@ const suggestion: AiPriceDraft = {
   packSize: '500 g', unit_price: null, uncertainty: '',
 };
 
-function ReviewExample({ result, conflict = false }: { result?: PhotoBarcodeResult; conflict?: boolean }) {
-  const [review, setReview] = useState(() => emptyReview('Example shop'));
-  const [showSuggestion, setShowSuggestion] = useState(true);
-  const [value, setValue] = useState(conflict ? '4006381333931' : '');
+function ReviewExample({ result, conflict = false, savedBarcode, carriedBarcode, productName }: {
+  result?: PhotoBarcodeResult; conflict?: boolean; savedBarcode?: string; carriedBarcode?: string; productName?: string;
+}) {
+  const [review, setReview] = useState(() => ({ ...emptyReview('Example shop'), productName: productName ?? '' }));
+  const [showSuggestion, setShowSuggestion] = useState(!savedBarcode && !carriedBarcode);
+  const [value, setValue] = useState(conflict ? '4006381333931' : carriedBarcode ?? '');
   const [confirmed, setConfirmed] = useState(conflict);
   const [saved, setSaved] = useState(false);
   const [scanning, setScanning] = useState(false);
@@ -34,13 +37,14 @@ function ReviewExample({ result, conflict = false }: { result?: PhotoBarcodeResu
     <View style={{ height: 740, width: '100%', maxWidth: 428 }}>
       <SafeAreaProvider initialMetrics={{ frame: { x: 0, y: 0, width: 428, height: 740 }, insets: { top: 0, bottom: 0, left: 0, right: 0 } }}>
         <PhotoReview review={review} selectedShopName="Example shop" saved={saved} busy={false}
+          savedBarcode={savedBarcode} recordingPrice={Boolean(savedBarcode)}
           onReviewChange={setReview} onSave={() => { if (!conflict || !confirmed) setSaved(true); }}
           saveError={conflict && confirmed ? 'This barcode already has a saved product. Scan it again to open that product.' : undefined}
           suggestion={showSuggestion ? { draft: suggestion, onApply: selected => {
             setReview(current => applyPhotoSuggestion(current, selected, new Set()));
             setShowSuggestion(false);
           } } : undefined}
-          barcodeReview={<PhotoBarcodeReview result={result} value={value} confirmed={confirmed}
+          barcodeReview={<PhotoBarcodeReview result={result} value={value} confirmed={confirmed} carried={value === carriedBarcode}
             busy={false} error={error} onChange={next => { setValue(next); setError(undefined); }}
             onConfirm={() => {
               if (canonicalProductBarcode(value)) setConfirmed(true);
@@ -104,6 +108,40 @@ export const LiveScanFallback: Story = {
     await userEvent.click(canvas.getByRole('button', { name: 'Scan barcode' }));
     await userEvent.click(await modal.findByRole('button', { name: 'Read example barcode' }));
     await expect(canvas.getByLabelText('Product barcode')).toHaveValue('5449000152473');
+    await expect(canvas.getByRole('button', { name: 'Confirm barcode' })).toBeEnabled();
+    await expect(canvas.getByText('Review photo · Not saved')).toBeVisible();
+  },
+};
+
+export const SavedBarcode: Story = {
+  render: () => <ReviewExample savedBarcode="00036000291452" productName="Example tomatoes" />,
+  play: async ({ canvas, userEvent }) => {
+    await expect(canvas.getByText('00036000291452')).toBeVisible();
+    await expect(canvas.queryByRole('button', { name: 'Confirm barcode' })).not.toBeInTheDocument();
+    await userEvent.type(canvas.getByLabelText('Pack price'), '2.50');
+    await expect(canvas.getByRole('button', { name: 'Save Price' })).toBeEnabled();
+  },
+};
+
+function AddProductFromPhoto() {
+  const barcode = '00036000291452';
+  const [productName, setProductName] = useState<string>();
+  if (productName !== undefined) {
+    return <ReviewExample carriedBarcode={barcode} productName={productName} result={{ status: 'empty' }} />;
+  }
+  return <View style={{ height: 740, width: '100%', maxWidth: 428 }}>
+    <AddBarcodeProduct barcode={barcode} busy={false} onSave={() => {}} onCancel={() => {}}
+      onPhoto={details => setProductName(details.productName)} />
+  </View>;
+}
+
+export const CarriedBarcode: Story = {
+  render: () => <AddProductFromPhoto />,
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.type(canvas.getByLabelText('Product name'), 'Example tomatoes');
+    await userEvent.click(canvas.getByRole('button', { name: 'Add product and price from photo' }));
+    await expect(canvas.getByLabelText('Product name')).toHaveValue('Example tomatoes');
+    await expect(canvas.getByLabelText('Product barcode')).toHaveValue('00036000291452');
     await expect(canvas.getByRole('button', { name: 'Confirm barcode' })).toBeEnabled();
     await expect(canvas.getByText('Review photo · Not saved')).toBeVisible();
   },
