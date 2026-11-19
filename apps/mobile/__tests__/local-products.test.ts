@@ -1,4 +1,4 @@
-import { addLocalProduct, findLocalProductByBarcode, replaceLocalProductBarcode } from '@/data/local-products';
+import { addLocalProduct, findLocalProductByBarcode, loadLocalCatalogBackup, replaceLocalProductBarcode } from '@/data/local-products';
 
 const mockFiles = new Map<string, string>();
 let mockFailWrite = false;
@@ -91,6 +91,32 @@ test('keeps both mappings on conflict and the original on a failed correction', 
   mockFailWrite = false;
   await expect(replaceLocalProductBarcode(saved.id, product.barcode, '96385074')).resolves.toMatchObject({ id: saved.id });
   await expect(replaceLocalProductBarcode(saved.id, product.barcode, '4006381333931')).rejects.toThrow('changed');
+});
+
+test('backs up legacy rows, original mappings, and the ordered corrections without changing storage', async () => {
+  const legacy = { ...product, id: 'legacy', barcode: '036000291452' };
+  const withoutBarcode = { id: 'no-barcode', name: 'Older product' };
+  mockFiles.set(mockCatalog, JSON.stringify([legacy, withoutBarcode]));
+  mockFiles.set('file:///test-documents/products-by-barcode/00000000000000-orphan.pending', '{partial');
+  const original = await addLocalProduct(addable);
+  const first = await replaceLocalProductBarcode(original.id, original.barcode!, '4006381333931');
+  const second = await replaceLocalProductBarcode(original.id, first.barcode!, '96385074');
+  const before = [...mockFiles];
+
+  await expect(loadLocalCatalogBackup()).resolves.toEqual({
+    legacyProducts: [legacy, withoutBarcode],
+    originalProducts: [original],
+    corrections: [
+      { revision: 1, previous: original.barcode, product: first },
+      { revision: 2, previous: first.barcode, product: second },
+    ],
+  });
+  expect([...mockFiles]).toEqual(before);
+});
+
+test('reports an unreadable committed catalog row instead of silently omitting it from a backup', async () => {
+  mockFiles.set('file:///test-documents/products-by-barcode/00012345678905.json', '{partial');
+  await expect(loadLocalCatalogBackup()).rejects.toThrow();
 });
 
 

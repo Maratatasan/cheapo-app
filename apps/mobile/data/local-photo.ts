@@ -3,7 +3,7 @@ import { randomUUID } from 'expo-crypto';
 import { Directory, File, Paths } from 'expo-file-system';
 
 import type { CropBox } from './crop-geometry';
-import { addLocalProduct, findLocalProductByBarcode } from './local-products';
+import { addLocalProduct, findLocalProductByBarcode, loadLocalCatalogBackup } from './local-products';
 import { canonicalProductBarcode } from './product-barcode';
 import { emptyReview, reviewComplete, savedProductDetails, type ManualReview } from './photo-review';
 
@@ -134,7 +134,11 @@ export function linkSavedPriceToBarcode(id: string, barcode: string, target: Lin
   });
 }
 
-export async function saveManualPrice(record: ManualPriceRecord): Promise<ManualPriceRecord> {
+export function saveManualPrice(record: ManualPriceRecord): Promise<ManualPriceRecord> {
+  return serializePriceWrite(() => persistManualPrice(record));
+}
+
+async function persistManualPrice(record: ManualPriceRecord): Promise<ManualPriceRecord> {
   if (!isSavedPriceRecord(record)) throw Error('Enter valid product and price details.');
   const directory = savedPhotoDirectory();
   directory.create({ intermediates: true, idempotent: true });
@@ -189,4 +193,12 @@ export async function loadSavedPriceRecords({ requireAll = false } = {}): Promis
 
 export async function loadLocalPhotos(): Promise<LocalPhotoDraft[]> {
   return (await loadSavedPriceRecords()).filter((record): record is LocalPhotoDraft => !!record.original);
+}
+
+export function loadLocalShoppingBackup() {
+  return serializePriceWrite(async () => {
+    const records = await loadSavedPriceRecords({ requireAll: true });
+    const catalog = await loadLocalCatalogBackup();
+    return { records, catalog };
+  });
 }

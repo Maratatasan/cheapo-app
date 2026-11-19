@@ -25,7 +25,7 @@ from global shop deletion.
 | Data | Current reads and writes | Follow-up seam |
 | --- | --- | --- |
 | Shops and saved links | Home and Scan load and select saved shops. The chooser creates shops and Home enables edit and remove. ZIP export reads the saved list. The shop adapter persists the list and current selection. | A future adapter composes the saved list, branch details and personal selection behind the app contract. |
-| Products | [Barcode scan](../apps/mobile/component/barcode-scan.tsx) calls the [local catalog](../apps/mobile/data/local-products.ts) to find an exact product or create it with a stable ID and canonical GTIN. The shopping ZIP currently exports observations and linked IDs. There is no product-catalog list, edit, or remove workflow. | Introduce a product repository at the scanner seam for exact lookup and creation. Define catalog export and identity-changing edits when those workflows need them. |
+| Products | [Barcode scan](../apps/mobile/component/barcode-scan.tsx) calls the [local catalog](../apps/mobile/data/local-products.ts) to find an exact product, create it with a stable ID and canonical GTIN, or correct a barcode. The shopping ZIP includes the catalog and committed barcode corrections. | Introduce a product repository at the scanner seam for exact lookup and creation. Define broader identity-changing edits when those workflows need them. |
 | Price observations | [Camera](../apps/mobile/component/camera.tsx) saves and reopens photo drafts. Barcode scan appends a reviewed manual price and reads comparison records. [Saved products](../apps/mobile/app/saved-products.tsx), [Compare](../apps/mobile/app/compare/%5Bid%5D.tsx) and [Edit](../apps/mobile/app/edit-price/%5Bid%5D.tsx) read or correct records. [ZIP export](../apps/mobile/lib/shopping-export.ts) reads every required record. The [local store](../apps/mobile/data/local-photo.ts) owns manifests, recovery and JPEG persistence. There is no observation-delete workflow. | Separate reading, appending and correcting observations from files. Preserve the existing distinction between a new observation and a correction of an existing record. |
 | Photo references | Camera and the system picker produce temporary JPEG assets. [Crop](../apps/mobile/component/photo-crop.tsx) creates a derivative. The local store copies and references both files. Saved products, review and compare render those references. [Analysis](../apps/mobile/component/direct-photo-analysis.tsx), [gallery copy](../apps/mobile/lib/photo-gallery.ts) and ZIP export resolve actual bytes or local paths. There is no standalone photo CRUD workflow. | Define photo reference resolution and ownership when those consumers need a second storage adapter. Keep capture and crop, gallery copies, AI input and export distinct from observation mutations. |
 
@@ -33,6 +33,27 @@ The shop adapter remains local and supports the existing offline flows. The
 test adapter verifies that callers can use a replacement at composition.
 Household ownership, remote operations and offline synchronization require
 their own design and tests under [#107](https://github.com/Maratatasan/cheapo-app/issues/107).
+
+## Offline shopping backup
+
+The export in **Saved products and photos** writes a version 3 manifest and the
+original bytes of every referenced JPEG. The manifest preserves draft and price
+IDs, stored review values, observation shop snapshots, saved shops and their
+nicknames, the current shop ID, and the catalog's legacy products, original
+barcode mappings, and ordered corrections. `source` records runtime app metadata
+when available. Build revision can be recorded separately from the verified APK.
+
+The backup reads the current committed local state, including the local shop
+selection. Hosted read snapshots are outside this export. If a price record's primary file
+is interrupted, the last valid recovery copy supplies that record. Old recovery
+copies and temporary files do not become additional observations. Credentials,
+provider sessions, and unrelated files are outside the backup. Comparison-basis
+preferences currently have PostgreSQL storage and no local mobile store.
+
+Keep the ZIP private and verify its CRCs, record references, and SHA-256 hashes
+of the transferred ZIP and its entries before using it for migration. Keep
+version 1 and 2 archives as earlier snapshots. They lack the full catalog and
+current selection.
 
 ## Replaceable Cheapo read snapshots
 

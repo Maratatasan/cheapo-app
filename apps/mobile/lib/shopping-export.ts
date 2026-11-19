@@ -1,10 +1,12 @@
 import { normalizeName, shopDisplayName } from '@cheapo/domain/names';
+import Constants from 'expo-constants';
 import { randomUUID } from 'expo-crypto';
 import { Directory, File, FileMode, Paths, type FileHandle } from 'expo-file-system';
 import { isAvailableAsync, shareAsync } from 'expo-sharing';
 import { Zip, ZipPassThrough } from 'fflate/browser';
+import { Platform } from 'react-native';
 
-import { loadSavedPriceRecords, reviewComplete, savedPhotoDirectory, type SavedPriceRecord, type PhotoAsset } from '@/data/local-photo';
+import { loadLocalShoppingBackup, reviewComplete, savedPhotoDirectory, type SavedPriceRecord, type PhotoAsset } from '@/data/local-photo';
 import { reviewUnitPrice } from '@/data/photo-review';
 import type { ShopRepository } from '@/data/shop-repository';
 
@@ -43,8 +45,8 @@ function describeRecord(draft: SavedPriceRecord, index: number) {
     status: reviewComplete(review, shop?.displayName) ? 'complete' : 'draft',
     review: review ? {
       productName: review.productName, price: review.price, currency: review.currency,
-      packSize: normalizeName(review.packSize), shop: review.shop, unitPrice: review.unitPrice, unit: review.unit,
-      productType: normalizeName(review.productType), variety: normalizeName(review.variety), brand: normalizeName(review.brand),
+      packSize: review.packSize, shop: review.shop, unitPrice: review.unitPrice, unit: review.unit,
+      productType: review.productType, variety: review.variety, brand: review.brand,
     } : null,
     unitPrice: review ? reviewUnitPrice(review) : null,
     cropBox: cropBox ? { left: cropBox.left, top: cropBox.top, right: cropBox.right, bottom: cropBox.bottom } : null,
@@ -116,11 +118,19 @@ export async function exportShoppingData(signal: AbortSignal, shopRepository: Pi
   try {
     ensureActive(signal);
     if (!await isAvailableAsync()) throw new ExportError('Android sharing is unavailable on this phone.');
-    const drafts = await loadSavedPriceRecords({ requireAll: true }).catch(() => {
-      throw new ExportError('A saved record or photo is unreadable. The full collection could not be exported.');
+    const { records: drafts, catalog } = await loadLocalShoppingBackup().catch(() => {
+      throw new ExportError('A saved record, photo or catalog entry is unreadable. The full collection could not be exported.');
     });
-    if (!drafts.length) throw new ExportError('There are no saved products or photos to export.');
-    const { shops } = await shopRepository.loadSavedShops();
+    const { shops, currentShop } = await shopRepository.loadSavedShops();
+    const productIds = new Set([
+      ...catalog.legacyProducts.map(product => product.id),
+      ...catalog.originalProducts.map(product => product.id),
+      ...catalog.corrections.map(({ product }) => product.id),
+    ]);
+    if (!drafts.length && !shops.length && !productIds.size) throw new ExportError('There is no saved shopping data to export.');
+    if (drafts.some(draft => draft.productId && !productIds.has(draft.productId))) {
+      throw new ExportError('A saved price refers to a missing product. The full collection could not be exported.');
+    }
     ensureActive(signal);
     const exportedAt = new Date().toISOString();
     const records = drafts.map(describeRecord);
@@ -142,9 +152,16 @@ export async function exportShoppingData(signal: AbortSignal, shopRepository: Pi
     });
     if (photos.length + 1 > ZIP32_MAX_ENTRIES) throw new ExportError('The collection has too many files for one ZIP.');
     const manifest = new TextEncoder().encode(JSON.stringify({
-      version: records.some(record => record.photos === null) ? 2 : 1,
+      version: 3,
       exportedAt,
+      source: {
+        appName: Constants.expoConfig?.name ?? null,
+        appVersion: Constants.expoConfig?.version ?? null,
+        androidVersionCode: Constants.expoConfig?.android?.versionCode ?? null,
+        platform: Platform.OS,
+      },
       records,
+      currentShopId: currentShop?.id ?? null,
       savedShops: shops.map((shop) => {
         const displayName = shopDisplayName(shop);
         return {
@@ -154,6 +171,7 @@ export async function exportShoppingData(signal: AbortSignal, shopRepository: Pi
           }, testShop: isTestShop(displayName),
         };
       }),
+      catalog,
     }, null, 2));
 
     const directory = new Directory(Paths.cache, 'cheapo-shopping-exports');
