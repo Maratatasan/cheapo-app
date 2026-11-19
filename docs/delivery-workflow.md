@@ -30,27 +30,27 @@ records when resuming an assignment in a new session.
 
 Create the issue using the
 [Cheapo ticket standard](https://docs.google.com/document/d/18ieR_MKB3bKWyl5SK0ZEJlwFMOKvlFsFyBDh7sBKnmg/edit).
-For work in the V1 second-trip scope, apply `v1-second-trip` and confirm the
-matching issue card appears in **Ready**. Auto-add is scoped to open issues
-with that label in `Maratatasan/cheapo-app`. Labeling
+For approved work in the V1 second-trip scope, apply `v1-second-trip` and
+confirm the matching issue card appears in **To Do**. Auto-add is scoped to
+open issues with that label in `Maratatasan/cheapo-app`. Labeling
 [issue #137](https://github.com/Maratatasan/cheapo-app/issues/137) verified intake
 on 19 November 2026. If access, tooling, or automation prevents verification,
 report board sync as pending with the issue link and next action.
 
 ## Move the issue as work progresses
 
-- **Ready** means the issue is queued. The project owner approves scope
-  and priorities. When capacity opens, the primary agent dispatches the
-  highest-priority approved, defined, unblocked ticket, after eligible
-  **Paused** work. Check existing claims and work before assigning one
-  worker to the ticket. Keep one named integration owner.
+- **To Do** holds the approved, ordered queue. The project owner approves
+  scope and priorities. Keep unapproved ideas in the backlog. When capacity
+  opens, the primary agent dispatches the highest-priority defined, unblocked
+  ticket after eligible **Paused** work. Check existing claims and work before
+  assigning one worker to the ticket. Keep one named integration owner.
 - **In Progress** means the assigned worker has started the authorized
   issue. The worker records their name, scope and next action on the issue,
   moves the card and verifies the transition before implementation. If the
   board write fails, follow the retry rules above and continue the assignment.
 - **Paused** means previously started work is interrupted and still approved.
   Record the reason and next action. Resume eligible **Paused** work before
-  starting new **Ready** work when capacity opens.
+  starting new **To Do** work when capacity opens.
 - **On hold** means work is waiting on a dependency, a decision or the project
   owner's explicit release. Record the condition and who can resolve it.
   Work held until the owner says otherwise requires their release. Resume
@@ -111,7 +111,7 @@ handing it back for review.
 
 ## Status automation
 
-New cards start in **Ready**. Closing an issue moves its card to **Done**.
+New cards start in **To Do**. Closing an issue moves its card to **Done**.
 Linking or merging a PR does not change the issue card automatically. Moving
 a card to **Done** does not close the issue. Move issue cards at the milestones
 above, read back each change, and report any pending board update.
