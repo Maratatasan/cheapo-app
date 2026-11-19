@@ -115,3 +115,8 @@ New cards start in **Ready**. Closing an issue moves its card to **Done**.
 Linking or merging a PR does not change the issue card automatically. Moving
 a card to **Done** does not close the issue. Move issue cards at the milestones
 above, read back each change, and report any pending board update.
+
+The [Auto-archive workflow](https://github.com/users/Maratatasan/projects/1/workflows/132736292)
+archives issues closed as completed after 14 days without updates. It runs
+every 12 hours with `is:issue is:closed reason:completed updated:<@today-14d`.
+Archived cards retain their fields and can be restored from the project archive.
