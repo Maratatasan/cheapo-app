@@ -19,10 +19,11 @@ type Props = {
   galleryAction?: ReactNode; onOriginal?: () => void; onImageError?: () => void; children?: ReactNode;
   saveError?: string;
   suggestion?: ReviewSuggestion;
+  barcodeReview?: ReactNode;
   recordingPrice?: boolean;
 };
 
-export function PhotoReview({ photo, review, selectedShopName, saved, busy, onReviewChange, onSave, onRetake, onCrop, onCancel, onOriginal, onImageError, galleryAction, children, saveError, recordingPrice, suggestion }: Props) {
+export function PhotoReview({ photo, review, selectedShopName, saved, busy, onReviewChange, onSave, onRetake, onCrop, onCancel, onOriginal, onImageError, galleryAction, children, saveError, recordingPrice, suggestion, barcodeReview }: Props) {
   const container = useRef<ComponentRef<typeof View>>(null);
   const scroll = useRef<ComponentRef<typeof ScrollView>>(null);
   const fieldViews = useRef<Partial<Record<keyof ManualReview, ComponentRef<typeof View> | null>>>({});
@@ -93,8 +94,8 @@ export function PhotoReview({ photo, review, selectedShopName, saved, busy, onRe
         // React Native Web also dismisses on programmatic scrolling in on-drag mode.
         keyboardDismissMode={Platform.OS === 'web' ? 'none' : 'on-drag'}>
         {photo && !keyboardVisible ? <Image source={{ uri: photo.uri }} accessibilityLabel="Price photo preview" style={styles.photo} resizeMode="contain" onError={onImageError} /> : null}
-        <Text style={styles.status}>{recordingPrice ? review.productName : editing ? 'Review saved details' : saved ? 'On this phone' : 'Review photo · Not saved'}</Text>
-        <Text style={styles.note}>{recordingPrice ? 'Review the current price before saving.' : editing ? 'Use the amount and unit from your saved observation. Enter both unit-price fields or leave both blank.' : complete ? 'Manual details ready' : selectedShopName ? 'Incomplete draft · Add product and price' : 'Incomplete draft · Add product, price and shop'}</Text>
+        <Text style={styles.status}>{recordingPrice ? (saved ? 'On this phone' : review.productName) : editing ? 'Review saved details' : saved ? 'On this phone' : 'Review photo · Not saved'}</Text>
+        <Text style={styles.note}>{recordingPrice ? (saved ? review.productName : 'Review the current price before saving.') : editing ? 'Use the amount and unit from your saved observation. Enter both unit-price fields or leave both blank.' : complete ? 'Manual details ready' : selectedShopName ? 'Incomplete draft · Add product and price' : 'Incomplete draft · Add product, price and shop'}</Text>
         {onCrop ? <View style={styles.actions}>
           <Button title="Crop photo" disabled={busy} onPress={() => { Keyboard.dismiss(); onCrop(); }} />
           {onOriginal ? <Button title="Use original" disabled={busy} onPress={onOriginal} /> : null}
@@ -111,6 +112,7 @@ export function PhotoReview({ photo, review, selectedShopName, saved, busy, onRe
             // Applying removes the suggestions. Measure the first field after the form updates.
             requestAnimationFrame(() => revealMeasuredField(firstFieldKey));
           }} /> : null}
+        {barcodeReview}
         {fields.map(([field, label, accessibilityLabel, placeholder, maxLength]) => <View key={field} ref={view => { fieldViews.current[field] = view; }}
           collapsable={false} style={styles.field} onLayout={event => {
           positions.current[field] = event.nativeEvent.layout.y;
