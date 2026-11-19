@@ -26,10 +26,10 @@ model. **Open** marks a decision still to be made.
 | Term | Meaning | Status |
 | --- | --- | --- |
 | Product | One exact brand, variety, and pack variant with a stable `productId`. Each variant has its own ID. | Local product IDs and metadata. |
-| Barcode (GTIN) | An optional identifier associated with a Product. Preserve leading zeros. Correcting the association preserves `productId`. | Local barcode lookup. Explicit correction is planned. |
-| ProductGroup | A category for comparing products, such as dry basmati rice in several brands and pack sizes. | Local comparisons use reviewed product type. A named group model is planned. |
+| Barcode | An optional encoded identifier for a Product, such as a GTIN or a store-specific code. Preserve leading zeros. Correcting the association preserves `productId`. | Local product lookup uses validated GTINs. Store-specific codes and explicit correction are future work. |
+| ProductGroup | A category for comparing products, such as dry rice. Compare prices across varieties or use the optional same-variety filter. | Local comparisons use reviewed product type, with variety (such as basmati or long-grain) recorded separately. A named group model is planned. |
 | PriceObservation (DatedPriceObservation) | A price seen at a given time for a product at a branch. The planned record carries `productId`, `shopId`, amount, currency, time, and optional offer details and label evidence. A fresh sighting adds a record. A correction edits the existing record. | Local manual or photo-linked prices. Older photo records may lack product and shop IDs. |
-| Unit price | The price per comparable quantity, such as £/kg, £/litre, or £/item. Compare by unit price within the same currency and compatible unit basis. | Local. Unknown prices stay unranked and different unit bases are shown separately. |
+| Unit price | The price per standard quantity, such as £/kg, £/litre, or £/item. Rank prices in the same currency after normalizing compatible units, such as grams and kilograms. | Local. Entries with missing unit prices, unknown basis quantities, or unrecognized units stay unranked. Incompatible dimensions appear separately. |
 | Offer | The terms behind an observed price, including a sale, membership requirement, or multibuy quantity. Compare a conditional price using its eligibility and quantity. | Planned. |
 
 ## Capture, review, and photos
