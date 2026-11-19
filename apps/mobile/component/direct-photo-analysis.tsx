@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
-import { Button, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { AccessibilityInfo, Platform } from 'react-native';
 import { useRouter } from 'expo-router';
 import { File } from 'expo-file-system';
 
@@ -7,8 +7,8 @@ import type { AiPriceDraft } from '@/data/ai-observation';
 import type { PhotoAsset } from '@/data/local-photo';
 import { requestPhotoDraft } from '@/lib/direct-auth/photo-analysis';
 import { phoneAuth } from '@/lib/direct-auth/phone-session';
-import { marketColor } from './results/theme';
-import { AiDraftCard } from './results/ai-draft-card';
+import { PhotoAnalysisControls } from './photo-analysis-review';
+import type { ReviewSuggestion } from './photo-review';
 
 async function photoDataUrl(photo: PhotoAsset): Promise<string> {
   if (!photo.uri.startsWith('file:')) throw new Error('Choose or take a photo on this phone first.');
@@ -21,10 +21,11 @@ async function photoDataUrl(photo: PhotoAsset): Promise<string> {
   catch { throw new Error('Could not read the selected photo.'); }
 }
 
-export function DirectPhotoAnalysis({ photo, busy, onApply }: {
+export function DirectPhotoAnalysis({ photo, busy, onApply, children }: {
   photo: PhotoAsset;
   busy: boolean;
   onApply: (draft: AiPriceDraft) => void;
+  children: (controls: ReactNode, suggestion?: ReviewSuggestion) => ReactNode;
 }) {
   const router = useRouter();
   const [authState, setAuthState] = useState(phoneAuth?.getState);
@@ -61,7 +62,9 @@ export function DirectPhotoAnalysis({ photo, busy, onApply }: {
       });
       if (!controller.signal.aborted) {
         setDraft(suggestion);
-        setStatus('Check these suggestions against the photo.');
+        const message = 'Suggestions ready. Check the details before applying.';
+        setStatus(message);
+        if (Platform.OS === 'ios') AccessibilityInfo.announceForAccessibilityWithOptions(message, { queue: true });
       }
     } catch (error) {
       if (request.current === controller) {
@@ -77,24 +80,22 @@ export function DirectPhotoAnalysis({ photo, busy, onApply }: {
     }
   }
 
-  return (
-    <View style={styles.panel}>
-      <Text style={styles.text}>Analyse photo sends only the selected photo to OpenAI using your ChatGPT plan.</Text>
-      {authState?.planAllowed ? (
-        <Button title={working ? 'Analysing…' : 'Analyse photo'} disabled={busy || working || authState.busy} onPress={analyse} />
-      ) : <Button title="Connect ChatGPT" disabled={authState?.busy} onPress={() => router.push('/direct-auth')} />}
-      {status ? <Text accessibilityLiveRegion="polite" style={styles.text}>{status}</Text> : null}
-      {draft ? <>
-        <AiDraftCard draft={draft} />
-        {draft.productType ? <Text style={styles.text}>Product type: {draft.productType}</Text> : null}
-        {draft.variety ? <Text style={styles.text}>Variety: {draft.variety}</Text> : null}
-        <Button title="Use suggested details" disabled={busy} onPress={() => { onApply(draft); setDraft(undefined); setStatus('Suggestions added. Review or edit before saving.'); }} />
-      </> : null}
-    </View>
-  );
-}
+  const controls = <PhotoAnalysisControls
+    label={authState?.planAllowed ? working ? 'Analysing…' : 'Analyse photo' : 'Connect ChatGPT'}
+    status={status}
+    disabled={authState?.planAllowed ? busy || working || authState.busy : authState?.busy}
+    onPress={() => {
+      if (authState?.planAllowed) void analyse();
+      else router.push('/direct-auth');
+    }}
+  />;
 
-const styles = StyleSheet.create({
-  panel: { gap: 8, marginBottom: 8 },
-  text: { color: marketColor.muted, fontSize: 13 },
-});
+  return children(controls, draft ? {
+    draft,
+    onApply: () => {
+      onApply(draft);
+      setDraft(undefined);
+      setStatus('Suggestions added. Review or edit before saving.');
+    },
+  } : undefined);
+}

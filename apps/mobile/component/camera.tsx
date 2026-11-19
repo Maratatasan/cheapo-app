@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect } from "react";
+import { useRef, useState, useEffect, type ReactNode } from "react";
 import {
   View,
   Text,
@@ -12,7 +12,7 @@ import { captureGuide, fittedCameraFrame, seedGuideCrop, fullPhoto, type CropBox
 import { CameraView, CameraType, useCameraPermissions } from "expo-camera";
 import { CameraActionButton, CameraCaptureActions, CameraPermissionActions, CameraSavedDraftActions } from "./camera-actions";
 import { GalleryCopy } from "./gallery-copy";
-import { PhotoReview } from "./photo-review";
+import { PhotoReview, type ReviewSuggestion } from "./photo-review";
 import { PhotoCrop } from "./photo-crop";
 import { emptyReview, loadLocalPhotos, reviewComplete, saveLocalPhoto, type DraftShop, type LocalPhotoDraft, type ManualReview, type PhotoAsset } from "@/data/local-photo";
 import { MobileDraft } from "./mobile-draft";
@@ -183,79 +183,86 @@ export const CameraComponent = ({ currentShop, onScanBarcode, linkedPrice }: {
     </View>;
   }
 
+  if (draft) {
+    const renderReview = (controls: ReactNode, suggestion?: ReviewSuggestion) => (
+      <PhotoReview
+        photo={draft.selected}
+        review={draft.review ?? emptyReview()}
+        selectedShopName={draft.shop?.displayName}
+        saved={saved}
+        busy={busy}
+        onReviewChange={review => { setDraft({ ...draft, review }); setSaved(false); setVisitShop(review.shop); }}
+        galleryAction={<GalleryCopy key={draft.selected.uri} photo={draft.selected} />}
+        onSave={savePhoto}
+        suggestion={suggestion}
+        recordingPrice={!!linkedPrice}
+        onCancel={linkedPrice?.onCancel}
+        onRetake={retakePhoto}
+        onCrop={() => setCropping(true)}
+        onOriginal={draft.selected.uri !== draft.original.uri ? () => { setDraft({ ...draft, selected: draft.original, cropBox: fullPhoto }); setSaved(false); } : undefined}
+        onImageError={() => {
+          if (draft.selected.uri === process.env.EXPO_PUBLIC_CHEAPO_TEST_PHOTO_URL) setDraft(null);
+          Alert.alert('Photo unavailable', 'The photo could not be loaded. For the test photo, check the local fixture server and try again.');
+        }}
+      >
+        {controls}
+      </PhotoReview>
+    );
+
+    return <View key="review" collapsable={false} style={styles.container}>
+      {fieldPhotoAnalysisEnabled ? (
+        <DirectPhotoAnalysis key={draft.selected.uri} photo={draft.selected} busy={busy} onApply={(suggestion) => {
+          const review = draft.review ?? emptyReview(draft.shop?.displayName);
+          setDraft({
+            ...draft,
+            review: {
+              ...review,
+              productName: linkedPrice ? review.productName : suggestion.product ?? review.productName,
+              productType: linkedPrice ? review.productType : suggestion.productType ?? review.productType,
+              variety: linkedPrice ? review.variety : suggestion.variety ?? review.variety,
+              brand: linkedPrice ? review.brand : suggestion.brand ?? review.brand,
+              packSize: review.packSize ?? suggestion.packSize ?? undefined,
+              price: suggestion.price?.toString() ?? review.price,
+              currency: suggestion.currency ?? review.currency,
+              unitPrice: suggestion.unit_price?.amount.toString() ?? review.unitPrice,
+              unit: suggestion.unit_price?.unit ?? review.unit,
+            },
+          });
+          setSaved(false);
+        }}>
+          {renderReview}
+        </DirectPhotoAnalysis>
+      ) : renderReview(__DEV__ ? <MobileDraft key={draft.selected.uri} photoUri={draft.selected.uri} /> : null)}
+    </View>;
+  }
+
   return (
-    <View key={draft ? "review" : "capture"} collapsable={false} style={styles.container}>
-      {draft ? (
-        <PhotoReview
-          photo={draft.selected}
-          review={draft.review ?? emptyReview()}
-          selectedShopName={draft.shop?.displayName}
-          saved={saved}
-          busy={busy}
-          onReviewChange={review => { setDraft({ ...draft, review }); setSaved(false); setVisitShop(review.shop); }}
-          galleryAction={<GalleryCopy key={draft.selected.uri} photo={draft.selected} />}
-          onSave={savePhoto}
-          recordingPrice={!!linkedPrice}
-          onCancel={linkedPrice?.onCancel}
-          onRetake={retakePhoto}
-          onCrop={() => setCropping(true)}
-          onOriginal={draft.selected.uri !== draft.original.uri ? () => { setDraft({ ...draft, selected: draft.original, cropBox: fullPhoto }); setSaved(false); } : undefined}
-          onImageError={() => {
-            if (draft.selected.uri === process.env.EXPO_PUBLIC_CHEAPO_TEST_PHOTO_URL) setDraft(null);
-            Alert.alert('Photo unavailable', 'The photo could not be loaded. For the test photo, check the local fixture server and try again.');
-          }}
-        >
-          {fieldPhotoAnalysisEnabled ? (
-            <DirectPhotoAnalysis key={draft.selected.uri} photo={draft.selected} busy={busy} onApply={(suggestion) => {
-              const review = draft.review ?? emptyReview(draft.shop?.displayName);
-              setDraft({
-                ...draft,
-                review: {
-                  ...review,
-                  productName: linkedPrice ? review.productName : suggestion.product ?? review.productName,
-                  productType: linkedPrice ? review.productType : suggestion.productType ?? review.productType,
-                  variety: linkedPrice ? review.variety : suggestion.variety ?? review.variety,
-                  brand: linkedPrice ? review.brand : suggestion.brand ?? review.brand,
-                  packSize: review.packSize ?? suggestion.packSize ?? undefined,
-                  price: suggestion.price?.toString() ?? review.price,
-                  currency: suggestion.currency ?? review.currency,
-                  unitPrice: suggestion.unit_price?.amount.toString() ?? review.unitPrice,
-                  unit: suggestion.unit_price?.unit ?? review.unit,
-                },
-              });
-              setSaved(false);
-            }} />
-          ) : __DEV__ ? <MobileDraft key={draft.selected.uri} photoUri={draft.selected.uri} /> : null}
-        </PhotoReview>
-      ) : (
-        <>
-          <View style={styles.captureStage} onLayout={event => {
-            const { width, height } = event.nativeEvent.layout;
-            setCaptureStage(current => width === current.width && height === current.height ? current : { ...current, width, height });
-          }}>
-            <View style={{ width: captureFrame.width, height: captureFrame.height }}>
-              <CameraView style={StyleSheet.absoluteFill} ratio="4:3" facing={facing} ref={cameraRef} onCameraReady={() => setCameraReady(true)} />
-              <View pointerEvents="none" style={[styles.captureFrame, { position: 'absolute', left: `${captureGuide.left * 100}%`, top: `${captureGuide.top * 100}%`, width: `${(captureGuide.right - captureGuide.left) * 100}%`, height: `${(captureGuide.bottom - captureGuide.top) * 100}%` }]} />
-            </View>
-          </View>
-          <CameraCaptureActions
-            ready={cameraReady}
-            capturing={photoAction === "capture"}
-            choosing={photoAction === "choose"}
-            onCapture={takePhoto}
-            onFlip={() => {
-              setCameraReady(false);
-              setFacing(current => current === "back" ? "front" : "back");
-            }}
-            choosePhoto={choosePhotoButton}
-          >
-            {barcodeButton}
-            {linkedCancel}
-            {testPhotoButton}
-            {savedPhotoButtons}
-          </CameraCaptureActions>
-        </>
-      )}
+    <View key="capture" collapsable={false} style={styles.container}>
+      <View style={styles.captureStage} onLayout={event => {
+        const { width, height } = event.nativeEvent.layout;
+        setCaptureStage(current => width === current.width && height === current.height ? current : { ...current, width, height });
+      }}>
+        <View style={{ width: captureFrame.width, height: captureFrame.height }}>
+          <CameraView style={StyleSheet.absoluteFill} ratio="4:3" facing={facing} ref={cameraRef} onCameraReady={() => setCameraReady(true)} />
+          <View pointerEvents="none" style={[styles.captureFrame, { position: 'absolute', left: `${captureGuide.left * 100}%`, top: `${captureGuide.top * 100}%`, width: `${(captureGuide.right - captureGuide.left) * 100}%`, height: `${(captureGuide.bottom - captureGuide.top) * 100}%` }]} />
+        </View>
+      </View>
+      <CameraCaptureActions
+        ready={cameraReady}
+        capturing={photoAction === "capture"}
+        choosing={photoAction === "choose"}
+        onCapture={takePhoto}
+        onFlip={() => {
+          setCameraReady(false);
+          setFacing(current => current === "back" ? "front" : "back");
+        }}
+        choosePhoto={choosePhotoButton}
+      >
+        {barcodeButton}
+        {linkedCancel}
+        {testPhotoButton}
+        {savedPhotoButtons}
+      </CameraCaptureActions>
     </View>
   );
 };

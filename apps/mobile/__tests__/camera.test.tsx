@@ -1,7 +1,7 @@
 /// <reference types="jest" />
 
 import React from "react";
-import { Alert, Image } from "react-native";
+import { Alert, Image, ScrollView } from "react-native";
 import {
   act,
   fireEvent,
@@ -128,6 +128,43 @@ describe("CameraComponent", () => {
       review: expect.objectContaining({ productName: 'Known rice', price: '2.50' }),
     }));
     expect(onSaved).toHaveBeenCalledTimes(1);
+  });
+
+  it('scrolls to completed suggestions, then to the first field after applying', async () => {
+    const scrollTo = jest.spyOn(ScrollView.prototype, 'scrollTo').mockImplementation(() => {});
+    mockFieldPhotoAnalysisEnabled = true;
+    mockPermission = { granted: false };
+    mockChoosePhoto.mockResolvedValue({ uri: 'file:///label.jpg', width: 1200, height: 800, mimeType: 'image/jpeg' });
+    const draft = { product: 'Tomatoes', price: 1.49, currency: 'GBP', packSize: '500 g', unit_price: null, uncertainty: '' };
+    let finish!: (result: typeof draft) => void;
+    mockRequestPhotoDraft.mockReturnValue(new Promise<typeof draft>(resolve => { finish = resolve; }));
+    await render(<CameraComponent currentShop={{ id: 'test-shop', displayName: 'Test shop' }} />);
+
+    await fireEvent.press(screen.getByRole('button', { name: 'Choose photo' }));
+    await fireEvent.press(await screen.findByRole('button', { name: 'Apply crop' }));
+    await fireEvent(screen.getByText('Product').parent!, 'layout', { nativeEvent: { layout: { y: 240 } } });
+    await fireEvent.changeText(screen.getByLabelText('Pack size'), '450 g');
+    await fireEvent.press(screen.getByRole('button', { name: 'Analyse photo' }));
+
+    expect(await screen.findByText('Analysing the selected photo…')).toBeOnTheScreen();
+    expect(scrollTo).not.toHaveBeenCalled();
+    await act(() => finish(draft));
+
+    const heading = await screen.findByRole('header', { name: 'Suggested details' });
+    const suggestion = heading.parent!;
+    await fireEvent(suggestion, 'layout', { persist() {}, nativeEvent: { layout: { y: 160 } } });
+    expect(scrollTo).toHaveBeenCalledWith({ y: 160, animated: false });
+    await fireEvent(suggestion, 'layout', { persist() {}, nativeEvent: { layout: { y: 165 } } });
+    expect(scrollTo).toHaveBeenCalledTimes(1);
+    expect(screen.getByLabelText('Product name')).toHaveDisplayValue('');
+    expect(screen.getByLabelText('Pack size')).toHaveDisplayValue('450 g');
+
+    await fireEvent.press(screen.getByRole('button', { name: 'Use suggested details' }));
+
+    await waitFor(() => expect(scrollTo).toHaveBeenLastCalledWith({ y: 228, animated: false }));
+    expect(screen.getByLabelText('Product name')).toHaveDisplayValue('Tomatoes');
+    expect(screen.getByLabelText('Pack size')).toHaveDisplayValue('450 g');
+    expect(mockSaveLocalPhoto).not.toHaveBeenCalled();
   });
 
   it.each([
