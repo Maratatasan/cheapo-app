@@ -69,6 +69,7 @@ Upgrade one Expo SDK at a time. For each SDK, follow the Expo upgrade guide, ins
 
 ## Project layout
 
+- `apps/api/` — [local Cheapo API and PostgreSQL preference tests](apps/api/README.md)
 - `apps/mobile/app/` — Expo Router screens, including Home and Scan
 - `apps/mobile/component/camera.tsx` — permissions, camera, crop, review and local saving
 - `apps/mobile/__tests__/` — mocked component and app tests

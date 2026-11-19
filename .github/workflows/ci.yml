@@ -68,6 +68,9 @@ jobs:
       - name: Run tests
         run: pnpm test
 
+      - name: Test preferences with PostgreSQL
+        run: PATH="$(pg_config --bindir):$PATH" pnpm --filter @cheapo/api test:postgres
+
       - name: Build component library
         run: pnpm ui:storybook:build
 

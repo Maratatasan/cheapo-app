@@ -48,7 +48,8 @@ model. **Open** marks a decision still to be made.
 | Community catalog | Shared shops and published product and price information, with published label photos. | Planned. Household saved-shop links and nicknames stay private. |
 | PublishedContribution | A record or image available to Cheapo users. Browsing hides contributor names. Cheapo may keep private attribution for contribution and edit permissions. | Planned. |
 | Sync state | Whether a locally saved change is pending, synced after acknowledgement, or in error and available to retry. ShoppingSession tracks the visit independently. | Planned. Local save works independently of sync. |
-| Cheapo API | The intended shared service for iOS, Android, web, and the Cheapo MCP adapter. | Planned. The shopping flow saves locally today. |
+| Cheapo API | The shared service for iOS, Android, web, and the Cheapo MCP adapter. | Preference operations are available in local service development. Hosting and app integration are planned. |
+| Comparison preference | One shopper’s choice of price basis for a ProductGroup. The group default applies when there is no personal choice. | The Cheapo API can store the choice per shopper and group. The app selector is planned. |
 
 See the [domain contracts](../packages/domain/README.md) and
 [data repositories](data-repositories.md) for current data shapes. The
