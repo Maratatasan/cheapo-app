@@ -18,10 +18,9 @@ For the import, use the
 `psql`, and an [RDS CA bundle](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/UsingWithRDS.SSL.html).
 
 From the repo root, copy [the example](.env.example) to `infra/aws/.env.local`
-and fill in the profile and expected account ID from Building Momentum.
-Use the assigned Region and a distinct name for each stack. Region policy
-allows only Stockholm. Store credentials in AWS login and Secrets Manager.
-Changing a name selects another stack.
+and fill in the selected profile, expected account ID, assigned Region, and
+distinct stack names. Region policy allows only Stockholm. Store credentials
+in AWS login and Secrets Manager. Changing a name selects another stack.
 
 ```sh
 pnpm infra:aws:check
@@ -108,11 +107,13 @@ cheapo_aws ssm start-session --target "$CHEAPO_RUNNER_ID" \
   --parameters "host=$CHEAPO_DB_ENDPOINT,portNumber=5432,localPortNumber=15432"
 ```
 
-In a second terminal with the same connection variables, confirm TLS before
-importing data. Keep hostname verification enabled in the importer.
+In a second terminal, set the same connection variables and fill in
+`CHEAPO_DB_NAME` and `CHEAPO_DB_USER` from the deployed database settings.
+Confirm TLS before importing data. Keep hostname verification enabled in the
+importer.
 
 ```sh
-psql "host=$CHEAPO_DB_ENDPOINT hostaddr=127.0.0.1 port=15432 dbname=cheapo user=cheapo_admin connect_timeout=30 sslmode=verify-full sslrootcert='$CHEAPO_RDS_CA_BUNDLE'" \
+psql "host=$CHEAPO_DB_ENDPOINT hostaddr=127.0.0.1 port=15432 dbname='$CHEAPO_DB_NAME' user='$CHEAPO_DB_USER' connect_timeout=30 sslmode=verify-full sslrootcert='$CHEAPO_RDS_CA_BUNDLE'" \
   -c 'SELECT ssl, version FROM pg_stat_ssl WHERE pid = pg_backend_pid();'
 ```
 
