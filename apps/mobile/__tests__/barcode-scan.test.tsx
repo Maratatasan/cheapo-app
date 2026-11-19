@@ -96,7 +96,7 @@ test('keeps a saved correction proposal after a conflicting barcode and allows c
   expect(screen.getByText('Barcode 00012345678905')).toBeOnTheScreen();
 });
 
-test('opens a known product’s comparisons and filters saved prices by brand and variety', async () => {
+test.each([undefined, currentShop])('opens sorted saved-price comparisons for a known product (shop: %j)', async shop => {
   jest.mocked(findLocalProductByBarcode).mockResolvedValue(product);
   jest.mocked(loadSavedPriceRecords).mockResolvedValue([
     row('Match both', 'Shop A', 'Basmati', 'Example', '2.50', product.name),
@@ -105,7 +105,7 @@ test('opens a known product’s comparisons and filters saved prices by brand an
     { ...row('Other type', 'Shop B', 'Basmati', 'Example', '1.00'),
       review: { ...emptyReview('Shop B'), productName: 'Other type', productType: 'Microwave rice', price: '1.00' } },
   ]);
-  await render(<BarcodeScan currentShop={currentShop} onScanLabel={jest.fn()} />);
+  await render(<BarcodeScan currentShop={shop} onScanLabel={jest.fn()} />);
   await scan();
 
   expect(await screen.findByRole('header', { name: product.name })).toBeOnTheScreen();
@@ -115,6 +115,9 @@ test('opens a known product’s comparisons and filters saved prices by brand an
     '£3.00 / kg', '£4.00 / kg', '£5.00 / kg',
   ]);
   expect(screen.queryByText('Other type')).not.toBeOnTheScreen();
+  expect(screen.queryByRole('button', { name: 'Add product' })).not.toBeOnTheScreen();
+  if (shop) expect(screen.getByRole('button', { name: 'Add price' })).toBeOnTheScreen();
+  else expect(screen.queryByRole('button', { name: 'Add price' })).not.toBeOnTheScreen();
   expect(screen.getAllByText('Recorded 12 Nov 2026')).toHaveLength(3);
   await fireEvent.press(screen.getByRole('checkbox', { name: 'Same brand' }));
   expect(screen.getByRole('checkbox', { name: 'Same variety' })).toBeOnTheScreen();
@@ -238,11 +241,13 @@ test('returns to scanning after save and finds the same product on rescan', asyn
   expect(screen.getByTestId('barcode-preview')).toBeOnTheScreen();
 });
 
-test('cancels product entry and resumes scanning without saving', async () => {
+test('carries an unknown barcode into product entry without a shop or an automatic save', async () => {
   jest.mocked(findLocalProductByBarcode).mockResolvedValue(undefined);
-  await render(<BarcodeScan currentShop={currentShop} onScanLabel={jest.fn()} />);
+  await render(<BarcodeScan onScanLabel={jest.fn()} />);
   await scan();
   await fireEvent.press(screen.getByRole('button', { name: 'Add product' }));
+  expect(screen.getByText('Barcode 00012345678905')).toBeOnTheScreen();
+  expect(addLocalProduct).not.toHaveBeenCalled();
   await fireEvent.changeText(screen.getByLabelText('Product name'), 'Unsaved product');
   await fireEvent.press(screen.getByRole('button', { name: 'Cancel' }));
   expect(screen.getByTestId('barcode-preview')).toBeOnTheScreen();

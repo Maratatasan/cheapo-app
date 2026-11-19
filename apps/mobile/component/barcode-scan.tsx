@@ -37,20 +37,21 @@ function packLabel(pack: Product['pack']) {
   return pack && (pack.label ?? `${pack.quantity} ${pack.unit}`);
 }
 
-async function loadComparison(product: Product, shopId: string, barcode: string): Promise<Extract<ScanResult, { kind: 'known' }>> {
+async function loadComparison(product: Product, shopId: string | undefined, barcode: string): Promise<Extract<ScanResult, { kind: 'known' }>> {
   const drafts = await loadSavedPriceRecords();
   const rows = drafts.flatMap(draft => {
     const row = comparisonRowFromDraft(draft);
     return row ? [{ row, draft }] : [];
   });
   const linked = rows.find(({ draft }) => draft.productId === product.id);
-  const current = rows.find(({ draft }) => draft.productId === product.id && draft.shop?.id === shopId);
+  const current = shopId ? rows.find(({ draft }) => draft.productId === product.id && draft.shop?.id === shopId) : undefined;
   return { kind: 'known', barcode, product, comparisons: rows.map(({ row }) => row),
     reference: linked?.row, currentPrice: current?.row, photo: linked?.draft.selected?.uri };
 }
 
-export function BarcodeScan({ currentShop, onScanLabel }: { currentShop: DraftShop; onScanLabel: () => void }) {
+export function BarcodeScan({ currentShop, onScanLabel }: { currentShop?: DraftShop; onScanLabel: () => void }) {
   const router = useRouter();
+  const shopId = currentShop?.id;
   const [permission, requestPermission] = useCameraPermissions();
   const [focused, setFocused] = useState(false);
   const [result, setResult] = useState<ScanResult>();
@@ -68,7 +69,7 @@ export function BarcodeScan({ currentShop, onScanLabel }: { currentShop: DraftSh
     active.current = controller;
     setFocused(true);
     if (selected.current) {
-      loadComparison(selected.current.product, currentShop.id, selected.current.barcode).then(next => {
+      loadComparison(selected.current.product, shopId, selected.current.barcode).then(next => {
         if (!controller.signal.aborted) setResult(next);
       }).catch(() => {
         if (!controller.signal.aborted) setResult({ kind: 'error' });
@@ -83,7 +84,7 @@ export function BarcodeScan({ currentShop, onScanLabel }: { currentShop: DraftSh
         setResult(current => current?.kind === 'loading' ? undefined : current);
       }
     };
-  }, [currentShop.id]));
+  }, [shopId]));
 
   async function lookup(barcode: string) {
     const signal = active.current?.signal;
@@ -97,7 +98,7 @@ export function BarcodeScan({ currentShop, onScanLabel }: { currentShop: DraftSh
         setResult({ kind: 'unknown', barcode });
         return;
       }
-      const comparison = await loadComparison(product, currentShop.id, barcode);
+      const comparison = await loadComparison(product, shopId, barcode);
       if (signal.aborted) return;
       selected.current = { product, barcode };
       setResult(comparison);
@@ -181,11 +182,11 @@ export function BarcodeScan({ currentShop, onScanLabel }: { currentShop: DraftSh
     }
   }
 
-  function startPrice(product: Product) {
+  function startPrice(product: Product, shop: DraftShop) {
     const pack = packLabel(product.pack);
     setEntry({ kind: 'price', record: {
-      id: randomUUID(), capturedAt: new Date().toISOString(), productId: product.id, shop: currentShop,
-      review: { ...emptyReview(currentShop.displayName), productName: product.name, productType: product.productType,
+      id: randomUUID(), capturedAt: new Date().toISOString(), productId: product.id, shop,
+      review: { ...emptyReview(shop.displayName), productName: product.name, productType: product.productType,
         variety: product.variety, brand: product.brand, packSize: pack && calculatePackUnitPrice('1', pack) ? pack : undefined },
     } });
     setSaveError(undefined);
@@ -234,8 +235,8 @@ export function BarcodeScan({ currentShop, onScanLabel }: { currentShop: DraftSh
             <BarcodeResultActions barcode={result.barcode}
               onLookup={() => setBarcodeEdit({ current: result.barcode, mode: 'choose' })}
               onEdit={() => setBarcodeEdit({ current: result.barcode, target: result.product, mode: 'choose' })} />
-            <CurrentShopPrice shop={currentShop.displayName} observation={result.currentPrice}
-              onRecord={() => startPrice(result.product)} />
+            {currentShop ? <CurrentShopPrice shop={currentShop.displayName} observation={result.currentPrice}
+              onRecord={() => startPrice(result.product, currentShop)} /> : null}
             <ShopComparison catalogProduct={result.product} comparisons={result.comparisons} reference={result.reference}
               product={{ name: result.product.name,
                 pack: packLabel(result.product.pack),

@@ -7,11 +7,12 @@ type ShopHomeProps = {
   currentShop?: Shop;
   onChooseShop?: () => void;
   onScan: () => void;
+  onFindBarcode?: () => void;
   onOpenSaved?: () => void;
   onExploreSamples?: () => void;
 };
 
-export function ShopHome({ currentShop, onChooseShop, onScan, onOpenSaved, onExploreSamples }: ShopHomeProps) {
+export function ShopHome({ currentShop, onChooseShop, onScan, onFindBarcode, onOpenSaved, onExploreSamples }: ShopHomeProps) {
   const shopLabel = currentShop ? shopDisplayName(currentShop) : undefined;
 
   return (
@@ -29,6 +30,11 @@ export function ShopHome({ currentShop, onChooseShop, onScan, onOpenSaved, onExp
       <Pressable accessibilityRole="button" onPress={onScan} style={[ui.button, styles.scan]}>
         <Text style={[ui.buttonText, styles.scanLabel]}>Scan item</Text>
       </Pressable>
+      {onFindBarcode ? (
+        <Pressable accessibilityRole="button" onPress={onFindBarcode} style={[ui.button, styles.secondary, styles.lookup]}>
+          <Text style={styles.action}>Find product by barcode</Text>
+        </Pressable>
+      ) : null}
       {onOpenSaved ? (
         <Pressable accessibilityRole="button" onPress={onOpenSaved} style={[ui.button, styles.secondary]}>
           <Text style={styles.action}>Saved products and photos</Text>
@@ -48,6 +54,7 @@ const styles = StyleSheet.create({
   action: { color: color.green, fontSize: typography.body, fontWeight: "700" },
   secondary: { backgroundColor: color.mint, alignSelf: "flex-start" },
   scan: { minHeight: 56, justifyContent: "center" },
+  lookup: { alignSelf: "stretch", minHeight: 48, justifyContent: "center" },
   scanLabel: { fontSize: typography.label },
   samples: { backgroundColor: "transparent", alignSelf: "center" },
 });
