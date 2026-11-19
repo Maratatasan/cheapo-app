@@ -11,7 +11,7 @@ export function PhotoAnalysisControls({ label, status, disabled, onPress }: {
   onPress: () => void;
 }) {
   return <View style={styles.controls}>
-    <Text style={styles.note}>Analyse photo sends only the selected photo to OpenAI using your ChatGPT plan.</Text>
+    <Text style={styles.note}>Analyse photo uses your ChatGPT plan to send the selected photo and, when available, the shop’s country hint to OpenAI.</Text>
     <Button title={label} disabled={disabled} onPress={onPress} />
     <Text aria-live="polite" style={styles.note}>{status}</Text>
   </View>;

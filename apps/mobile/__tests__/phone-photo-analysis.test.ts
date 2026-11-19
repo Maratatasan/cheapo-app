@@ -1,6 +1,7 @@
 import { fetch } from 'expo/fetch';
 import { applyPhotoSuggestion, emptyReview, reviewComplete, reviewUnitPrice } from '@/data/photo-review';
 import { requestPhotoDraft } from '@/lib/direct-auth/photo-analysis';
+import { photoShopCountry } from '@/lib/direct-auth/shop-country';
 
 jest.mock('expo/fetch', () => ({ fetch: jest.fn() }));
 
@@ -36,6 +37,28 @@ function analyze(signal = new AbortController().signal) {
 }
 
 beforeEach(() => provider.mockReset());
+
+test.each([
+  [undefined, undefined],
+  ['Shop 7, Wimbledon SW19 1AA', { country: 'United Kingdom', source: 'postcode pattern' }],
+  ['Shop 7, London, United Kingdom', { country: 'United Kingdom', source: 'address country' }],
+  ['Shop 7, SW19 1AA, United States', undefined],
+  ['SW19 1AA', undefined],
+])('uses bounded country evidence from the saved shop address (%s)', (address, expected) => {
+  expect(photoShopCountry(address)).toEqual(expected);
+});
+
+test('sends only the optional country hint and does not replace the photographed currency', async () => {
+  catalog();
+  bodyResponse([new TextEncoder().encode(completed([{ type: 'output_text', text: JSON.stringify({ ...draft, currency: 'USD' }) }]))]);
+  const address = 'Shop 7, Wimbledon SW19 1AA';
+  const shopCountry = photoShopCountry(address);
+  await expect(requestPhotoDraft({ accessToken: 'test-token', image, signal: new AbortController().signal, shopCountry }))
+    .resolves.toMatchObject({ currency: 'USD' });
+  const request = JSON.parse(String(provider.mock.calls[1][1]?.body));
+  expect(request.input[0].content[0].text).toContain('Selected shop country hint: United Kingdom (postcode pattern).');
+  expect(JSON.stringify(request)).not.toContain(address);
+});
 
 test('uses the preferred listed model and returns only the completed structured image draft', async () => {
   catalog([{ slug: 'gpt-6-luna', visibility: 'list' }, { slug: 'gpt-5.6-luna', visibility: 'list' }]);

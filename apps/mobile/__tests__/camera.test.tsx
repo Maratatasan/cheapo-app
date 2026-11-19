@@ -167,6 +167,24 @@ describe("CameraComponent", () => {
     expect(mockSaveLocalPhoto).not.toHaveBeenCalled();
   });
 
+  it.each(['active-shop', 'other-shop'])('only sends the active shop hint for a matching saved photo (%s)', async (savedShopId) => {
+    mockFieldPhotoAnalysisEnabled = true;
+    mockPermission = { granted: false };
+    const photo = { uri: 'file:///label.jpg', width: 1200, height: 800, mimeType: 'image/jpeg' };
+    const shopCountry = { country: 'United Kingdom', source: 'postcode pattern' } as const;
+    mockLoadLocalPhotos.mockResolvedValue([{
+      id: 'saved', capturedAt: '2026-11-18T15:00:00Z',
+      original: photo, selected: photo, shop: { id: savedShopId, displayName: 'Saved branch' },
+    }]);
+    mockRequestPhotoDraft.mockResolvedValue({ product: 'Tomatoes', price: 1.49, currency: 'GBP', unit_price: null, uncertainty: '' });
+    await render(<CameraComponent currentShop={{ id: 'active-shop', displayName: 'Active branch' }} currentShopCountry={shopCountry} />);
+    await fireEvent.press(await screen.findByRole('button', { name: /^Review / }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Analyse photo' }));
+    await waitFor(() => expect(mockRequestPhotoDraft).toHaveBeenCalledWith(expect.objectContaining({
+      shopCountry: savedShopId === 'active-shop' ? shopCountry : undefined,
+    })));
+  });
+
   it('applies the chosen price only on request and preserves a manual correction', async () => {
     mockFieldPhotoAnalysisEnabled = true;
     mockPermission = { granted: false };

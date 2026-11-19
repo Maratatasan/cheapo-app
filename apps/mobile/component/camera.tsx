@@ -18,6 +18,7 @@ import { emptyReview, loadLocalPhotos, reviewComplete, saveLocalPhoto, type Draf
 import { MobileDraft } from "./mobile-draft";
 import { DirectPhotoAnalysis } from "./direct-photo-analysis";
 import { fieldPhotoAnalysisEnabled } from "@/lib/direct-auth/phone-session";
+import type { PhotoShopCountry } from "@/lib/direct-auth/shop-country";
 import { applyPhotoSuggestion } from "@/data/photo-review";
 import { choosePhoto } from "@/lib/choose-photo";
 
@@ -28,8 +29,9 @@ type LinkedPriceCapture = {
   onSaved: () => void;
 };
 
-export const CameraComponent = ({ currentShop, onScanBarcode, linkedPrice }: {
+export const CameraComponent = ({ currentShop, currentShopCountry, onScanBarcode, linkedPrice }: {
   currentShop?: DraftShop;
+  currentShopCountry?: PhotoShopCountry;
   onScanBarcode?: () => void;
   linkedPrice?: LinkedPriceCapture;
 }) => {
@@ -220,7 +222,9 @@ export const CameraComponent = ({ currentShop, onScanBarcode, linkedPrice }: {
 
     return <View key="review" collapsable={false} style={styles.container}>
       {fieldPhotoAnalysisEnabled ? (
-        <DirectPhotoAnalysis key={draft.selected.uri} photo={draft.selected} busy={busy} onApply={(suggestion) => {
+        <DirectPhotoAnalysis key={draft.selected.uri} photo={draft.selected}
+          shopCountry={draft.shop && draft.shop.id === currentShop?.id ? currentShopCountry : undefined}
+          busy={busy} onApply={(suggestion) => {
           const review = draft.review ?? emptyReview(draft.shop?.displayName);
           setDraft({
             ...draft,
