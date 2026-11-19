@@ -1,0 +1,217 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Private Cheapo Aurora PostgreSQL and photo storage.
+
+Metadata:
+  AWSToolsMetrics:
+    AWSAgentToolkit: aws-cloudformation@3
+
+Parameters:
+  DatabaseName:
+    Type: String
+    AllowedPattern: '[A-Za-z][A-Za-z0-9_]{0,62}'
+    Description: Initial PostgreSQL database name.
+  DatabaseAdminUsername:
+    Type: String
+    AllowedPattern: '[A-Za-z][A-Za-z0-9_]{0,62}'
+    Description: Initial PostgreSQL administrator username.
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: Existing VPC with DNS support in the configured Region.
+  PrimaryAvailabilityZone:
+    Type: AWS::EC2::AvailabilityZone::Name
+    Description: Zone for the writer and its private subnet.
+  SecondaryAvailabilityZone:
+    Type: AWS::EC2::AvailabilityZone::Name
+    Description: Zone for the other private subnet.
+  DatabaseSubnetACidr:
+    Type: String
+    Description: Unused IPv4 range in the VPC for the private subnet in the primary zone.
+  DatabaseSubnetBCidr:
+    Type: String
+    Description: Unused IPv4 range in the VPC for the private subnet in the secondary zone.
+
+Rules:
+  DatabaseZones:
+    Assertions:
+      - Assert: !Not [!Equals [!Ref PrimaryAvailabilityZone, !Ref SecondaryAvailabilityZone]]
+        AssertDescription: The database subnets must be in two distinct zones.
+
+Resources:
+  DatabaseSubnetA:
+    Type: AWS::EC2::Subnet
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: Hosts the Aurora writer in the selected primary zone.
+        must: Keep public IPv4 assignment disabled.
+    Properties:
+      VpcId: !Ref VpcId
+      AvailabilityZone: !Ref PrimaryAvailabilityZone
+      CidrBlock: !Ref DatabaseSubnetACidr
+      MapPublicIpOnLaunch: false
+
+  DatabaseSubnetB:
+    Type: AWS::EC2::Subnet
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: Satisfies the database subnet group's second-zone requirement.
+        must: Keep public IPv4 assignment disabled.
+    Properties:
+      VpcId: !Ref VpcId
+      AvailabilityZone: !Ref SecondaryAvailabilityZone
+      CidrBlock: !Ref DatabaseSubnetBCidr
+      MapPublicIpOnLaunch: false
+
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: Gives both database subnets only local VPC routes.
+        must: Keep internet and NAT routes out of this table.
+    Properties:
+      VpcId: !Ref VpcId
+
+  PrivateRouteA:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: Keeps the first database subnet off the VPC's default routes.
+        must: Associate the private route table.
+    Properties:
+      SubnetId: !Ref DatabaseSubnetA
+      RouteTableId: !Ref PrivateRouteTable
+
+  PrivateRouteB:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: Keeps the second database subnet off the VPC's default routes.
+        must: Associate the private route table.
+    Properties:
+      SubnetId: !Ref DatabaseSubnetB
+      RouteTableId: !Ref PrivateRouteTable
+
+  DatabaseSubnets:
+    Type: AWS::RDS::DBSubnetGroup
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: Places RDS in the isolated subnets.
+        must: Include private subnets in two different zones.
+    DependsOn: [PrivateRouteA, PrivateRouteB]
+    Properties:
+      DBSubnetGroupDescription: Private Cheapo database subnets
+      SubnetIds: [!Ref DatabaseSubnetA, !Ref DatabaseSubnetB]
+
+  DatabaseSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: Gives the database a dedicated access boundary.
+        must: Permit PostgreSQL only from explicitly authorized workload security groups.
+    Properties:
+      GroupDescription: Cheapo PostgreSQL
+      VpcId: !Ref VpcId
+
+  Database:
+    Type: AWS::RDS::DBCluster
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: Stores Cheapo's PostgreSQL data while photo files live separately.
+        must: Keep private networking, encryption, backups and deletion protection.
+    Properties:
+      Engine: aurora-postgresql
+      EngineMode: provisioned
+      EngineVersion: '17.11'
+      EngineLifecycleSupport: open-source-rds-extended-support-disabled
+      DatabaseName: !Ref DatabaseName
+      MasterUsername: !Ref DatabaseAdminUsername
+      ManageMasterUserPassword: true
+      EnableHttpEndpoint: false
+      DBSubnetGroupName: !Ref DatabaseSubnets
+      VpcSecurityGroupIds: [!GetAtt DatabaseSecurityGroup.GroupId]
+      StorageType: aurora
+      StorageEncrypted: true
+      ServerlessV2ScalingConfiguration:
+        MinCapacity: 0
+        MaxCapacity: 1
+        SecondsUntilAutoPause: 900
+      BackupRetentionPeriod: 7
+      CopyTagsToSnapshot: true
+      DeletionProtection: true
+
+  DatabaseWriter:
+    Type: AWS::RDS::DBInstance
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: Runs the single beta writer in the same zone as the migration runner.
+        must: Keep public access off and use serverless compute.
+    Properties:
+      DBClusterIdentifier: !Ref Database
+      DBInstanceClass: db.serverless
+      Engine: aurora-postgresql
+      AvailabilityZone: !Ref PrimaryAvailabilityZone
+      PubliclyAccessible: false
+      AutoMinorVersionUpgrade: true
+
+  PhotoBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: Stores private original and cropped evidence independently of the guest app.
+        must: Keep public access blocked, bucket-owner enforcement and encryption enabled.
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+
+  PhotoBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: Requires encryption in transit and preserves that guard if the bucket is retained.
+        must: Deny non-TLS traffic for both the bucket and its objects.
+    Properties:
+      Bucket: !Ref PhotoBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: RequireTLS
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource:
+              - !GetAtt PhotoBucket.Arn
+              - !Sub '${PhotoBucket.Arn}/*'
+            Condition:
+              Bool:
+                aws:SecureTransport: 'false'
+
+Outputs:
+  DatabaseIdentifier:
+    Value: !Ref Database
+  DatabaseEndpoint:
+    Value: !GetAtt Database.Endpoint.Address
+  DatabaseAvailabilityZone:
+    Value: !Ref PrimaryAvailabilityZone
+  DatabaseWriterIdentifier:
+    Value: !Ref DatabaseWriter
+  DatabaseSecurityGroupId:
+    Value: !GetAtt DatabaseSecurityGroup.GroupId
+  PhotoBucketName:
+    Value: !Ref PhotoBucket

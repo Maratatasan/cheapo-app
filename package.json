@@ -14,16 +14,20 @@
     "build": "turbo run build",
     "typecheck": "turbo run typecheck",
     "lint": "turbo run lint",
-    "test": "turbo run test",
+    "test": "turbo run test && pnpm test:infra",
     "test:watch": "pnpm --filter cheapo-app test:watch",
     "test:route1": "node --test tools/route1-demo/*.test.mjs",
     "test:auth-native": "pnpm --filter cheapo-app test:auth-native",
     "ui:storybook": "pnpm --filter cheapo-app ui:storybook",
     "ui:storybook:build": "turbo run ui:storybook:build",
     "expo": "pnpm --filter cheapo-app exec expo",
-    "expo:doctor": "cd apps/mobile && pnpm dlx expo-doctor"
+    "expo:doctor": "cd apps/mobile && pnpm dlx expo-doctor",
+    "test:infra": "node --test infra/aws/check.test.mjs",
+    "infra:aws:check": "node infra/aws/check.mjs"
   },
   "devDependencies": {
-    "turbo": "2.11.11"
+    "dotenv": "18.0.10",
+    "turbo": "2.11.11",
+    "zod": "4.6.7"
   }
 }
