@@ -10,40 +10,45 @@ for costs, evidence, and the future API design.
 
 ## Prerequisites and validation
 
-Use a current AWS CLI with the signed-in `cheapo` profile in `eu-north-1`
-(Building Momentum). The private storage stack requires the AWS Paid plan and
-provisioning approval. For the import, use the
+Use the repo's Node and pnpm versions, and put an AWS CLI with `aws login`
+support on your PATH. Sign your chosen profile into Building Momentum. The
+private storage stack requires the AWS Paid plan and provisioning approval.
+For the import, use the
 [Session Manager plugin](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html),
 `psql`, and an [RDS CA bundle](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/UsingWithRDS.SSL.html).
 
-Run from the repo root. Set `CHEAPO_VPC_ID` from the project inventory,
-`CHEAPO_DB_SUBNET_A_CIDR` and `CHEAPO_DB_SUBNET_B_CIDR` to distinct unused
-ranges in that VPC, and `CHEAPO_RUNNER_SUBNET_ID` to a same-VPC subnet in
-`eu-north-1a` with an internet gateway route.
+From the repo root, copy [the example](.env.example) to `infra/aws/.env.local`
+and fill in the AWS profile and project account ID. Keep the Region
+`eu-north-1`. Store credentials in AWS login and Secrets Manager.
 
 ```sh
-cheapo_aws() { aws --profile cheapo --region eu-north-1 --no-cli-pager "$@"; }
+pnpm infra:aws:check
+
+cheapo_aws() {
+  local cheapo_profile
+  cheapo_profile=$(pnpm --silent infra:aws:check identity) || return
+  aws --profile "$cheapo_profile" --region eu-north-1 --no-cli-pager "$@"
+}
 storage_stack=cheapo-shopping-storage
 access_stack=cheapo-shopping-migration-access
-
-cheapo_aws sts get-caller-identity
-for template in shopping-storage shopping-migration-access; do
-  cheapo_aws cloudformation validate-template --template-body "file://infra/aws/$template.yaml"
-done
 ```
+
+The validation command checks project identity and both templates. The shell
+helper uses that verified profile for each manual AWS command.
 
 ## Deploy approved stacks
 
-Confirm the project, Region and spend settings before creating changes. Start
-with the storage stack. Create the access stack only when the import is ready.
+Confirm spend settings before creating changes. In the local file, set
+`CHEAPO_VPC_ID` and two distinct unused database subnet CIDRs within that VPC.
+Start with the storage stack. Create migration access only when the import is
+ready.
 
 ```sh
+cheapo_storage_parameters=$(pnpm --silent infra:aws:check storage) &&
 cheapo_aws cloudformation create-change-set --stack-name "$storage_stack" \
   --change-set-name initial --change-set-type CREATE \
   --template-body file://infra/aws/shopping-storage.yaml \
-  --parameters ParameterKey=VpcId,ParameterValue="$CHEAPO_VPC_ID" \
-    ParameterKey=DatabaseSubnetACidr,ParameterValue="$CHEAPO_DB_SUBNET_A_CIDR" \
-    ParameterKey=DatabaseSubnetBCidr,ParameterValue="$CHEAPO_DB_SUBNET_B_CIDR"
+  --parameters "$cheapo_storage_parameters"
 ```
 
 For each created change set, set `stack` to the corresponding stack name and
@@ -70,17 +75,17 @@ deletion protection, and S3 public-access blocking, versioning and TLS policy.
 cheapo_aws cloudformation update-termination-protection --stack-name "$storage_stack" --enable-termination-protection
 ```
 
-Set `CHEAPO_DB_SECURITY_GROUP_ID` from the storage stack's
-`DatabaseSecurityGroupId`. Create, review and execute the access change set
-using the same steps above with `stack="$access_stack"`.
+In the local file, set `CHEAPO_DB_SECURITY_GROUP_ID` from the storage stack's
+`DatabaseSecurityGroupId`. Set `CHEAPO_RUNNER_SUBNET_ID` to a same-VPC subnet
+in `eu-north-1a` with an internet gateway route. Create, review and execute
+the access change set using the same steps above with `stack="$access_stack"`.
 
 ```sh
+cheapo_access_parameters=$(pnpm --silent infra:aws:check access) &&
 cheapo_aws cloudformation create-change-set --stack-name "$access_stack" \
   --change-set-name initial --change-set-type CREATE --capabilities CAPABILITY_IAM \
   --template-body file://infra/aws/shopping-migration-access.yaml \
-  --parameters ParameterKey=VpcId,ParameterValue="$CHEAPO_VPC_ID" \
-    ParameterKey=RunnerSubnetId,ParameterValue="$CHEAPO_RUNNER_SUBNET_ID" \
-    ParameterKey=DatabaseSecurityGroupId,ParameterValue="$CHEAPO_DB_SECURITY_GROUP_ID"
+  --parameters "$cheapo_access_parameters"
 ```
 
 ## Connect and clean up
