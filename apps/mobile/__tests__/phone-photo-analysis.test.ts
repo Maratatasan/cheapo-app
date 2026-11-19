@@ -1,4 +1,5 @@
 import { fetch } from 'expo/fetch';
+import { applyPhotoSuggestion, emptyReview, reviewComplete, reviewUnitPrice } from '@/data/photo-review';
 import { requestPhotoDraft } from '@/lib/direct-auth/photo-analysis';
 
 jest.mock('expo/fetch', () => ({ fetch: jest.fn() }));
@@ -103,6 +104,31 @@ test('keeps only distinct valid alternatives for fields with a confirmed primary
   } });
   const request = JSON.parse(String(provider.mock.calls[1][1]?.body));
   expect(request.text.format.schema.required).toContain('alternatives');
+});
+
+test.each([
+  { raw: '$', suggestion: null, applied: 'GBP' },
+  { raw: '£', suggestion: null, applied: 'GBP' },
+  { raw: 'GBP', suggestion: 'GBP', applied: 'GBP' },
+  { raw: 'USD', suggestion: 'USD', applied: 'USD' },
+])('applies only currency codes without losing the shelf price ($raw)', async ({ raw, suggestion, applied }) => {
+  catalog();
+  bodyResponse([new TextEncoder().encode(completed([{ type: 'output_text', text: JSON.stringify({
+    ...draft,
+    product: 'Tuna in brine',
+    brand: 'Princes',
+    packSize: '560 g',
+    price: 3.19,
+    currency: raw,
+    unit_price: { amount: 0.5696, unit: '100 g' },
+  }) }]))]);
+
+  const extracted = await analyze();
+  expect(extracted.currency).toBe(suggestion);
+  const review = applyPhotoSuggestion(emptyReview('Selected branch'), extracted, new Set());
+  expect(review).toMatchObject({ currency: applied, price: '3.19', packSize: '560 g', unitPrice: '0.5696', unit: '100 g' });
+  expect(reviewComplete(review)).toBe(true);
+  expect(reviewUnitPrice(review)).toEqual({ amount: 0.5696, unit: '100 g' });
 });
 
 test('withholds the photo when the catalog has no supported listed model', async () => {

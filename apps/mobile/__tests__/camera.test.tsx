@@ -184,6 +184,7 @@ describe("CameraComponent", () => {
 
     const primaryPrice = await screen.findByRole('radio', { name: 'Total price: £1.49' });
     expect(primaryPrice).toBeChecked();
+    expect(screen.getByText('Printed unit price unconfirmed')).toBeOnTheScreen();
     await fireEvent.press(screen.getByRole('radio', { name: 'Total price: £1.79' }));
     await fireEvent.press(screen.getByRole('radio', { name: 'Brand: Other brand' }));
     expect(primaryPrice).not.toBeChecked();

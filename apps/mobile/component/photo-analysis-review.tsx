@@ -82,8 +82,8 @@ export function PhotoSuggestion({ draft, disabled, onApply, onFirstLayout }: {
       {readings('brand', 'Brand')}
       {draft.productType ? readings('productType', 'Product type') : null}
       {draft.variety ? readings('variety', 'Variety') : null}
-      {draft.currency ? readings('currency', 'Currency') : null}
-      {draft.unit_price ? readings('unit_price', 'Unit price', unit_price => unitPriceLabel({ unit_price, currency })) : null}
+      {readings('currency', 'Currency')}
+      {readings('unit_price', 'Printed unit price', unit_price => unitPriceLabel({ unit_price, currency }))}
       {draft.uncertainty ? <Text style={styles.note}>{draft.uncertainty}</Text> : null}
     </View>
     <Button title="Use suggested details" disabled={disabled} onPress={() => onApply({ ...draft, ...chosen })} />
