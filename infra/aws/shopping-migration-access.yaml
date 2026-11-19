@@ -1,0 +1,122 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Temporary Systems Manager tunnel for a Cheapo migration in Stockholm.
+
+Metadata:
+  AWSToolsMetrics:
+    AWSAgentToolkit: aws-cloudformation@3
+
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC used by the Cheapo shopping storage stack.
+  RunnerSubnetId:
+    Type: AWS::EC2::Subnet::Id
+    Description: Existing public subnet in eu-north-1a with an internet gateway route.
+  DatabaseSecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+    Description: Dedicated database security group from the Cheapo storage stack.
+  RunnerImage:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64
+    Description: AWS Amazon Linux 2023 Arm64 image with Systems Manager Agent.
+
+Rules:
+  StockholmOnly:
+    Assertions:
+      - Assert: !Equals [!Ref 'AWS::Region', eu-north-1]
+        AssertDescription: Cheapo migration access belongs in eu-north-1.
+      - Assert: !Equals [!ValueOf [RunnerSubnetId, VpcId], !Ref VpcId]
+        AssertDescription: The runner subnet must be in the supplied VPC.
+      - Assert: !Equals [!ValueOf [RunnerSubnetId, AvailabilityZone], eu-north-1a]
+        AssertDescription: Keep the runner and database in the same zone.
+
+Resources:
+  RunnerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: Lets the agent reach Systems Manager and forward traffic to RDS.
+        must: Keep zero inbound rules and restrict database egress to the database group.
+    Properties:
+      GroupDescription: Temporary Cheapo Systems Manager runner
+      VpcId: !Ref VpcId
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          DestinationSecurityGroupId: !Ref DatabaseSecurityGroupId
+
+  DatabaseAccess:
+    Type: AWS::EC2::SecurityGroupIngress
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: Lets stack cleanup revoke the runner's access separately from persistent storage.
+        must: Allow only PostgreSQL from the runner security group.
+    Properties:
+      GroupId: !Ref DatabaseSecurityGroupId
+      IpProtocol: tcp
+      FromPort: 5432
+      ToPort: 5432
+      SourceSecurityGroupId: !GetAtt RunnerSecurityGroup.GroupId
+
+  RunnerRole:
+    Type: AWS::IAM::Role
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: Registers the temporary node with Systems Manager.
+        must: Leave access to the shopping data and database password with the operator.
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub 'arn:${AWS::Partition}:iam::aws:policy/AmazonSSMManagedInstanceCore'
+
+  RunnerProfile:
+    Type: AWS::IAM::InstanceProfile
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: Attaches the Systems Manager role to the runner.
+        must: Use the dedicated temporary role.
+    Properties:
+      Roles: [!Ref RunnerRole]
+
+  Runner:
+    Type: AWS::EC2::Instance
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: Forwards the operator's local TLS connection during migration.
+        must: Require IMDSv2 and delete its root volume when terminated.
+    Properties:
+      InstanceType: t4g.micro
+      ImageId: !Ref RunnerImage
+      IamInstanceProfile: !Ref RunnerProfile
+      CreditSpecification:
+        CPUCredits: standard
+      MetadataOptions:
+        HttpTokens: required
+      NetworkInterfaces:
+        - DeviceIndex: '0'
+          AssociatePublicIpAddress: true
+          DeleteOnTermination: true
+          SubnetId: !Ref RunnerSubnetId
+          GroupSet: [!GetAtt RunnerSecurityGroup.GroupId]
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            DeleteOnTermination: true
+            Encrypted: true
+            VolumeSize: 8
+            VolumeType: gp3
+
+Outputs:
+  RunnerInstanceId:
+    Value: !Ref Runner
