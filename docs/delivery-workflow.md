@@ -23,10 +23,10 @@ report board sync as pending with the issue link and next action.
 
 - **Ready** means the issue is queued. A card here does not authorize work.
   The project owner or coordinating agent sets priorities and approves scope.
-  When authorized to assign work, the delivery coordinator dispatches the next
-  approved, unblocked ticket from that queue. Keep at most two implementation
-  tickets active by default, with one named owner per ticket and one named
-  integration owner.
+  The delivery coordinator may dispatch the next approved, defined, unblocked
+  ticket from that queue when an implementation slot opens. Work already
+  authorized may continue while the project owner is away and execution is
+  available. Keep one named owner per ticket and one named integration owner.
 - **In Progress** means an owner has started the named, authorized issue.
   Record the owner, scope and next action on the issue, then move its card.
   When blocked, record the reason, the action that would unblock it and who
@@ -36,7 +36,9 @@ report board sync as pending with the issue link and next action.
   applicable evidence, remaining gaps and a clear reviewer action. Record the
   checked commit and distinguish CI, bundle export, browser, simulator and
   physical-device evidence. For UI changes, follow the
-  [UI verification standard](ui-verification.md).
+  [UI verification standard](ui-verification.md). Moving here frees an
+  implementation slot. Queue requested revisions and move the ticket back to
+  **In Progress** when its owner starts them within an available slot.
 - **Done** means the issue's acceptance criteria are satisfied. Verify the
   landed change and the evidence required by the issue. Use `Closes #123` in a
   PR only when merging it satisfies every criterion. Use `Refs #123` for a
@@ -47,7 +49,23 @@ report board sync as pending with the issue link and next action.
 
 On handoff, the owner records the issue, PR, target branch, checked commit,
 evidence and next action. The delivery coordinator reconciles status at
-handoff, review and merge. The authorized integration owner handles merges.
+handoff, review and merge. Follow the project owner's merge instructions,
+including any explicit delegation of merge authority.
+
+## Parallel and dependent work
+
+Run at most two tickets in active implementation. Pull requests waiting for
+review leave those slots available. For independent tickets, use separate
+worktrees and agree on file ownership before starting. Sequence changes that
+overlap heavily.
+
+An approved dependent ticket may use a stacked PR based on the parent PR's
+branch. Link the parent issue and PR, name the base branch, and state the
+dependency order and pending integration into `main`. Expect overlapping
+changes to need reconciliation. Keep stacks shallow while a design awaits
+review. After the parent lands, retarget the child PR to `main`, rebase onto the
+landed changes, and rerun the relevant checks at the new exact head before
+handing it back for review.
 
 ## Status automation
 
