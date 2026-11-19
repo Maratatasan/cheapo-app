@@ -13,7 +13,7 @@ import { localHttpServer } from '../server.ts';
 
 const host = process.env.CHEAPO_TEST_PG_SOCKET;
 if (!host) throw new Error('Run this test with pnpm --filter @cheapo/api test:postgres.');
-const connection = { host, port: 5432, user: 'cheapo_test', database: 'postgres', ssl: false };
+const connection = { host, port: Number(process.env.CHEAPO_TEST_PG_PORT), user: 'cheapo_test', database: 'postgres', ssl: false };
 const pool = new Pool(connection);
 const household = '00000000-0000-4000-8000-000000000001';
 const otherHousehold = '00000000-0000-4000-8000-000000000002';
@@ -126,7 +126,7 @@ function deviceCommand(...args: string[]) {
   return spawnSync(process.execPath, ['operator/device-credential.ts', ...args], {
     encoding: 'utf8',
     cwd: new URL('..', import.meta.url),
-    env: { ...process.env, PGHOST: host, PGPORT: '5432', PGUSER: 'cheapo_test', PGDATABASE: 'postgres' },
+    env: { ...process.env, PGHOST: host, PGPORT: String(connection.port), PGUSER: 'cheapo_test', PGDATABASE: 'postgres' },
   });
 }
 

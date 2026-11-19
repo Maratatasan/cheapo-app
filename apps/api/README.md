@@ -8,7 +8,7 @@ member cannot read or replace another member’s preference.
 ## Try the service locally
 
 From the root, install with `pnpm install --frozen-lockfile`. With PostgreSQL’s
-`initdb`, `pg_ctl` and `psql` on `PATH`, run:
+`initdb`, `pg_ctl`, `psql` and `openssl` on `PATH`, run:
 
 ```sh
 pnpm --filter @cheapo/api test:postgres
@@ -144,3 +144,42 @@ the source ZIP and the extracted files. It accepts only a local PostgreSQL
 socket. Check that the reported counts match the dry-run counts and that a
 second run returns the same receipt. The [Cheapo migration decision log](https://docs.google.com/document/d/1RiVeT6NU-aVZa9y-uvB5qSQ1OYPbxUB8tzFhrNS7Z84/edit)
 records the initial source and hosted target.
+
+### Restore to a hosted database and private S3 storage
+
+Use the reviewed PostgreSQL endpoint and photo bucket from
+[#176](https://github.com/Maratatasan/cheapo-app/issues/176). Apply the numbered
+migrations and provision the shopper and household membership first. Follow the
+[temporary access and TLS checks](../../infra/aws/README.md#connect-and-clean-up).
+Run `import:plan` on the verified extracted backup and keep its counts for
+reconciliation.
+
+Set `PGHOST` to the database DNS name, `PGPORT` if needed, `PGDATABASE`, `PGUSER`,
+`PGPASSWORD` through your approved credential workflow, and `PGSSLROOTCERT` to
+the trusted provider CA bundle. For an approved port forward, set
+`CHEAPO_IMPORT_TUNNEL_HOST` to `127.0.0.1` and `PGPORT` to the forwarded local
+port. `PGHOST` still names the real database for certificate verification.
+
+Use the intended AWS Region and bucket owner. The import identity needs
+`s3:PutObject` and `s3:GetObject` under `shopping-import/` to write and verify
+photos. Supply temporary AWS credentials through the normal SDK credential
+chain.
+
+```sh
+AWS_REGION=eu-north-1 CHEAPO_IMPORT_BUCKET=YOUR_PRIVATE_BUCKET \
+  CHEAPO_IMPORT_BUCKET_OWNER=YOUR_AWS_PROJECT_NUMBER \
+  pnpm --silent --filter @cheapo/api import:hosted \
+  /path/to/extracted-backup HOUSEHOLD_UUID SHOPPER_UUID
+```
+
+S3 checks each conditional upload against the source SHA-256. The importer reads
+and rehashes the stored bytes before committing their references. An existing
+object with matching bytes is reusable. A mismatch stops the transaction. Photo
+references are relative keys. Bucket selection and access remain in the storage
+adapter. A failed transaction can leave verified objects available for retry.
+
+Compare the restore counts with the dry run and keep the returned receipt with
+the private migration record. Preserve the initial archive and reconcile later
+phone changes separately before making hosted data the default. The [migration
+issue](https://github.com/Maratatasan/cheapo-app/issues/171) tracks the transfer
+and reconciliation.
