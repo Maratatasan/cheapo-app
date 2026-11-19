@@ -37,6 +37,16 @@ open issues with that label in `Maratatasan/cheapo-app`. Labeling
 on 19 November 2026. If access, tooling, or automation prevents verification,
 report board sync as pending with the issue link and next action.
 
+## Keep current PR links visible
+
+Put **Current work / PR links** at the top of the issue body. Start with
+`No PR yet.` List each draft or open PR on its own line with its slice and review
+state. Keep merged or superseded supporting work separate from current PRs.
+
+The worker updates the section when opening or revising a PR or marking it
+ready. The person reconciling a merge or replacing a PR updates the section
+and records any remaining slices on the open issue.
+
 ## Move the issue as work progresses
 
 - **To Do** holds the approved, ordered queue. The project owner approves
@@ -55,8 +65,9 @@ report board sync as pending with the issue link and next action.
   owner's explicit release. Record the condition and who can resolve it.
   Work held until the owner says otherwise requires their release. Resume
   once the condition is resolved and the work is authorized.
-- **Ready for review** means the issue links to an actual PR, with checks,
-  applicable evidence, remaining gaps and a clear reviewer action. Record the
+- **Ready for review** means the issue lists the actual PR in
+  **Current work / PR links**. Include checks, applicable evidence, remaining
+  gaps and a clear reviewer action. Record the
   checked commit and distinguish CI, bundle export, browser, simulator and
   physical-device evidence. Before moving the card, verify that the applicable
   PR evidence is present. For UI changes, verify that the PR's embedded
