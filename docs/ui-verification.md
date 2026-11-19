@@ -39,5 +39,14 @@ separately, including any that the issue allows you to defer.
 See the [Agent Documentation standard](https://docs.google.com/document/d/1SJUGxANp46SqcsACD3Si8RQ1RbpBAAcxl9q8IAK7sQA/edit#heading=h.rx2jk8hl5mzl)
 for the approved screenshot requirement.
 
-In the handoff, link the PR, relevant stories and test evidence. Name the target
-for each device check and call out any verification gaps.
+## Storybook preview for review
+
+In the UI PR handoff, link directly to the relevant Storybook story or flow and
+give the source commit and browser target. When review starts, start or reuse
+the preview from the PR head, open the exact link and confirm the story renders.
+Keep the preview available during review. Label a local URL as available on
+the review machine while the server is running.
+
+Link the PR and test evidence in the handoff. Record native checks separately.
+If the preview cannot be opened, state what is blocked and keep that review
+evidence pending.

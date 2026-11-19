@@ -59,8 +59,9 @@ report board sync as pending with the issue link and next action.
   applicable evidence, remaining gaps and a clear reviewer action. Record the
   checked commit and distinguish CI, bundle export, browser, simulator and
   physical-device evidence. Before moving the card, verify that the applicable
-  PR evidence is present, including the embedded screenshots required by the
-  [UI verification standard](ui-verification.md#screenshots-in-pull-requests).
+  PR evidence is present. For UI changes, verify that the PR's embedded
+  screenshots render and the handoff's Storybook link opens the relevant story.
+  Follow the [UI verification standard](ui-verification.md).
   Moving here frees an implementation slot. The worker verifies the transition
   and reports the issue, PR, checked revision and results to the primary agent.
   Queue requested revisions and move the ticket back to **In Progress** when
