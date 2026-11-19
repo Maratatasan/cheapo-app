@@ -10,7 +10,11 @@ them; do not turn them into a broad refactor or a package for every concept.
   Camera permissions and hardware details stay at that boundary.
 - **Photos** represent originals, derived crops, and their local, gallery, or
   cloud references. Keep image bytes and storage-specific URIs out of UI logic
-  where a stable photo reference can be used.
+  where a stable photo reference can be used. Keep the
+  [product photo roles](domain-glossary.md#capture-review-and-photos) separate.
+  Presentation photo changes update the product's display reference and preserve
+  the observation's price photos, including originals and crops. Keep collected
+  price evidence available for shopping and private regression tests.
 - **AI analysis** accepts a photo reference or image input and returns a common,
   validated `PriceDraft`. A provider adapter owns provider authentication,
   session/transport details, and response translation. Model-specific payloads
