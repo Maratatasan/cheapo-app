@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import { Stack, useLocalSearchParams, usePreventRemove, useRouter } from 'expo-router';
 import { useCameraPermissions } from 'expo-camera';
 import { Platform, View } from 'react-native';
 
@@ -24,11 +24,13 @@ export default function EditSavedPrice() {
   const [review, setReview] = useState<ManualReview>();
   const [busy, setBusy] = useState(false);
   const [linkOpen, setLinkOpen] = useState(false);
+  const [linkSaving, setLinkSaving] = useState(false);
   const [linkedBarcode, setLinkedBarcode] = useState<string>();
   const [permission, requestPermission] = useCameraPermissions();
   const [error, setError] = useState<string>();
   const saving = useRef(false);
   const lifecycle = useRef<AbortController | null>(null);
+  usePreventRemove(linkSaving);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -37,6 +39,7 @@ export default function EditSavedPrice() {
       loadSavedPriceRecord(id).then(draft => {
         if (controller.signal.aborted) return;
         setLinkOpen(false);
+        setLinkSaving(false);
         setLinkedBarcode(undefined);
         if (draft?.review && reviewComplete(draft.review, draft.shop?.displayName)) {
           setLoaded({ id, product: { ...draft, review: draft.review } });
@@ -51,13 +54,14 @@ export default function EditSavedPrice() {
   }, [id]);
 
   function leave() {
+    if (linkSaving) return;
     if (router.canGoBack()) router.back();
     else router.replace('/saved-products');
   }
 
   async function save() {
     const signal = lifecycle.current?.signal;
-    if (!signal || saving.current || !product || !review || product.id !== id || !reviewComplete(review, product.shop?.displayName)) return;
+    if (!signal || saving.current || linkSaving || !product || !review || product.id !== id || !reviewComplete(review, product.shop?.displayName)) return;
     saving.current = true;
     setBusy(true);
     setError(undefined);
@@ -77,11 +81,12 @@ export default function EditSavedPrice() {
       <Stack.Screen options={{ title: 'Edit saved product' }} />
       {product && product.id === id && review ? (
         <PhotoReview photo={product.selected} review={review} selectedShopName={product.shop?.displayName ?? product.review.shop}
-          saved={false} busy={busy} onReviewChange={setReview} onCancel={leave} onSave={save} saveError={error}
+          saved={false} busy={busy || linkSaving} onReviewChange={setReview} onCancel={leave} onSave={save} saveError={error}
           savedBarcode={linkedBarcode}
           barcodeReview={!product.productId && product.original && !linkedBarcode ? (
             linkOpen ? <SavedPriceBarcode key={product.id} record={{ ...product, original: product.original, selected: product.selected }}
               lookup={findLocalProductByBarcode} readPhoto={decodePhotoBarcodes} link={linkSavedPriceToBarcode}
+              disabled={busy} onSavingChange={setLinkSaving}
               onLinked={code => { setLinkedBarcode(code); setLinkOpen(false); }} onCancel={() => setLinkOpen(false)}
               renderScanner={permission ? callbacks => <PhotoBarcodeScan permission={permission}
                 requestPermission={requestPermission} {...callbacks} /> : undefined} />

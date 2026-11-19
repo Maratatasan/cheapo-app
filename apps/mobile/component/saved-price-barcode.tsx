@@ -19,11 +19,13 @@ type Props = {
   readPhoto?: (uri: string) => Promise<PhotoBarcodeResult>;
   renderScanner?: (callbacks: ScanCallbacks) => ReactNode;
   link: typeof linkSavedPriceToBarcode;
+  disabled?: boolean;
+  onSavingChange?: (saving: boolean) => void;
   onLinked: (code: string) => void;
   onCancel: () => void;
 };
 
-export function SavedPriceBarcode({ record, lookup, readPhoto, renderScanner, link, onLinked, onCancel }: Props) {
+export function SavedPriceBarcode({ record, lookup, readPhoto, renderScanner, link, disabled, onSavingChange, onLinked, onCancel }: Props) {
   const [value, setValue] = useState('');
   const [match, setMatch] = useState<Match>();
   const [detected, setDetected] = useState<PhotoBarcodeResult>();
@@ -52,7 +54,7 @@ export function SavedPriceBarcode({ record, lookup, readPhoto, renderScanner, li
   }
 
   async function confirm() {
-    if (pending.current) return;
+    if (disabled || pending.current) return;
     const code = canonicalProductBarcode(value);
     if (!code) { setError('Enter a valid product barcode.'); return; }
     pending.current = true;
@@ -69,9 +71,10 @@ export function SavedPriceBarcode({ record, lookup, readPhoto, renderScanner, li
   }
 
   async function save() {
-    if (pending.current || !match) return;
+    if (disabled || pending.current || !match) return;
     pending.current = true;
     setBusy(true); setError(undefined);
+    onSavingChange?.(true);
     try {
       const { product } = await link(record.id, match.code, match.product
         ? { kind: 'existing', productId: match.product.id }
@@ -81,13 +84,17 @@ export function SavedPriceBarcode({ record, lookup, readPhoto, renderScanner, li
       if (active.current) setError(cause instanceof Error ? cause.message : 'Could not link the barcode. Try again.');
     } finally {
       pending.current = false;
-      if (active.current) setBusy(false);
+      if (active.current) {
+        setBusy(false);
+        onSavingChange?.(false);
+      }
     }
   }
 
+  const locked = busy || disabled;
   return <View style={styles.panel}>
     <PhotoBarcodeReview result={detected ?? (readPhoto ? undefined : { status: 'unavailable' })} value={value}
-      confirmed={Boolean(match)} busy={busy} error={error} onChange={change}
+      confirmed={Boolean(match)} busy={Boolean(locked)} error={error} onChange={change}
       onConfirm={() => { void confirm(); }} onClear={() => change('')}
       onScan={renderScanner ? () => setScanning(true) : undefined} />
     {match ? <View style={styles.target}>
@@ -98,9 +105,9 @@ export function SavedPriceBarcode({ record, lookup, readPhoto, renderScanner, li
         <Text style={styles.note}>Save a product type on this price before creating the product.</Text>
       ) : null}
       <CameraActionButton primary label={match.product ? 'Link this barcode' : 'Create product and link'}
-        disabled={busy || (!match.product && !details.productType?.trim())} busy={busy} onPress={() => { void save(); }} />
+        disabled={locked || (!match.product && !details.productType?.trim())} busy={busy} onPress={() => { void save(); }} />
     </View> : null}
-    <CameraActionButton label="Cancel barcode link" disabled={busy} onPress={onCancel} />
+    <CameraActionButton label="Cancel barcode link" disabled={locked} onPress={onCancel} />
     {scanning ? renderScanner?.({
       onCancel: () => setScanning(false),
       onRead: code => { change(code); setScanning(false); },

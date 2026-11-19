@@ -118,6 +118,7 @@ async function publishProduct(input: Product & { barcode: string }): Promise<Pro
     if (existing.id === product.id) return existing;
     throw Error('This barcode already has a saved product. Scan it again to open that product.');
   }
+  if (await findLocalProductById(product.id)) throw Error('This saved product already has a different barcode.');
 
   const directory = productsDirectory();
   directory.create({ intermediates: true, idempotent: true });

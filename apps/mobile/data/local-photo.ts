@@ -3,7 +3,7 @@ import { randomUUID } from 'expo-crypto';
 import { Directory, File, Paths } from 'expo-file-system';
 
 import type { CropBox } from './crop-geometry';
-import { addLocalProduct, findLocalProductByBarcode, findLocalProductById } from './local-products';
+import { addLocalProduct, findLocalProductByBarcode } from './local-products';
 import { canonicalProductBarcode } from './product-barcode';
 import { emptyReview, reviewComplete, savedProductDetails, type ManualReview } from './photo-review';
 
@@ -125,7 +125,6 @@ export function linkSavedPriceToBarcode(id: string, barcode: string, target: Lin
     if (target.kind === 'new' && JSON.stringify(details) !== JSON.stringify(target.details)) {
       throw Error('The saved product details changed. Reopen this price before linking it.');
     }
-    if (!current && await findLocalProductById(productId)) throw Error('This saved product already has a different barcode.');
     const product = current ?? await addLocalProduct({ id: productId, barcode: code, ...details });
     if (record.productId) return { record, product };
 

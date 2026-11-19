@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import EditSavedPrice from '@/app/edit-price/[id]';
 import { linkSavedPriceToBarcode, loadSavedPriceRecord, saveLocalPhotoReview, type LocalPhotoDraft } from '@/data/local-photo';
 import { findLocalProductByBarcode, findLocalProductById } from '@/data/local-products';
@@ -7,6 +7,7 @@ import { emptyReview } from '@/data/photo-review';
 const mockBack = jest.fn();
 jest.mock('expo-router', () => ({
   Stack: { Screen: () => null },
+  usePreventRemove: jest.fn(),
   useLocalSearchParams: () => ({ id: 'capture-1' }),
   useRouter: () => ({ canGoBack: () => true, back: mockBack }),
 }));
@@ -110,4 +111,26 @@ test('shows a previously linked barcode read-only', async () => {
   await render(<EditSavedPrice />);
   expect(await screen.findByText('00036000291452')).toBeOnTheScreen();
   expect(screen.queryByRole('button', { name: 'Link barcode' })).not.toBeOnTheScreen();
+});
+
+
+test('keeps the saved record open while a confirmed barcode link is committing', async () => {
+  const catalog = { id: 'known-rice', name: 'Matched rice 1 kg', barcode: '00036000291452' };
+  jest.mocked(findLocalProductByBarcode).mockResolvedValue(catalog);
+  const result = { record: { ...product, productId: catalog.id }, product: catalog };
+  let complete!: (value: typeof result) => void;
+  jest.mocked(linkSavedPriceToBarcode).mockReturnValue(new Promise(resolve => { complete = resolve; }));
+  await render(<EditSavedPrice />);
+  await fireEvent.press(await screen.findByRole('button', { name: 'Link barcode' }));
+  await fireEvent.changeText(screen.getByLabelText('Product barcode'), '036000291452');
+  await fireEvent.press(screen.getByRole('button', { name: 'Confirm barcode' }));
+  await fireEvent.press(await screen.findByRole('button', { name: 'Link this barcode' }));
+  expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Cancel barcode link' })).toBeDisabled();
+  expect(screen.getAllByRole('button', { name: 'Saving…' })).toHaveLength(1);
+  await fireEvent.press(screen.getByRole('button', { name: 'Cancel' }));
+  expect(mockBack).not.toHaveBeenCalled();
+  await act(() => { complete(result); });
+  expect(await screen.findByText(catalog.barcode)).toBeOnTheScreen();
+  expect(screen.getByRole('button', { name: 'Save changes' })).toBeEnabled();
 });
