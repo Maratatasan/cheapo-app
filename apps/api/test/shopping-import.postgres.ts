@@ -52,7 +52,7 @@ const directory = await mkdtemp(join(tmpdir(), 'cheapo-shopping-restore-'));
 const objects = await mkdtemp(join(tmpdir(), 'cheapo-shopping-objects-'));
 const ensurePhoto = await localImportPhotos(directory, objects);
 
-async function plan(manifest = fixture) {
+async function plan(manifest: object = fixture) {
   await writeFile(join(directory, 'manifest.json'), JSON.stringify(manifest));
   return planShoppingImport(directory);
 }
@@ -120,6 +120,27 @@ test('rolls back a partial restore and does not replace an existing price', asyn
   assert.equal((await pool.query('SELECT price_amount FROM cheapo.price_observation WHERE household_id = $1 AND id = $2', [householdId, record.id])).rows[0].price_amount, '3.19');
 });
 
+
+test('restores older archives alongside v3 without inventing catalog links or clearing current shop', async () => {
+  const legacyPhoto = { ...record, id: 'legacy-v1-photo', productId: undefined };
+  const legacyManual = { ...earlier, id: 'legacy-v2-manual' };
+  for (const [version, observation] of [[1, legacyPhoto], [2, legacyManual]] as const) {
+    const snapshot = await plan({ version, exportedAt: fixture.exportedAt, records: [observation], savedShops: [shop] });
+    const receipt = await applyShoppingImport(pool, owner, snapshot, ensurePhoto);
+    assert.equal(receipt.version, version);
+    assert.equal(receipt.hasCatalog, false);
+    assert.equal(receipt.hasCurrentShopSelection, false);
+  }
+  const observed = await pool.query(`SELECT id, product_id, source_product_id FROM cheapo.price_observation
+    WHERE household_id = $1 AND id IN ($2, $3) ORDER BY id`, [householdId, legacyPhoto.id, legacyManual.id]);
+  assert.deepEqual(observed.rows, [
+    { id: legacyPhoto.id, product_id: null, source_product_id: null },
+    { id: legacyManual.id, product_id: null, source_product_id: product.id },
+  ]);
+  const selection = await pool.query('SELECT shop_id FROM cheapo.shopper_current_shop WHERE household_id = $1 AND shopper_id = $2', [householdId, shopperId]);
+  assert.equal(selection.rows[0].shop_id, shop.id);
+  assert.equal((await readdir(objects)).length, 2);
+});
 
 test('a changed source photo and a conflicting stored object cannot replace verified bytes', async () => {
   const { photos } = await plan();
