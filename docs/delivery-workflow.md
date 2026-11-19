@@ -64,8 +64,6 @@ report board sync as pending with the issue link and next action.
   Follow the [UI verification standard](ui-verification.md).
   Moving here frees an implementation slot. The worker verifies the transition
   and reports the issue, PR, checked revision and results to the primary agent.
-  Queue requested revisions and move the ticket back to **In Progress** when
-  its worker starts them within an available slot.
 - **Done** means the issue's acceptance criteria are satisfied. Verify the
   landed change and the evidence required by the issue. Use `Closes #123` in a
   PR only when merging it satisfies every criterion. Use `Refs #123` for a
@@ -80,6 +78,21 @@ next action. The primary agent handles review, reconciles the merge and
 dispatches the next eligible ticket. Assign a delivery coordinator only for a
 bounded reconciliation across workstreams. Follow the project owner's merge
 instructions, including any explicit delegation of merge authority.
+
+## Changes requested in review
+
+The primary agent records the feedback on the PR and dispatches the revision
+when an implementation slot opens. While it waits for capacity, record that
+review changes were requested and leave the card in **Ready for review**. Use
+**Paused** or **On hold** only when the conditions above apply.
+
+When the worker begins revisions, they move their card to **In Progress** and
+read back the status. Before returning it to **Ready for review**, rerun the
+affected required checks on the revised PR head. For changed UI, refresh the
+embedded screenshots for the affected states, identify the exact capture commit,
+and verify that the images render and the updated Storybook preview opens.
+Link the revised PR and evidence, then read back the return to **Ready for review**.
+The reviewer decides whether the revisions satisfy the requirements.
 
 ## Parallel and dependent work
 
