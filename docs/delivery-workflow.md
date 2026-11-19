@@ -58,12 +58,13 @@ report board sync as pending with the issue link and next action.
 - **Ready for review** means the issue links to an actual PR, with checks,
   applicable evidence, remaining gaps and a clear reviewer action. Record the
   checked commit and distinguish CI, bundle export, browser, simulator and
-  physical-device evidence. For UI changes, follow the
-  [UI verification standard](ui-verification.md). Moving here frees an
-  implementation slot. The worker verifies the transition and reports the issue,
-  PR, checked revision and results to the primary agent. Queue requested
-  revisions and move the ticket back to **In Progress** when its worker starts
-  them within an available slot.
+  physical-device evidence. Before moving the card, verify that the applicable
+  PR evidence is present, including the embedded screenshots required by the
+  [UI verification standard](ui-verification.md#screenshots-in-pull-requests).
+  Moving here frees an implementation slot. The worker verifies the transition
+  and reports the issue, PR, checked revision and results to the primary agent.
+  Queue requested revisions and move the ticket back to **In Progress** when
+  its worker starts them within an available slot.
 - **Done** means the issue's acceptance criteria are satisfied. Verify the
   landed change and the evidence required by the issue. Use `Closes #123` in a
   PR only when merging it satisfies every criterion. Use `Refs #123` for a
@@ -82,9 +83,9 @@ instructions, including any explicit delegation of merge authority.
 ## Parallel and dependent work
 
 Run at most two tickets in active implementation unless the project owner
-sets a different limit. Pull requests waiting for review leave those slots available. For independent tickets, use separate
-worktrees and agree on file ownership before starting. Sequence changes that
-overlap heavily.
+sets a different limit. Pull requests waiting for review leave those slots
+available. For independent tickets, use separate worktrees and agree on file
+ownership before starting. Sequence changes that overlap heavily.
 
 An approved dependent ticket may use a stacked PR based on the parent PR's
 branch. Link the parent issue and PR, name the base branch, and state the
