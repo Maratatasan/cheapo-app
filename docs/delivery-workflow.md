@@ -3,8 +3,8 @@
 Use the [GitHub delivery board](https://github.com/users/Maratatasan/projects/1/views/1)
 for current delivery status. GitHub issues hold scope, dependencies and
 acceptance criteria. Pull requests hold changes and review evidence. The
-[Mindomo delivery map](https://www.mindomo.com/mindmap/1e2624fc65444984a5d005e6de40d7f4)
-shows the expandable flow with links to issues. Open the board for day-to-day
+[Mindomo shopping flow](https://www.mindomo.com/mindmap/0038af2fa76c4108a2dbc283a0052402)
+shows the expandable app flow with links to issues. Open the board for day-to-day
 status. Drive holds the [standards](https://docs.google.com/document/d/1i5Z2u3SqBXDPaob6HQAua0Ya_Vyk5IFpbT21OCx5a7M/edit)
 and [product and architecture decisions](https://docs.google.com/document/d/1RiVeT6NU-aVZa9y-uvB5qSQ1OYPbxUB8tzFhrNS7Z84/edit).
 
