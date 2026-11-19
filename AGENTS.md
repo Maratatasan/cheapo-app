@@ -5,6 +5,8 @@
   Verify the live issue and [delivery board](https://github.com/users/Maratatasan/projects/1/views/1),
   dependencies, any existing PR, board access and named owner. Follow the workflow
   for claims, progress, handoff and closure.
+- When writing or reviewing repository Markdown, apply the
+  [repository documentation and Drive decisions standard](https://docs.google.com/document/d/1SJUGxANp46SqcsACD3Si8RQ1RbpBAAcxl9q8IAK7sQA/edit#heading=h.hteyw3ox4n58).
 - Plan single-purpose PRs before implementation and aim for fewer than 700 handwritten lines changed. Follow the [Cheapo PR guidance](https://docs.google.com/document/d/1SJUGxANp46SqcsACD3Si8RQ1RbpBAAcxl9q8IAK7sQA/edit#heading=h.pnpk0hmujgnp).
 - Read README.md for setup and platform limitations. Use the Node version in `.nvmrc` and pnpm version in `package.json`; maintain only `pnpm-lock.yaml`.
 - Run install, development, and checks from the repository root. Expo lives in
