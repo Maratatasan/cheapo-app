@@ -44,6 +44,7 @@ export default function Index() {
             currentShop={shops?.currentShop}
             onChooseShop={shops && !readError ? () => setChoosing(true) : undefined}
             onScan={() => router.push("/scan")}
+            onFindBarcode={Platform.OS === "web" ? undefined : () => router.push("/find-product")}
             onOpenSaved={() => router.push("/saved-products")}
             onExploreSamples={() => router.push("/results")}
           />

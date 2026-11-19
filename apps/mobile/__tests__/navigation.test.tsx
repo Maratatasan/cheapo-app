@@ -3,10 +3,12 @@ import { fireEvent, render as renderScreen, screen } from "@testing-library/reac
 import DeveloperTools from "../app/developer-tools";
 import HomeScreen from "../app/index";
 import ScanScreen from "../app/scan";
+import FindProductScreen from "../app/find-product";
 import { ShopRepositoryProvider } from "../component/shop/shop-repository-provider";
 import type { ShopRepository } from "../data/shop-repository";
 
 const mockPush = jest.fn();
+const mockReplace = jest.fn();
 const mockExtra = { directAuthTest: false };
 const testShopRepository = {
   loadSavedShops: jest.fn<ReturnType<ShopRepository["loadSavedShops"]>, []>(),
@@ -26,11 +28,19 @@ function render(ui: Parameters<typeof renderScreen>[0]) {
 }
 
 jest.mock("expo-router", () => ({
-  useRouter: () => ({ push: mockPush }),
+  useRouter: () => ({ push: mockPush, replace: mockReplace }),
   useLocalSearchParams: () => ({}),
   useFocusEffect: (callback: () => void) => require("react").useEffect(callback, [callback]),
   Stack: { Screen: ({ options }: { options: { headerRight?: () => ReactNode } }) => options.headerRight?.() ?? null },
   Redirect: () => null,
+}));
+
+jest.mock("../component/barcode-scan", () => ({
+  BarcodeScan: ({ currentShop, onScanLabel }: { currentShop?: { displayName: string }; onScanLabel: () => void }) => {
+    const { Button, Text, View } = require("react-native");
+    return <View><Text>{currentShop ? `Barcode lookup · ${currentShop.displayName}` : "Barcode lookup"}</Text>
+      <Button title="Scan label" onPress={onScanLabel} /></View>;
+  },
 }));
 
 jest.mock("expo-constants", () => ({ expoConfig: { get extra() { return mockExtra; } } }));
@@ -43,6 +53,7 @@ jest.mock("../component/camera", () => ({
 
 beforeEach(() => {
   mockPush.mockReset();
+  mockReplace.mockReset();
   mockExtra.directAuthTest = false;
   jest.mocked(loadSavedShops).mockResolvedValue({ shops: [] });
   jest.mocked(saveShop).mockReset();
@@ -96,6 +107,25 @@ test("opens Scan and sample prices from Home", async () => {
 
   expect(mockPush).toHaveBeenNthCalledWith(1, "/scan");
   expect(mockPush).toHaveBeenNthCalledWith(2, "/results");
+});
+
+test("Home opens barcode lookup with no selected shop and keeps label scan available", async () => {
+  await render(<HomeScreen />);
+  await fireEvent.press(screen.getByRole("button", { name: "Find product by barcode" }));
+  expect(mockPush).toHaveBeenLastCalledWith("/find-product");
+  await screen.rerender(<FindProductScreen />);
+  expect(await screen.findByText("Barcode lookup")).toBeOnTheScreen();
+  expect(screen.queryByRole("button", { name: "Add a shop" })).not.toBeOnTheScreen();
+  await fireEvent.press(screen.getByRole("button", { name: "Scan label" }));
+  expect(mockReplace).toHaveBeenLastCalledWith("/scan");
+});
+
+test("passes an existing selected shop to barcode lookup without changing it", async () => {
+  const shop = { id: "lidl-1", nickname: "Tandem Centre Lidl" };
+  jest.mocked(loadSavedShops).mockResolvedValue({ shops: [shop], currentShop: shop });
+  await render(<FindProductScreen />);
+  expect(await screen.findByText("Barcode lookup · Tandem Centre Lidl")).toBeOnTheScreen();
+  expect(testShopRepository.selectShop).not.toHaveBeenCalled();
 });
 
 test("opens the sign-in experiment from a separate screen in the flagged build", async () => {

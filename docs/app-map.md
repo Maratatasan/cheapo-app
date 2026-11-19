@@ -6,7 +6,7 @@ in planned work.
 ## Current user flow
 
 The [Home route](../apps/mobile/app/index.tsx) shows the current shop and opens
-Scan or the sample price browser. Home restores the saved selection when focused. Use **Change shop → Edit** to
+Scan, Find product by barcode on mobile, or the sample price browser. Home restores the saved selection when focused. Use **Change shop → Edit** to
 update a shop's name, nickname, or address, or remove it from the saved shop list.
 Removal clears the current selection if that shop was selected. Previous price
 records and photos keep their saved shop details.
@@ -14,6 +14,8 @@ records and photos keep their saved shop details.
 ```mermaid
 flowchart TD
     Home --> Scan
+    Home --> Lookup["Find product by barcode"]
+    Lookup --> Barcode
     Scan --> CurrentShop{"Current shop?"}
     CurrentShop -->|No| ChooseShop["Select or add a shop"]
     ChooseShop --> Source["Take or choose a photo"]
@@ -51,6 +53,7 @@ flowchart TD
 | Responsibility | Current implementation |
 | --- | --- |
 | Current shop | [Home](../apps/mobile/app/index.tsx) and [Scan](../apps/mobile/app/scan.tsx) use a [shared chooser](../apps/mobile/component/shop/shop-chooser.tsx). The [shop repository](data-repositories.md) supplies the saved list and current selection. Scan waits for a selection before opening the camera, including from a direct link. |
+| Home barcode lookup | [Find product by barcode](../apps/mobile/app/find-product.tsx) opens the existing barcode scanner from mobile Home. Lookup and comparison work without a current shop, and an existing selection supplies the current-shop price action. **Scan label** asks for a shop when needed. |
 | Camera | The [Scan route](../apps/mobile/app/scan.tsx) mounts the [camera component](../apps/mobile/component/camera.tsx), which owns permissions, preview, capture, retake, and the photo workflow. |
 | Photos | The [crop editor](../apps/mobile/component/photo-crop.tsx) uses [crop geometry](../apps/mobile/data/crop-geometry.ts) and [image manipulation](../apps/mobile/lib/photo-crop.ts). It derives a JPEG from the original and keeps both available in the draft. |
 | Review | The [review form](../apps/mobile/component/photo-review.tsx) edits product, price, currency, and optional type, variety, brand, pack size and unit-price details. If no unit amount and basis were entered, a known pack size supplies the calculated unit price. Product type is a reviewed comparison category, for example dry rice or microwave rice. New drafts store the selected shop's stable ID and display name at capture. A later selection applies to subsequent captures. Older drafts still support their saved free-text shop field. Incomplete details can still be saved as a draft. |
