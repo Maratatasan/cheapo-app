@@ -35,8 +35,8 @@ export function PhotoReview({ photo, review, selectedShopName, saved, busy, onRe
   const complete = reviewComplete(review, selectedShopName);
   const editing = !!onCancel && !recordingPrice;
   const requireComplete = editing || recordingPrice;
-  const revealPosition = useCallback((y: number) => {
-    scroll.current?.scrollTo({ y: Math.max(0, y - 12), animated: false });
+  const revealPosition = useCallback((y: number, margin = 12) => {
+    scroll.current?.scrollTo({ y: Math.max(0, y - margin), animated: false });
   }, []);
   const revealField = useCallback((field: keyof ManualReview) => {
     const y = positions.current[field];
@@ -83,23 +83,15 @@ export function PhotoReview({ photo, review, selectedShopName, saved, busy, onRe
       revealField(field);
     }
   }, [revealField, revealPosition]);
-  const hasSuggestion = Boolean(suggestion);
-  useEffect(() => {
-    // The suggestion reduces the available height. Keep any active edit in view.
-    if (!hasSuggestion || !focused.current) return;
-    const field = focused.current;
-    const frame = requestAnimationFrame(() => {
-      if (focused.current === field) revealMeasuredField(field);
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [hasSuggestion, revealMeasuredField]);
   const amount = reviewUnitPrice(review);
   const invalidPack = !!review.packSize?.trim() && !calculatePackUnitPrice('1', review.packSize);
   const saveLabel = busy ? 'Saving…' : editing ? 'Save changes' : recordingPrice || complete ? 'Save Price' : 'Save on this phone';
   return <View ref={container} style={styles.root} onLayout={() => container.current?.measureInWindow((_, y) => setHeaderOffset(y))}>
     <KeyboardAvoidingView style={styles.root} behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={headerOffset}>
       <ScrollView ref={scroll} style={styles.root} contentContainerStyle={styles.content}
-        keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
+        keyboardShouldPersistTaps="handled"
+        // React Native Web also dismisses on programmatic scrolling in on-drag mode.
+        keyboardDismissMode={Platform.OS === 'web' ? 'none' : 'on-drag'}>
         {photo && !keyboardVisible ? <Image source={{ uri: photo.uri }} accessibilityLabel="Price photo preview" style={styles.photo} resizeMode="contain" onError={onImageError} /> : null}
         <Text style={styles.status}>{recordingPrice ? review.productName : editing ? 'Review saved details' : saved ? 'On this phone' : 'Review photo · Not saved'}</Text>
         <Text style={styles.note}>{recordingPrice ? 'Review the current price before saving.' : editing ? 'Use the amount and unit from your saved observation. Enter both unit-price fields or leave both blank.' : complete ? 'Manual details ready' : selectedShopName ? 'Incomplete draft · Add product and price' : 'Incomplete draft · Add product, price and shop'}</Text>
@@ -108,6 +100,17 @@ export function PhotoReview({ photo, review, selectedShopName, saved, busy, onRe
           {onOriginal ? <Button title="Use original" disabled={busy} onPress={onOriginal} /> : null}
         </View> : null}
         {children}
+        {suggestion ? <PhotoSuggestion draft={suggestion.draft} disabled={busy}
+          onFirstLayout={y => {
+            alignAfterKeyboardOpens.current = false;
+            revealPosition(y, 0);
+          }}
+          onApply={() => {
+            alignAfterKeyboardOpens.current = false;
+            suggestion.onApply();
+            // Applying removes the suggestions. Measure the first field after the form updates.
+            requestAnimationFrame(() => revealMeasuredField(firstFieldKey));
+          }} /> : null}
         {fields.map(([field, label, accessibilityLabel, placeholder, maxLength]) => <View key={field} ref={view => { fieldViews.current[field] = view; }}
           collapsable={false} style={styles.field} onLayout={event => {
           positions.current[field] = event.nativeEvent.layout.y;
@@ -131,12 +134,6 @@ export function PhotoReview({ photo, review, selectedShopName, saved, busy, onRe
         </View>)}
         <Text style={styles.note}>Use a decimal point for prices. {requireComplete ? '' : `${selectedShopName ? '' : 'Confirm the shop manually. '}Incomplete details are saved as a photo draft.`}</Text>
       </ScrollView>
-      {suggestion ? <PhotoSuggestion draft={suggestion.draft} disabled={busy} onApply={() => {
-        alignAfterKeyboardOpens.current = false;
-        suggestion.onApply();
-        // Applying can change text above the first field. Measure after the new layout commits.
-        requestAnimationFrame(() => revealMeasuredField(firstFieldKey));
-      }} /> : null}
       <SafeAreaView edges={['bottom']} style={styles.footer}>
         {saveError ? <Text accessibilityRole="alert" style={styles.note}>{saveError}</Text> : null}
         {requireComplete && !complete ? <Text accessibilityLiveRegion="polite" style={styles.note}>{recordingPrice ? 'Enter a valid price to save.' : 'Enter a product and valid price details to save.'}</Text> : null}

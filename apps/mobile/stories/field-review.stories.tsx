@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 import { useState } from 'react';
-import { View } from 'react-native';
+import { Text, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import type { Meta, StoryObj } from '@storybook/react-native-web-vite';
 import { expect, fireEvent, waitFor } from 'storybook/test';
@@ -89,10 +89,20 @@ export const UpdateCurrentShopPrice: Story = {
 const exampleSuggestion = {
   product: 'Chopped tomatoes', packSize: '500 g', price: 1.49, currency: 'GBP', unit_price: null, uncertainty: '',
 };
+const longSuggestion = {
+  ...exampleSuggestion,
+  product: 'Organic vine-ripened chopped tomatoes with basil and extra virgin olive oil',
+  brand: 'Example Organic Pantry',
+  productType: 'Tinned tomatoes',
+  variety: 'Vine-ripened Italian plum tomatoes',
+  unit_price: { amount: 2.98, unit: 'kg' },
+  uncertainty: 'The unit price is small on the shelf label. Check the amount against the original photo. The pack size is printed at the bottom of the label. The label is partly obscured. Check these values before deciding whether to use them.',
+};
 const readyMessage = 'Suggestions ready. Check the details before applying.';
 const errorMessage = 'Photo analysis failed. You can still enter details manually.';
 
-function SuggestionsExample({ fails = false }: { fails?: boolean }) {
+function SuggestionsExample({ fails = false, long = false }: { fails?: boolean; long?: boolean }) {
+  const suggestion = long ? longSuggestion : exampleSuggestion;
   const [state, setState] = useState<'idle' | 'loading' | 'ready' | 'failed' | 'applied'>('idle');
   const [review, setReview] = useState<ManualReview>(() => emptyReview('Example shop'));
   const [saved, setSaved] = useState(false);
@@ -105,24 +115,29 @@ function SuggestionsExample({ fails = false }: { fails?: boolean }) {
   }[state];
 
   return <View style={{ width: '100%', maxWidth: 320 }}>
-    <View testID="short-review-viewport" style={{ height: 318 }}>
-      <SafeAreaProvider initialMetrics={{ frame: { x: 0, y: 0, width: 320, height: 318 }, insets: { top: 0, bottom: 8, left: 0, right: 0 } }}>
-        <PhotoReview review={review} selectedShopName="Example shop" saved={saved} busy={false} onReviewChange={setReview}
-          onRetake={() => { setReview(emptyReview('Example shop')); setState('idle'); setSaved(false); }}
-          onSave={() => setSaved(true)} suggestion={state === 'ready' ? {
-            draft: exampleSuggestion,
-            onApply: () => {
-              setReview(current => ({
-                ...current, productName: exampleSuggestion.product, price: exampleSuggestion.price.toString(),
-                packSize: current.packSize ?? exampleSuggestion.packSize,
-              }));
-              setState('applied');
-            },
-          } : undefined}>
-          <PhotoAnalysisControls label={state === 'loading' ? 'Analysing…' : 'Analyse photo'} status={status}
-            disabled={state === 'loading'} onPress={() => setState('loading')} />
-        </PhotoReview>
-      </SafeAreaProvider>
+    <View testID="short-review-screen">
+      <View style={{ paddingHorizontal: 18, paddingVertical: 12, backgroundColor: '#fff' }}>
+        <Text style={{ fontWeight: '700' }}>Review photo</Text>
+      </View>
+      <View testID="short-review-viewport" style={{ height: 318 }}>
+        <SafeAreaProvider initialMetrics={{ frame: { x: 0, y: 0, width: 320, height: 318 }, insets: { top: 0, bottom: 8, left: 0, right: 0 } }}>
+          <PhotoReview review={review} selectedShopName="Example shop" saved={saved} busy={false} onReviewChange={setReview}
+            onRetake={() => { setReview(emptyReview('Example shop')); setState('idle'); setSaved(false); }}
+            onSave={() => setSaved(true)} suggestion={state === 'ready' ? {
+              draft: suggestion,
+              onApply: () => {
+                setReview(current => ({
+                  ...current, productName: suggestion.product, price: suggestion.price.toString(),
+                  packSize: current.packSize ?? suggestion.packSize,
+                }));
+                setState('applied');
+              },
+            } : undefined}>
+            <PhotoAnalysisControls label={state === 'loading' ? 'Analysing…' : 'Analyse photo'} status={status}
+              disabled={state === 'loading'} onPress={() => setState('loading')} />
+          </PhotoReview>
+        </SafeAreaProvider>
+      </View>
     </View>
     <button type="button" disabled={state !== 'loading'} onClick={() => setState(fails ? 'failed' : 'ready')}>
       {fails ? 'Simulate analysis failure' : 'Complete sample analysis'}
@@ -147,15 +162,10 @@ export const SuggestionsWithShortViewport: Story = {
     const viewport = canvas.getByTestId('short-review-viewport');
     const apply = canvas.getByRole('button', { name: 'Use suggested details' });
     const product = canvas.getByLabelText('Product name');
-    const summary = canvas.getByText('Chopped tomatoes · £1.49');
     const bounds = verticalBounds(viewport);
-    await expect(verticalBounds(summary).top).toBeGreaterThanOrEqual(bounds.top);
-    await expect(verticalBounds(apply).bottom).toBeLessThanOrEqual(bounds.bottom);
     const suggestionHeading = canvas.getByRole('heading', { name: 'Suggested details' });
-    await waitFor(() => {
-      expect(verticalBounds(packSize).top).toBeGreaterThanOrEqual(bounds.top);
-      expect(verticalBounds(packSize).bottom).toBeLessThan(verticalBounds(suggestionHeading).top);
-    });
+    await waitFor(() => expect(verticalBounds(suggestionHeading).top).toBeCloseTo(bounds.top, 0));
+    await expect(canvas.getByText('Chopped tomatoes · £1.49')).toBeVisible();
     await expect(packSize).toHaveFocus();
     await expect(packSize).toHaveValue('450 g');
     await expect(product).toHaveValue('');
@@ -172,6 +182,29 @@ export const SuggestionsWithShortViewport: Story = {
     await expect(product).not.toHaveFocus();
     await expect(packSize).toHaveValue('450 g');
     await expect(canvas.queryByText('On this phone')).not.toBeInTheDocument();
+  },
+};
+
+export const LongSuggestionsScrollWithReview: Story = {
+  render: () => <SuggestionsExample long />,
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole('button', { name: 'Analyse photo' }));
+    await userEvent.click(canvas.getByRole('button', { name: 'Complete sample analysis' }));
+
+    const viewport = canvas.getByTestId('short-review-viewport');
+    const heading = canvas.getByRole('heading', { name: 'Suggested details' });
+    const apply = canvas.getByRole('button', { name: 'Use suggested details' });
+    const finalDetail = canvas.getByText(longSuggestion.uncertainty);
+    const saveDraft = canvas.getByRole('button', { name: 'Save on this phone' });
+    await waitFor(() => expect(verticalBounds(heading).top).toBeCloseTo(verticalBounds(viewport).top, 0));
+    await expect(verticalBounds(apply).top).toBeGreaterThan(verticalBounds(saveDraft).top);
+    await expect(verticalBounds(finalDetail).bottom).toBeLessThan(verticalBounds(apply).top);
+
+    apply.scrollIntoView({ block: 'end' });
+    await waitFor(() => expect(verticalBounds(apply).bottom).toBeLessThan(verticalBounds(saveDraft).top));
+    await expect(verticalBounds(finalDetail).bottom).toBeGreaterThan(verticalBounds(viewport).top);
+    await userEvent.click(apply);
+    await expect(canvas.getByLabelText('Product name')).toHaveValue(longSuggestion.product);
   },
 };
 

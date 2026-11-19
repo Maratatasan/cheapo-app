@@ -1,4 +1,5 @@
-import { Button, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useRef } from 'react';
+import { Button, StyleSheet, Text, View } from 'react-native';
 import type { AiPriceDraft } from '@/data/ai-observation';
 import { priceLabel, unitPriceLabel } from '@/data/observation';
 import { marketColor as color } from './results/theme';
@@ -16,30 +17,36 @@ export function PhotoAnalysisControls({ label, status, disabled, onPress }: {
   </View>;
 }
 
-export function PhotoSuggestion({ draft, disabled, onApply }: {
+export function PhotoSuggestion({ draft, disabled, onApply, onFirstLayout }: {
   draft: AiPriceDraft;
   disabled: boolean;
   onApply: () => void;
+  onFirstLayout?: (y: number) => void;
 }) {
-  return <View style={styles.suggestion}>
+  const reportedLayout = useRef(false);
+  return <View style={styles.suggestion} onLayout={onFirstLayout ? event => {
+    if (reportedLayout.current) return;
+    reportedLayout.current = true;
+    onFirstLayout(event.nativeEvent.layout.y);
+  } : undefined}>
     <Text accessibilityRole="header" style={styles.title}>Suggested details</Text>
-    <ScrollView style={styles.details} keyboardShouldPersistTaps="always">
+    <View style={styles.details}>
       <Text style={styles.summary}>{draft.product || 'Product unconfirmed'} · {priceLabel(draft)}</Text>
       <Text style={styles.note}>{draft.brand || 'Brand unconfirmed'} · {draft.packSize ?? 'Pack size unconfirmed'}</Text>
       {draft.unit_price ? <Text style={styles.note}>{unitPriceLabel(draft)}</Text> : null}
       {draft.productType ? <Text style={styles.note}>Product type: {draft.productType}</Text> : null}
       {draft.variety ? <Text style={styles.note}>Variety: {draft.variety}</Text> : null}
       {draft.uncertainty ? <Text style={styles.note}>{draft.uncertainty}</Text> : null}
-    </ScrollView>
+    </View>
     <Button title="Use suggested details" disabled={disabled} onPress={onApply} />
   </View>;
 }
 
 const styles = StyleSheet.create({
   controls: { gap: 8, marginBottom: 8 },
-  suggestion: { width: '100%', maxWidth: 620, alignSelf: 'center', backgroundColor: color.mint, paddingHorizontal: 18, paddingVertical: 6, gap: 4 },
-  details: { maxHeight: 54, flexGrow: 0 },
-  title: { fontWeight: '700', color: color.ink },
+  suggestion: { backgroundColor: color.mint, borderRadius: 12, paddingHorizontal: 14, paddingBottom: 14, gap: 12 },
+  details: { gap: 6 },
+  title: { fontWeight: '700', color: color.ink, fontSize: 18 },
   summary: { fontWeight: '700', color: color.ink, fontSize: 14 },
   note: { color: color.muted, fontSize: 13 },
 });
