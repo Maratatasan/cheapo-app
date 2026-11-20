@@ -45,7 +45,7 @@ web bundles to `apps/mobile/dist/`. Turbo caches deterministic checks and build
 outputs locally. Use `pnpm expo <command>` to run Expo CLI in the mobile package
 for direct operations such as prebuild.
 
-The camera tests mock the native camera and permission APIs; they cover app behavior, not device camera hardware. Real photo capture should be checked on a physical device. iOS Simulator does not provide a working camera for this flow.
+The camera tests mock native camera and permissions. Run `pnpm --filter @cheapo/api test:postgres` for the local database and two-shopper shopping rehearsal. Bundle exports, browser previews and tests are separate from the native Pixel checks tracked in [#194](https://github.com/Maratatasan/cheapo-app/issues/194).
 
 ## Camera behavior
 
@@ -54,7 +54,7 @@ review. The guide suggests where to fit the label, and Cheapo keeps the full
 original. Review shows the selected shop alongside product, price, currency and
 unit-price fields. **Save on this phone** stores a local photo draft.
 **Copy to phone gallery** is a separate action after saving.
-Saved drafts reopen from Scan. This path requires no account or cloud backend.
+Saved drafts reopen from Scan. The app uses local shopping when device enrollment is absent.
 
 The Android field build can connect a ChatGPT account on the phone. In that
 build, **Analyse photo** sends the selected photo directly to OpenAI when the
@@ -63,13 +63,26 @@ saving. Manual review and local saving also work without a ChatGPT connection.
 The paired Mac companion remains available in the separate development flow.
 See [local photo review](docs/local-photo-review.md) for behavior and verification.
 
+## Private shared shopping
+
+The Android Field build selects shared shopping after **Cheapo access** verifies
+an operator-issued phone credential. Each phone connects to the approved HTTPS
+API. The API connects to PostgreSQL and grants short-lived access to private
+photo objects. Completed prices commit on the phone before syncing, and **Pending
+sync** shows waiting uploads, failed changes and record conflicts. The separate
+ChatGPT connection serves optional photo analysis.
+
+Use the [Field build guide](docs/local-photo-review.md#standalone-field-test-build),
+[device enrollment guide](apps/api/README.md#issue-or-revoke-beta-phone-access),
+and [app map](docs/app-map.md) for the current routes and storage boundaries.
+
 ## Expo upgrades
 
 Upgrade one Expo SDK at a time. For each SDK, follow the Expo upgrade guide, install the matching package versions with `pnpm expo install --fix`, then run `pnpm expo:doctor` and the project checks above. Review the SDK release notes for breaking changes before moving to the next SDK. Rebuild native development clients after changes to native modules or app configuration.
 
 ## Project layout
 
-- `apps/api/` — [local Cheapo API and PostgreSQL preference tests](apps/api/README.md)
+- `apps/api/` — [Cheapo HTTPS API, PostgreSQL, evidence and enrollment](apps/api/README.md)
 - `apps/mobile/app/` — Expo Router screens, including Home and Scan
 - `apps/mobile/component/camera.tsx` — permissions, camera, crop, review and local saving
 - `apps/mobile/__tests__/` — mocked component and app tests

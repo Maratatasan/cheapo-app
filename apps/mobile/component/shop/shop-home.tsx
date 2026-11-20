@@ -9,11 +9,12 @@ type ShopHomeProps = {
   onScan: () => void;
   onFindBarcode?: () => void;
   onOpenSaved?: () => void;
+  onOpenPending?: () => void;
   onExploreSamples?: () => void;
   onOpenStorage?: () => void;
 };
 
-export function ShopHome({ currentShop, onChooseShop, onScan, onFindBarcode, onOpenSaved, onExploreSamples, onOpenStorage }: ShopHomeProps) {
+export function ShopHome({ currentShop, onChooseShop, onScan, onFindBarcode, onOpenSaved, onOpenPending, onExploreSamples, onOpenStorage }: ShopHomeProps) {
   const shopLabel = currentShop ? shopDisplayName(currentShop) : undefined;
 
   return (
@@ -39,6 +40,11 @@ export function ShopHome({ currentShop, onChooseShop, onScan, onFindBarcode, onO
       {onOpenSaved ? (
         <Pressable accessibilityRole="button" onPress={onOpenSaved} style={[ui.button, styles.secondary]}>
           <Text style={styles.action}>Saved products and photos</Text>
+        </Pressable>
+      ) : null}
+      {onOpenPending ? (
+        <Pressable accessibilityRole="button" onPress={onOpenPending} style={[ui.button, styles.secondary]}>
+          <Text style={styles.action}>Pending sync</Text>
         </Pressable>
       ) : null}
       {onExploreSamples ? (

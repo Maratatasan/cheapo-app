@@ -69,9 +69,8 @@ state. An operator issues a credential for a specific active membership. The
 client must keep it in protected device storage and send it over HTTPS in a
 hosted deployment. Cheapo credentials are separate from ChatGPT sign-in.
 
-Phone enrollment, hosting and the comparison selector are follow-up work in
-[#147](https://github.com/Maratatasan/cheapo-app/issues/147) and
-[#150](https://github.com/Maratatasan/cheapo-app/issues/150). This phase adds saved-shop operations. Shared price and photo routes are follow-up work.
+The Android Field app uses enrolled shop, product, price, preference and evidence
+routes through the same HTTPS origin. Follow the [private API deployment ticket](https://github.com/Maratatasan/cheapo-app/issues/193) for live verification.
 
 ## Issue or revoke beta phone access
 

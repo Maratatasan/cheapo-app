@@ -68,7 +68,7 @@ real-photo run is unavailable.
 
 Set `CHEAPO_FIELD_TEST=1` for prebuild, build and export commands. This uses the
 existing field-test package `com.maratatasan.cheapo.field`, scheme `cheapofield`,
-version `0.1.8` / Android version code `10`. Keep the existing local debug signing
+version `0.1.9` / Android version code `11`. Keep the existing local debug signing
 key and use install-update (`adb install -r`), never uninstall/reset, to retain
 private drafts from the previous field test. Normal app identity is unchanged.
 Do not set `CHEAPO_AUTH_TEST` at the same time.
@@ -79,3 +79,17 @@ JavaScript and launches without Metro. Use **Choose photo** to import an image
 from the system picker without granting camera permission. Use **ChatGPT** on
 Home to connect the optional plan usage in this field app. Android keeps the
 separate auth-test app’s login in its own protected storage.
+
+For the private shared build, set `CHEAPO_API_ORIGIN` to the approved Cheapo
+HTTPS origin. On Home, **Cheapo access** accepts the device access code
+delivered privately by the operator. **ChatGPT** continues to control optional
+photo suggestions. Phones without enrollment use local shopping. A remembered
+enrollment keeps pending work under its owner if the service is unavailable or
+access is denied.
+
+Preserve the existing Android shopping export before changing devices or
+enrollment. Enrolled exports use version 4 to retain protected pending work and
+evidence for recovery. The migration importer accepts versions 1–3. Follow the
+[API deployment](https://github.com/Maratatasan/cheapo-app/issues/193) and
+[Pixel acceptance](https://github.com/Maratatasan/cheapo-app/issues/194) issues
+for the current handoff gates.

@@ -66,6 +66,24 @@ test("adopts a legacy enrollment only after the service verifies its IDs", async
   expect(JSON.parse((await storage.getItem())!)).toEqual({ origin, credential: first, identity });
 });
 
+test("notifies the root of committed owner changes without exposing credentials", async () => {
+  const { storage, transport } = fixtures();
+  const access = createCheapoAccess(origin, storage, transport);
+  const observe = jest.fn();
+  const stop = access.subscribeEnrollment(observe);
+  transport.mockResolvedValueOnce(new Response(null, { status: 403 }));
+  await expect(access.enroll(first)).rejects.toThrow('declined');
+  expect(observe).not.toHaveBeenCalled();
+  await access.enroll(first);
+  expect(observe).toHaveBeenNthCalledWith(1, { origin, ...identity });
+  expect(await storage.getItem()).toContain('identity');
+  await access.clear();
+  expect(observe).toHaveBeenNthCalledWith(2, null);
+  stop();
+  await access.enroll(replacement);
+  expect(observe).toHaveBeenCalledTimes(2);
+});
+
 test("binds a queued write to the credential and owner verified in the same session", async () => {
   const { storage, transport } = fixtures();
   const access = createCheapoAccess(origin, storage, transport);
