@@ -10,10 +10,9 @@ import { useCheapoShopping } from '@/component/cheapo-shopping-provider';
 import { ShopChooser, ShopLoadFeedback } from '@/component/shop/shop-chooser';
 import { ui } from '@/component/results/theme';
 import { loadSharedBarcodePrices } from '@/data/barcode-shared-prices';
-import { createOwnerShoppingReads } from '@/data/cheapo-shopping-read-device';
 import type { LocalPhotoDraft } from '@/data/local-photo';
 import type { CheapoShoppingRuntime } from '@/data/shopping-sync-runtime';
-import { useEnrolledCatalog } from '@/hooks/use-enrolled-catalog';
+import { useAddProductLookup } from '@/hooks/use-add-product-lookup';
 import { useSavedShops } from '@/hooks/use-saved-shops';
 import { choosePhoto } from '@/lib/choose-photo';
 import { fieldCheapoApiOrigin } from '@/lib/cheapo-access/config';
@@ -34,7 +33,7 @@ export default function AddProductScreen() {
 
 function EnrolledAddProduct({ shopping }: { shopping: CheapoShoppingRuntime }) {
   const router = useRouter();
-  const catalog = useEnrolledCatalog();
+  const lookup = useAddProductLookup();
   const { shops, shopRepository, setShops, readError, retry } = useSavedShops();
   const [choosingShop, setChoosingShop] = useState(false);
   const [photo, setPhoto] = useState<LocalPhotoDraft>();
@@ -49,21 +48,6 @@ function EnrolledAddProduct({ shopping }: { shopping: CheapoShoppingRuntime }) {
     const displayName = selected && shopDisplayName(selected);
     return selected && displayName ? { id: selected.id, displayName } : undefined;
   }, [shops?.currentShop]);
-
-  const lookup = useMemo<AddProductPriceReviewProps['lookup']>(() => {
-    const reads = createOwnerShoppingReads(shopping.owner);
-    return {
-      async findByBarcode(barcode, signal) {
-        if (!catalog) throw Error('Catalog is unavailable.');
-        return catalog.findByBarcode(barcode, signal);
-      },
-      async findCandidates(identity, signal) {
-        const result = await reads.searchProductCandidates(identity, signal);
-        if (result.status !== 'fresh') throw Error('Catalog is unavailable.');
-        return result.value;
-      },
-    };
-  }, [shopping, catalog]);
 
   const loadLatestPrice = useCallback<NonNullable<AddProductPriceReviewProps['loadLatestPrice']>>(async (product, shop, signal) => {
     const { currentPrice, history } = await loadSharedBarcodePrices(shopping, product, shop.id, signal);
@@ -101,6 +85,7 @@ function EnrolledAddProduct({ shopping }: { shopping: CheapoShoppingRuntime }) {
     return 'queued';
   }
 
+  if (!lookup) return <ShopLoadFeedback error="Could not open your catalog. Reopen Add product to try again." onRetry={() => router.back()} />;
   return <View style={ui.page}>
     <View style={choosingShop ? { display: 'none' } : ui.page}>
       <AddProductPriceReview shop={shop} photo={photo} lookup={lookup} loadLatestPrice={loadLatestPrice}
