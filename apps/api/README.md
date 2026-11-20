@@ -324,6 +324,27 @@ evidence returns `available`. A repeated confirmation of the same evidence
 returns `available` again. In household price history and detail, a declared
 photo carries `availability: "pending"` until verification is complete.
 
+## Product presentation photos
+
+`GET /v1/products/{productId}/presentation-photo` returns the latest confirmed
+photo for the exact product. Active enrolled shoppers see the same version
+across shops and households. The response includes the version, checksum,
+dimensions, byte count, and a private 60-second download link. A product with
+no confirmed photo returns `404`.
+
+- `PUT /v1/products/{productId}/presentation-photo/upload` accepts
+  `operationId`, `expectedVersion`, `sha256`, `byteCount`, `width`, and
+  `height`. Use version `0` for the first photo. JPEGs are limited to 8 MiB
+  and 4096 pixels on either side.
+- Upload with the returned 120-second PUT link and signed headers. Send the
+  Cheapo bearer only to Cheapo API routes.
+- `POST` to the same upload path with `operationId`. Confirmation verifies the
+  stored bytes and makes the photo current. A retry returns the accepted
+  version. A stale edit receives `409` and the current version.
+
+Until confirmation, the last verified photo remains current. Product and
+price evidence revisions remain separate.
+
 ## Shopping history storage
 
 Migration `002` adds tables for the offline restore in

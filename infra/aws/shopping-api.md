@@ -65,6 +65,11 @@ API closed. The hosting stack does not provision or update the database.
    `cheapo_scope_guard`. If those roles exist, verify the prior bootstrap and
    apply only the reviewed grant changes required by the release. Leave both
    roles without login and the guard role unavailable for runtime assumption.
+   For a release with product presentation photos, apply
+   [product-presentation-photo-role.sql](../../apps/api/operator/product-presentation-photo-role.sql)
+   after migration `016` and the runtime role bootstrap. Verify the scoped
+   login can publish a verified revision and cannot overwrite its metadata or
+   delete its receipt.
 4. Provision a separate PostgreSQL login that inherits only
    `cheapo_api_runtime` and store its `username` and `password` in its own
    secret using the AWS managed Secrets Manager key. Keep credentials in the
@@ -87,7 +92,9 @@ API closed. The hosting stack does not provision or update the database.
   `EvidenceBucket`. When configured, the runtime may sign reads within the
   restored `shopping-import/` prefix, sign conditional JPEG uploads in
   `price-evidence/`, and check checksum metadata and read verified evidence
-  in that prefix. Keep the artifact prefix outside the runtime S3 grant,
+  in that prefix. Product display images use the separate
+  `product-presentation/` prefix with the same conditional JPEG upload and
+  verified read rules. Keep the artifact prefix outside the runtime S3 grant,
   even when the two use the same bucket.
 - Validate the template with a change set and inspect the scoped role and rate
   limits. Keep `PublishRoute=false` for the first approved stack change set.

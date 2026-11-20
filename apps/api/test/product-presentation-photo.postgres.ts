@@ -3,6 +3,7 @@ import { after, before, test } from 'node:test';
 import { Pool } from 'pg';
 
 import { credentialDigest } from '../credential.ts';
+import { createLocalApi } from '../local-api.ts';
 import { postgresProductPresentationPhotos } from '../postgres-product-presentation-photo.ts';
 import type { ShoppingTransaction } from '../postgres-shopping.ts';
 import type { VerifyPhotoObject } from '../price-photo-upload.ts';
@@ -21,7 +22,8 @@ const suspended = fixture('13');
 const product = 'presentation-product-fixture';
 const variant = 'presentation-variant-fixture';
 const sourceId = 'presentation-existing-observation';
-const digest = (suffix: string) => credentialDigest(`cheapo_${'photo'.repeat(8)}${suffix}`);
+const credential = (suffix: string) => `cheapo_${'photo'.repeat(8)}${suffix}`;
+const digest = (suffix: string) => credentialDigest(credential(suffix));
 const transaction: ShoppingTransaction = async run => {
   const connection = await runtime.connect();
   try {
@@ -171,4 +173,59 @@ test('concurrent cross-household replacements keep one active revision and repla
 test('runtime may publish a revision but may not rewrite metadata or remove receipts', async () => {
   await assert.rejects(runtime.query(`UPDATE cheapo.product_presentation_photo SET width = 1`), { code: '42501' });
   await assert.rejects(runtime.query('DELETE FROM cheapo.product_presentation_photo'), { code: '42501' });
+});
+
+test('the shared router signs only valid product photo operations and keeps its private audit fields internal', async () => {
+  const getUrl = 'https://objects.example/short-read';
+  const putUrl = 'https://objects.example/short-upload';
+  const headers = { 'Content-Type': 'image/jpeg', 'If-None-Match': '*' };
+  let uploadKey: string | undefined;
+  let readKey: string | undefined;
+  const api = createLocalApi(runtime, {
+    read: async key => { readKey = key; return getUrl; },
+    upload: async (key, details) => {
+      assert.deepEqual(details, bytes);
+      uploadKey = key;
+      return { url: putUrl, headers };
+    },
+    verify: async (key, details) => {
+      assert.equal(key, uploadKey);
+      assert.deepEqual(details, bytes);
+      return 'verified';
+    },
+  });
+  const path = `/v1/products/${variant}/presentation-photo`;
+  const write = `${path}/upload`;
+  const operationId = 'real-router-fixture';
+  function request(pathname: string, actor?: string, method = 'GET', body?: object) {
+    const headers = new Headers(actor ? { Authorization: `Bearer ${credential(actor)}` } : {});
+    if (body) headers.set('Content-Type', 'application/json');
+    return api(new Request(`https://api.example${pathname}`, { method, headers, body: body && JSON.stringify(body) }));
+  }
+
+  assert.equal((await request(path)).status, 401);
+  assert.equal((await request(write, 'off', 'PUT', plan(operationId))).status, 403);
+  assert.equal((await request(path, 'two', 'PATCH')).status, 405);
+  assert.equal((await request(`${path}?uploader=me`, 'two')).status, 400);
+  for (const invalid of [{ actorShopperId: alice }, { byteCount: 8 * 1024 * 1024 + 1 }, { width: 4097 }]) {
+    assert.equal((await request(write, 'one', 'PUT', { ...plan(operationId), ...invalid })).status, 400);
+  }
+  assert.equal(uploadKey, undefined);
+  assert.equal((await request(path, 'two')).status, 404);
+  assert.equal(readKey, undefined);
+  const prepared = await request(write, 'one', 'PUT', plan(operationId));
+  assert.equal(prepared.headers.get('Cache-Control'), 'no-store');
+  assert.deepEqual(await prepared.json(), { availability: 'pending', url: putUrl, headers, expiresInSeconds: 120 });
+  assert.equal((await request(write, 'two', 'POST', { operationId })).status, 404);
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const confirmed = await request(write, 'one', 'POST', { operationId });
+    assert.deepEqual(await confirmed.json(), { availability: 'available', version: 1 });
+  }
+  const stale = await request(write, 'two', 'PUT', plan('stale'));
+  assert.equal(stale.status, 409);
+  assert.deepEqual(await stale.json(), { error: 'photo_version_conflict', currentVersion: 1 });
+  const fetched = await request(path, 'two');
+  assert.equal(fetched.headers.get('Cache-Control'), 'no-store');
+  assert.deepEqual(await fetched.json(), { ...bytes, version: 1, url: getUrl, expiresInSeconds: 60 });
+  assert.equal(readKey, uploadKey);
 });
