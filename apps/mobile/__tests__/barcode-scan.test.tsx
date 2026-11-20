@@ -76,6 +76,23 @@ async function scan(data = '012345678905') {
   await fireEvent(screen.getByTestId('barcode-preview'), 'barcodeScanned', { data });
 }
 
+test('opens a chosen saved product by its stable ID even when it has no barcode', async () => {
+  const findById = jest.fn(async () => product);
+  const findByBarcode = jest.fn();
+  const loadPriceHistory = jest.fn(async () => ({ status: 'fresh', value: { observations: [sharedExact], nextCursor: null } }));
+  mockCatalog.mockReturnValue({ findById, findByBarcode });
+  mockUseCheapoShopping.mockReturnValue({ owner, assertOwner: jest.fn(), priceQueue: { read: async () => ({ entries: [] }) },
+    loadPriceChanges: async () => [] });
+  mockOpenHistory.mockResolvedValue({ loadPriceHistory, assertCurrent: jest.fn() });
+  jest.mocked(loadSavedPriceRecords).mockResolvedValue([]);
+  await render(<BarcodeScan currentShop={currentShop} initialProductId={product.id} onScanLabel={jest.fn()} />);
+  expect(await screen.findByRole('header', { name: product.name })).toBeOnTheScreen();
+  expect(findById).toHaveBeenCalledWith(product.id, expect.any(AbortSignal));
+  expect(findByBarcode).not.toHaveBeenCalled();
+  expect(loadPriceHistory).toHaveBeenCalledWith(expect.objectContaining({ productId: product.id }), expect.any(AbortSignal));
+  expect(screen.queryByRole('button', { name: 'Edit barcode' })).not.toBeOnTheScreen();
+});
+
 test('rescans a proposed barcode and saves it only after confirmation for the named product', async () => {
   jest.mocked(findLocalProductByBarcode).mockResolvedValue(product);
   jest.mocked(loadSavedPriceRecords).mockResolvedValue([]);
