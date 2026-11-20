@@ -2,9 +2,10 @@ import { Button, Text, View } from 'react-native';
 import { dateLabel, priceLabel, type PriceValues } from '@/data/observation';
 import { marketColor, typography, ui } from './theme';
 
-export function CurrentShopPrice({ shop, observation, onRecord }: {
+export function CurrentShopPrice({ shop, observation, noObservationText, onRecord }: {
   shop: string;
   observation?: Pick<PriceValues, 'price' | 'currency'> & { capturedOn: string };
+  noObservationText?: string;
   onRecord: () => void;
 }) {
   return (
@@ -13,7 +14,7 @@ export function CurrentShopPrice({ shop, observation, onRecord }: {
       {observation ? <>
         <Text style={ui.body}>{priceLabel(observation)} pack</Text>
         <Text style={ui.small}>Recorded {dateLabel(observation.capturedOn)}</Text>
-      </> : <Text style={ui.body}>No price saved at this shop</Text>}
+      </> : <Text style={ui.body}>{noObservationText ?? 'No price saved at this shop'}</Text>}
       <Button title={observation ? 'Update price' : 'Add price'} onPress={onRecord} />
     </View>
   );
