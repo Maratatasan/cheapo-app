@@ -33,3 +33,21 @@ The shop adapter remains local and supports the existing offline flows. The
 test adapter verifies that callers can use a replacement at composition.
 Household ownership, remote operations and offline synchronization require
 their own design and tests under [#107](https://github.com/Maratatasan/cheapo-app/issues/107).
+
+## Replaceable Cheapo read snapshots
+
+The [configured device reader](../apps/mobile/data/cheapo-shopping-read-device.ts)
+uses an origin-bound enrollment for saved shops and exact catalog reads. It
+validates responses and stores the time of a successful read. A transient
+connection problem can reopen a saved snapshot with that time. A denied
+request fails without showing a fallback. An unavailable lookup stays
+distinct from a checked barcode miss.
+
+The [snapshot cache](../apps/mobile/data/cheapo-shopping-read-cache.ts) owns the
+`cheapo-shopping-snapshots` directory under app cache. It measures actual
+snapshot bytes and clears only that directory. Protected documents, photo
+evidence, shopping exports and the SecureStore credential use separate
+locations. The reader does not prefetch or poll. Home, Scan, saved shopping
+writes and export continue through the local provider until the durable write
+and reconciliation path in [#192](https://github.com/Maratatasan/cheapo-app/issues/192)
+is available.
