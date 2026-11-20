@@ -124,7 +124,10 @@ describe("CameraComponent", () => {
       return { record, pending: linked ? 'waiting' : 'needs-shop' };
     });
     const retry = jest.fn(async () => { expect(committed).toBe(true); });
-    mockUseCheapoShopping.mockReturnValue({ priceRecords: { load: async () => null, loadPhotos: async () => [], saveNewPhoto }, retry });
+    const readPriceSaveStatus = jest.fn().mockResolvedValue(linked ? 'waiting' : 'needs-shop');
+    const subscribeSync = jest.fn().mockReturnValue(() => {});
+    mockUseCheapoShopping.mockReturnValue({ priceRecords: { load: async () => null, loadPhotos: async () => [], saveNewPhoto }, retry,
+      assertOwner: async () => {}, readPriceSaveStatus, subscribeSync });
     await render(<CameraComponent currentShop={linked ? shop : undefined} />);
     await fireEvent.press(screen.getByRole('button', { name: 'Choose photo' }));
     await fireEvent.press(await screen.findByText('Apply crop'));
@@ -138,6 +141,15 @@ describe("CameraComponent", () => {
     expect(mockSaveLocalPhoto).not.toHaveBeenCalled();
     expect(retry).toHaveBeenCalledTimes(linked ? 1 : 0);
     expect(screen.getByText(linked ? 'Saved on this phone · Waiting to sync' : 'Saved on this phone · Needs shop')).toBeOnTheScreen();
+    if (linked) {
+      readPriceSaveStatus.mockResolvedValue('photo-pending');
+      await act(() => subscribeSync.mock.calls[0][0]());
+      expect(screen.getByText('Price synced · Photo pending')).toBeOnTheScreen();
+      readPriceSaveStatus.mockResolvedValue('synced');
+      await act(() => subscribeSync.mock.calls[0][0]());
+      expect(screen.getByText('Synced to Cheapo')).toBeOnTheScreen();
+      expect(screen.queryByText('Saved on this phone · Waiting to sync')).toBeNull();
+    }
   });
 
   it('lets the shopper confirm one barcode from the original and saves the photo under the new product ID', async () => {

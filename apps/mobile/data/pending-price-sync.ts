@@ -2,9 +2,9 @@ import type { PriceAppendQueue } from './price-append-queue';
 
 type PendingPriceState = 'waiting' | 'failed' | 'photo-pending' | 'photo-failed' | 'needs-shop' | 'recovery';
 export type PendingPriceItem = { id: string; sourceId: string; title: string; state: PendingPriceState };
+export type PriceSaveStatus = PendingPriceState | 'synced';
 
-export async function readPendingPrices(queue: PriceAppendQueue): Promise<PendingPriceItem[]> {
-  const { entries, recovery } = await queue.read();
+async function pendingPriceItems(queue: PriceAppendQueue, { entries, recovery }: Awaited<ReturnType<PriceAppendQueue['read']>>): Promise<PendingPriceItem[]> {
   const rows: PendingPriceItem[] = [];
   const recoveredIds = new Set(recovery.map(({ sourceId }) => sourceId));
   const unreadableIds = new Set(recovery.filter(({ reason }) => reason === 'unreadable').map(({ sourceId }) => sourceId));
@@ -37,4 +37,15 @@ export async function readPendingPrices(queue: PriceAppendQueue): Promise<Pendin
     rows.push({ id: `recovery:${sourceId}`, sourceId, title: titleById.get(sourceId) ?? 'Saved price', state: 'recovery' });
   }
   return rows;
+}
+
+export async function readPendingPrices(queue: PriceAppendQueue) {
+  return pendingPriceItems(queue, await queue.read());
+}
+
+export async function readPriceSaveStatus(queue: PriceAppendQueue, sourceId: string): Promise<PriceSaveStatus | undefined> {
+  const { entries, recovery } = await queue.read();
+  const matching = entries.filter(({ record }) => record.id === sourceId);
+  const pending = await pendingPriceItems(queue, { entries: matching, recovery: recovery.filter(entry => entry.sourceId === sourceId) });
+  return pending[0]?.state ?? (matching.some(({ receipt }) => receipt) ? 'synced' : undefined);
 }
