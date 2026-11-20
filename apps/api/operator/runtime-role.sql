@@ -68,6 +68,6 @@ GRANT INSERT (household_id, shopper_id, observation_id, role, storage_key, sha25
 
 GRANT SELECT (household_id, actor_shopper_id, operation_id, resource_kind, resource_id, operation_request, response),
   INSERT (household_id, actor_shopper_id, operation_id, resource_kind, resource_id, operation_request, response)
-  ON cheapo.shopping_create_receipt TO cheapo_api_runtime;
+  ON cheapo.shopping_operation_receipt TO cheapo_api_runtime;
 
 COMMIT;

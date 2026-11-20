@@ -1,5 +1,5 @@
 import type { CatalogAction, CatalogProduct, CatalogResult, ExecuteCatalog } from './catalog.ts';
-import { readCreateReceipt, saveCreateReceipt } from './postgres-create-receipt.ts';
+import { readShoppingReceipt, saveShoppingReceipt } from './postgres-shopping-receipt.ts';
 import { readShoppingMember, type ShoppingMember, type ShoppingQuery, type ShoppingTransaction } from './postgres-shopping.ts';
 
 type ProductRow = {
@@ -93,14 +93,14 @@ async function createProduct(
     ? { kind: 'product' as const, id: action.product.id, operationId: action.operationId, request: action }
     : undefined;
   if (operation) {
-    const receipt = await readCreateReceipt<{ product: CatalogProduct; version: number }>(query, member, operation);
+    const receipt = await readShoppingReceipt<{ product: CatalogProduct; version: number }>(query, member, operation);
     if (receipt) return receipt.matches ? { status: 'created', ...receipt.response } : { status: 'operation_conflict' };
   }
 
   async function accept(row: ProductRow): Promise<CatalogResult> {
     const response = { product: productFromRow(row), version: row.record_version };
     if (!operation) return { status: 'ok', ...response };
-    await saveCreateReceipt(query, member, operation, response);
+    await saveShoppingReceipt(query, member, operation, response);
     return { status: 'created', ...response };
   }
 
