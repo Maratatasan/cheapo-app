@@ -474,6 +474,33 @@ it('keeps pending read overlays in dependency order even for same-time edits and
   ]);
 });
 
+it('guards a price correction across enrollment changes and keeps a completed local commit with its original owner', async () => {
+  let remembered = owner;
+  const openShoppingWriteSession = jest.fn();
+  const access = { lastVerifiedOwner: async () => remembered, openShoppingWriteSession };
+  const runtime = (await openCheapoShopping(access))!;
+  const intent = { operationId: 'guarded-edit', title: 'Correct rice', createdAt: operationTime,
+    action: { kind: 'price', priceKey: receipt.id, base: { kind: 'version', id: receipt.id, version: 1 },
+      change: { action: 'correct', review: { productName: 'Rice', price: '1.80', currency: 'GBP' } } } } as const;
+
+  remembered = other;
+  await expect(runtime.commitMutation(intent)).rejects.toThrow('Cheapo access changed');
+  expect((await runtime.mutationQueue.read()).entries).toEqual([]);
+
+  remembered = owner;
+  const enqueue = runtime.mutationQueue.enqueue;
+  const wrapped = jest.spyOn(runtime.mutationQueue, 'enqueue').mockImplementation(async input => {
+    await enqueue(input);
+    remembered = other;
+  });
+  await expect(runtime.commitMutation(intent)).rejects.toThrow('Cheapo access changed');
+  wrapped.mockRestore();
+  expect((await runtime.mutationQueue.read()).entries).toMatchObject([{ intent }]);
+  expect(await (await openCheapoShopping(access))?.readPending()).toEqual([]);
+  await expect(runtime.retry()).rejects.toThrow('Cheapo access changed');
+  expect(openShoppingWriteSession).not.toHaveBeenCalled();
+});
+
 it('holds mismatched conflict replies and preserves the full valid version for the requested record', async () => {
   const unrelatedPrice = 'a9208dad-5a8e-4966-812c-879a550706c2';
   const version = '2:fa91641f-d265-4a3b-9695-4ff553ab5138';

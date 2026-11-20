@@ -9,7 +9,7 @@ import { createPriceAppendSync } from './price-append-sync';
 import { createPriceEvidenceSync } from './price-evidence-sync';
 import { createPriceRecords } from './price-records';
 import { openShoppingMutationQueue, type ShoppingMutationQueue } from './shopping-mutation-queue';
-import { decodeMutationAcknowledgement, mutationVersion, type MutationRequest, type ShoppingMutation } from './shopping-mutations';
+import { decodeMutationAcknowledgement, mutationVersion, type MutationRequest, type ShoppingMutation, type ShoppingMutationInput } from './shopping-mutations';
 import { readPriceChangeOverlay } from './shopping-pending-price-changes';
 import { readShoppingWriteReply } from './shopping-write-reply';
 
@@ -172,6 +172,12 @@ export function createShoppingSync(access: SyncAccess, priceQueue: PriceAppendQu
   let active: Promise<SyncSnapshot> | undefined;
   let requested = false;
   return {
+    assertOwner,
+    async commitMutation(intent: ShoppingMutationInput) {
+      await assertOwner();
+      await mutationQueue.enqueue(intent);
+      await assertOwner();
+    },
     readPending,
     loadPriceChanges,
     retry() {
