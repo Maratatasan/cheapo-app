@@ -34,3 +34,8 @@ export const AndroidField: Story = {
     await expect(args.onCheapoAccess).toHaveBeenCalledOnce();
   },
 };
+
+export const IPhoneSharedWithChatGPT: Story = {
+  ...AndroidField,
+  args: { onCheapoAccess: fn(), onChatGPT: fn() },
+};

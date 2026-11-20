@@ -8,6 +8,7 @@ import { ShopChooser, ShopLoadFeedback, ShopSyncFeedback } from "@/component/sho
 import { ShopHome } from "@/component/shop/shop-home";
 import { useSavedShops } from "@/hooks/use-saved-shops";
 import { fieldCheapoApiOrigin } from "@/lib/cheapo-access/config";
+import { phonePhotoAnalysisRequested } from "@/lib/direct-auth/config";
 
 export default function Index() {
   const router = useRouter();
@@ -16,7 +17,7 @@ export default function Index() {
   const { shopRepository, shops, setShops, readError, retry } = useSavedShops();
   const showDeveloperTools = Constants.expoConfig?.extra?.directAuthTest === true;
   const showCheapoAccess = fieldCheapoApiOrigin() !== null;
-  const fieldTest = Platform.OS === "android" && Constants.expoConfig?.extra?.fieldTest === true;
+  const showChatGPT = phonePhotoAnalysisRequested();
 
   return (
     <>
@@ -26,9 +27,9 @@ export default function Index() {
           headerTransparent: { ios: false },
           headerRight: showDeveloperTools
             ? () => <Button title="Developer tools" onPress={() => router.push("/developer-tools")} />
-            : fieldTest || showCheapoAccess ? () => (
+            : showChatGPT || showCheapoAccess ? () => (
               <HomeConnectionActions
-                onChatGPT={fieldTest ? () => router.push("/direct-auth") : undefined}
+                onChatGPT={showChatGPT ? () => router.push("/direct-auth") : undefined}
                 onCheapoAccess={showCheapoAccess ? () => router.push("/cheapo-access") : undefined}
               />
             )

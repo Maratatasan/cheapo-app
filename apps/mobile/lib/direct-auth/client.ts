@@ -13,10 +13,11 @@ export type PhoneNative=IdentityBridge & {
   stopReceiver():Promise<void>;
   requestJson(url:string,form:string|null):Promise<{status:number;bodyText:string}>;
 };
-type Dependencies={native:PhoneNative;getItem(key:string):Promise<string|null>;setItem(key:string,value:string):Promise<void>;deleteItem(key:string):Promise<void>;randomUUID():string;randomHex():string;challenge(verifier:string):Promise<string>;openBrowser(url:string):Promise<unknown>;isAppActive():boolean;now?():number;appName?:string};
+type Dependencies={native:PhoneNative;getItem(key:string):Promise<string|null>;setItem(key:string,value:string):Promise<void>;deleteItem(key:string):Promise<void>;randomUUID():string;randomHex():string;challenge(verifier:string):Promise<string>;openBrowser(url:string):Promise<unknown>;isAppActive():boolean;now?():number;appName?:string;storageName?:string};
 class AuthFailure extends Error {constructor(message:string,readonly code='invalid'){super(message);}}
 export function createPhoneAuth(deps:Dependencies) {
   const now=deps.now??Date.now;
+  const storageName=deps.storageName??'Android protected storage';
   let view:PhoneAuthState={busy:false,signedIn:false,planAllowed:false,savedLogin:false,awaitingContinue:false,message:'Not signed in on this phone.'};
   let pendingSession:Session|undefined;
   let flow=0;
@@ -105,7 +106,7 @@ export function createPhoneAuth(deps:Dependencies) {
     }
     if(failure)throw failure;
   }
-  function publish(session:Session,message='Phone identity verified. Sign-in saved in Android protected storage.') {
+  function publish(session:Session,message=`Phone identity verified. Sign-in saved in ${storageName}.`) {
     const planAllowed=session.scopes.includes('resource.invoke')&&session.scopes.includes('chatgpt.tokens.use.direct');
     update({signedIn:true,savedLogin:true,planAllowed,message:`${message} ${planAllowed?'ChatGPT plan permission granted.':'ChatGPT plan permission was not granted.'} No inference request sent.`});
   }
@@ -194,7 +195,7 @@ export function createPhoneAuth(deps:Dependencies) {
     restore:()=>operation(async()=>{
       const session=await readySession();
       if(!session){update({signedIn:false,savedLogin:false,planAllowed:false,message:'Not signed in on this phone.'});return;}
-      publish(session,'Saved phone sign-in restored from Android protected storage.');
+      publish(session,`Saved phone sign-in restored from ${storageName}.`);
     }),
     async withPlanAccess<T>(requestWithToken:(accessToken:string)=>Promise<T>):Promise<T>{
       if(view.busy)throw new AuthFailure('Wait for the current ChatGPT action to finish.');

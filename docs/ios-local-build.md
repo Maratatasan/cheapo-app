@@ -26,6 +26,14 @@ Expo generates `apps/mobile/ios` locally and may rewrite the mobile package's
 changes if they came from prebuild. Keep the Node executable used by Xcode's
 build scripts on the pinned version via the generated `.xcode.env.local` file.
 
+For the shared iPhone build, set `CHEAPO_IOS_SHARED=1` and `CHEAPO_API_ORIGIN`
+to the approved HTTPS origin throughout prebuild and Release compilation.
+Set `CHEAPO_IOS_CHATGPT=1` as well to expose optional ChatGPT sign-in alongside
+Cheapo access. The extra option keeps the existing bundle identifier and uses
+the iPhone Keychain for the provider session. On the target phone, validate the
+system-browser callback, explicit foreground continuation, session restore and
+one explicitly requested photo analysis separately from Cheapo enrollment.
+
 ## Compile for iPhone
 
 To check native compilation before setting up signing, build a Release app

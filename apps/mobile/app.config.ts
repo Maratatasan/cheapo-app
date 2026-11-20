@@ -6,16 +6,18 @@ export default function configure({ config }: ConfigContext): ExpoConfig {
   const authTest = process.env.CHEAPO_AUTH_TEST === '1';
   const fieldTest = process.env.CHEAPO_FIELD_TEST === '1';
   const iosShared = process.env.CHEAPO_IOS_SHARED === '1';
+  const iosChatGPT = process.env.CHEAPO_IOS_CHATGPT === '1';
   if ((authTest && fieldTest) || (iosShared && (authTest || fieldTest))) {
     throw new Error('Choose one Cheapo build mode.');
   }
+  if (iosChatGPT && !iosShared) throw new Error('Enable iPhone shared shopping before opting in to ChatGPT.');
   if (iosShared) {
     const cheapoApiOrigin = parseCheapoApiOrigin(process.env.CHEAPO_API_ORIGIN);
     if (!cheapoApiOrigin) throw new Error('CHEAPO_API_ORIGIN must be a plain HTTPS origin for iPhone shared shopping.');
     return {
       ...(config as ExpoConfig),
       plugins: [...(config.plugins ?? []), 'expo-secure-store'],
-      extra: { ...config.extra, iosSharedShopping: true, cheapoApiOrigin },
+      extra: { ...config.extra, iosSharedShopping: true, cheapoApiOrigin, ...(iosChatGPT ? { iosPhotoAnalysis: true } : {}) },
     };
   }
   if (fieldTest) {

@@ -3,7 +3,7 @@ import type { ConfigContext } from 'expo/config';
 const config={name:'Cheapo',slug:'cheapo-app',scheme:'myapp',plugins:['expo-router'],extra:{existing:true},
   android:{package:'com.example.cheapo'},ios:{bundleIdentifier:'com.example.cheapo',buildNumber:'5'}};
 const context:ConfigContext={config,projectRoot:'/test',staticConfigPath:null,packageJsonPath:'/test/package.json'};
-afterEach(()=>{delete process.env.CHEAPO_AUTH_TEST;delete process.env.CHEAPO_FIELD_TEST;delete process.env.CHEAPO_IOS_SHARED;delete process.env.CHEAPO_API_ORIGIN;});
+afterEach(()=>{delete process.env.CHEAPO_AUTH_TEST;delete process.env.CHEAPO_FIELD_TEST;delete process.env.CHEAPO_IOS_SHARED;delete process.env.CHEAPO_IOS_CHATGPT;delete process.env.CHEAPO_API_ORIGIN;});
 it('preserves the normal app configuration unless explicitly opted in',()=>{
   expect(configure(context)).toEqual(config);
 });
@@ -38,6 +38,16 @@ it('opts the existing iPhone app into shared shopping while retaining its app id
     ...config,
     plugins: ['expo-router', 'expo-secure-store'],
     extra: { ...config.extra, iosSharedShopping: true, cheapoApiOrigin: 'https://cheapo.example' },
+  });
+});
+
+it('keeps optional iPhone ChatGPT separate from enrollment and retains the iPhone identity', () => {
+  process.env.CHEAPO_IOS_CHATGPT = '1';
+  expect(() => configure(context)).toThrow('Enable iPhone shared shopping');
+  process.env.CHEAPO_IOS_SHARED = '1';
+  process.env.CHEAPO_API_ORIGIN = 'https://cheapo.example/';
+  expect(configure(context)).toEqual({ ...config, plugins: ['expo-router', 'expo-secure-store'],
+    extra: { ...config.extra, iosSharedShopping: true, iosPhotoAnalysis: true, cheapoApiOrigin: 'https://cheapo.example' },
   });
 });
 

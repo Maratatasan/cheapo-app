@@ -1,5 +1,5 @@
 import { useEffect,useState } from 'react';
-import { Button,ScrollView,Text } from 'react-native';
+import { Button,Platform,ScrollView,Text } from 'react-native';
 import { Stack } from 'expo-router';
 import Constants from 'expo-constants';
 import * as Crypto from 'expo-crypto';
@@ -43,6 +43,7 @@ export default function DirectAuthTest() {
     {experiment?<Button title="Check OpenAI connection" disabled={!auth||busy||authState?.busy} onPress={()=>void auth?.checkConnection()} />:null}
     <Button title="Check saved phone sign-in" disabled={!auth||busy||authState?.busy} onPress={()=>void auth?.restore()} />
     {experiment?<Button title="Clear phone login / sign out" disabled={!auth||busy||authState?.busy} onPress={()=>void auth?.signOut()} />:null}
+    {Platform.OS==='ios'&&fieldPhotoAnalysisEnabled&&authState?.savedLogin?<Button title="Disconnect ChatGPT" disabled={busy||authState.busy} onPress={()=>void auth?.signOut()} />:null}
     <Text style={ui.small}>After browser sign-in, return to Cheapo and tap Continue sign-in.</Text>
   </ScrollView>;
 }

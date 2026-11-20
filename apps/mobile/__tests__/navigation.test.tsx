@@ -19,7 +19,7 @@ const mockSearchProductCandidates = jest.fn();
 let mockEnrolled = false;
 const mockEnrolledRuntime = { owner: {}, subscribeSync: jest.fn() };
 let mockScanParams: { mode?: string; barcode?: string; photoSource?: string } = {};
-const mockExtra = { directAuthTest: false, fieldTest: false, cheapoApiOrigin: "" };
+const mockExtra = { directAuthTest: false, fieldTest: false, iosSharedShopping: false, iosPhotoAnalysis: false, cheapoApiOrigin: "" };
 const testShopRepository = {
   loadSavedShops: jest.fn<ReturnType<ShopRepository["loadSavedShops"]>, []>(),
   saveShop: jest.fn(),
@@ -78,6 +78,8 @@ beforeEach(() => {
   mockScanParams = {};
   mockExtra.directAuthTest = false;
   mockExtra.fieldTest = false;
+  mockExtra.iosSharedShopping = false;
+  mockExtra.iosPhotoAnalysis = false;
   mockExtra.cheapoApiOrigin = "";
   jest.mocked(loadSavedShops).mockResolvedValue({ shops: [] });
   jest.mocked(saveShop).mockReset();
@@ -303,6 +305,26 @@ test("exposes device enrollment only in configured Android Field builds without 
     expect(mockPush).toHaveBeenLastCalledWith("/cheapo-access");
     await fireEvent.press(screen.getByRole("button", { name: /chatgpt/i }));
     expect(mockPush).toHaveBeenLastCalledWith("/direct-auth");
+  } finally {
+    platform.restore();
+  }
+});
+
+test("keeps ChatGPT an independent opt-in action in the iPhone shared build", async () => {
+  const platform = jest.replaceProperty(Platform, "OS", "ios");
+  mockExtra.iosSharedShopping = true;
+  mockExtra.cheapoApiOrigin = "https://cheapo.example";
+  try {
+    await render(<HomeScreen />);
+    expect(screen.queryByRole("button", { name: "ChatGPT" })).not.toBeOnTheScreen();
+    expect(screen.getByRole("button", { name: "Cheapo access" })).toBeOnTheScreen();
+
+    mockExtra.iosPhotoAnalysis = true;
+    await screen.rerender(<HomeScreen />);
+    await fireEvent.press(screen.getByRole("button", { name: "ChatGPT" }));
+    expect(mockPush).toHaveBeenLastCalledWith("/direct-auth");
+    await fireEvent.press(screen.getByRole("button", { name: "Cheapo access" }));
+    expect(mockPush).toHaveBeenLastCalledWith("/cheapo-access");
   } finally {
     platform.restore();
   }
