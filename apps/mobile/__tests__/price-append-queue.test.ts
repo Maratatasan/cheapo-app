@@ -33,6 +33,7 @@ jest.mock('expo-file-system', () => {
     }
     async write(value: string) { mockFiles.set(this.uri, value); }
     async text() { return mockFiles.get(this.uri); }
+    async bytes() { return new TextEncoder().encode(mockFiles.get(this.uri) ?? ''); }
   }
   class Directory {
     uri: string;
@@ -511,4 +512,32 @@ it('holds mismatched conflict replies and preserves the full valid version for t
   const { entries } = await runtime.mutationQueue.read();
   expect(entries.find(({ intent }) => intent.operationId === 'price-edit')?.outcome).toEqual({ kind: 'conflict', currentVersion: 2,
     current: { id: receipt.id, version: 2, review: { price: '2.75', packSize: '600 g' } } });
+});
+
+it('backs up only the enrolled price and evidence phases and retains interrupted bytes', async () => {
+  const queue = await openPriceAppendQueue(owner);
+  await queue.save(record);
+  await queue.acknowledge(record.id, receipt);
+  await queue.markFailed(record.id, 'photo');
+  const activeFile = [...mockFiles.keys()].find(key => key.endsWith('.price.json'))!;
+  const scope = activeFile.substring(0, activeFile.lastIndexOf('/') + 1);
+  const evidence = ' { "role": "original", "fixture": "Café" }\n';
+  const unfinished = '{"photo":';
+  mockFiles.set(scope + `${record.id}.evidence.json`, evidence);
+  mockFiles.set(scope + `${record.id}.original.evidence-available.json`, '{"role":"original"}');
+  mockFiles.set(scope + `${record.id}.crop.evidence-available.json.staging.pending`, unfinished);
+  mockFiles.set(scope + 'other-private-file.json', 'ignored');
+  await (await openPriceAppendQueue(other)).save({ ...record, id: 'another-owner-local-price' });
+
+  const backup = await queue.backup();
+  expect(backup.entries).toMatchObject([{ record, receipt }]);
+  const contents = Object.fromEntries(backup.files.map(file => [file.name, new TextDecoder().decode(file.bytes)]));
+  expect(Object.keys(contents).sort()).toEqual([
+    `${record.id}.crop.evidence-available.json.staging.pending`,
+    `${record.id}.evidence.json`, `${record.id}.original.evidence-available.json`,
+    `${record.id}.photo.sync-failed`, `${record.id}.price.json`, `${record.id}.receipt.json`,
+  ]);
+  expect(contents[`${record.id}.evidence.json`]).toBe(evidence);
+  expect(contents[`${record.id}.crop.evidence-available.json.staging.pending`]).toBe(unfinished);
+  expect(JSON.parse(contents[`${record.id}.price.json`]).body).toBe(body);
 });

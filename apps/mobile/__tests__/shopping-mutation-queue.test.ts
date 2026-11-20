@@ -21,6 +21,7 @@ jest.mock('expo-file-system', () => {
     get name() { return this.uri.split('/').at(-1); }
     get exists() { return mockFiles.has(this.uri); }
     async text() { return mockFiles.get(this.uri); }
+    async bytes() { return new TextEncoder().encode(mockFiles.get(this.uri) ?? ''); }
     async write(value: string) { mockFiles.set(this.uri, value); }
     async move(target: File) {
       if (mockFailMove || target.exists || (mockFailResolution && target.name?.endsWith('.resolution.json'))) {
@@ -336,4 +337,40 @@ it('pins a removal to the accepted shop link version and preserves exact saved-l
     { shopId: 'different-market' })).toBeUndefined();
   expect(decodeMutationAcknowledgement(unlinkIntent, { ...expected, method: 'DELETE' },
     { shopId: shop.id })).toEqual({ id: shop.id });
+});
+
+it('keeps original and replacement conflict files in the active owner backup', async () => {
+  const queue = await conflictedPrice();
+  await queue.resolve(editPrice.operationId, { kind: 'keep-phone', replacementId: 'backup-replacement', createdAt });
+  const intentFile = [...mockFiles.keys()].find(key => key.endsWith(`/${editPrice.operationId}.intent.json`))!;
+  const scope = intentFile.substring(0, intentFile.lastIndexOf('/') + 1);
+  const staged = '{"operationId":';
+  mockFiles.set(scope + `${editPrice.operationId}.resolution.json.backup.pending`, staged);
+  mockFiles.set(scope + 'credential.json', 'outside the queue format');
+  await (await openShoppingMutationQueue({ ...owner, shopperId: '64db4ca7-3962-4a16-8fee-782f26fd13b4' })).enqueue(createProduct);
+
+  const entries = await queue.backupFiles();
+  const copies = Object.fromEntries(entries.map(file => [file.name, new TextDecoder().decode(file.bytes)]));
+  expect(Object.keys(copies)).toHaveLength(6);
+  expect(copies[`${editPrice.operationId}.intent.json`]).toBe(mockFiles.get(intentFile));
+  expect(copies[`${editPrice.operationId}.resolution.json.backup.pending`]).toBe(staged);
+  expect(JSON.parse(copies['backup-replacement.intent.json']).resolves).toBe(editPrice.operationId);
+  expect(JSON.parse(copies[`${editPrice.operationId}.outcome.json`]).data.current.priceAmount).toBe('1.20');
+  expect(JSON.parse(copies[`${editPrice.operationId}.resolution.json`]).data.replacementId).toBe('backup-replacement');
+});
+
+it('blocks a backup containing access credentials or a signed transfer URL in an allowed phase', async () => {
+  const queue = await openShoppingMutationQueue(owner);
+  await queue.enqueue(createProduct);
+  const intentFile = [...mockFiles.keys()].find(key => key.endsWith('.intent.json'))!;
+  const staged = intentFile + '.uncommitted.pending';
+  for (const sample of [
+    'cheapo_' + 'f'.repeat(43),
+    JSON.stringify({ body: JSON.stringify({ authorization: 'fixture' }) }),
+    'https://storage.example/evidence?X-Amz-Signature=fixture-signature',
+  ]) {
+    mockFiles.set(staged, sample);
+    await expect(queue.backupFiles()).rejects.toThrow('private access information');
+    expect(mockFiles.get(staged)).toBe(sample);
+  }
 });
