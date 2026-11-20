@@ -264,3 +264,38 @@ test('retains the original and the selected crop as separate evidence', async ()
   assert.equal((await photo(awaitingPhoto, 'original', 'B')).status, 200);
   assert.equal((await photo(awaitingPhoto, 'crop', 'B')).status, 200);
 });
+
+test('keeps pending and verified evidence reachable while a price is recorded in error', async () => {
+  const id = '19000000-0000-4000-8000-000000000026';
+  await operator.query(`
+    INSERT INTO cheapo.price_observation (household_id, shopper_id, id, resource_id, captured_at, status)
+    VALUES ($1, $2, 'needs-review', $3, statement_timestamp(), 'complete')
+  `, [household, owner, id]);
+  const route = '/v1/me/price-observations';
+  const send = (actor: string, path: string, body?: object) => api(new Request('http://localhost' + path, {
+    method: body ? 'PATCH' : 'GET',
+    headers: { Authorization: `Bearer ${token(actor)}`, 'Content-Type': 'application/json' },
+    body: body ? JSON.stringify(body) : undefined,
+  }));
+
+  assert.equal((await prepare(id, 'A')).status, 200);
+  assert.equal((await send('B', route + '/' + id, {
+    operationId: 'peer-marks-error', action: 'record_in_error', expectedVersion: 1, reason: 'Wrong shelf label',
+  })).status, 200);
+  assert.deepEqual(await visiblePhotos(id), [{ role: 'original', width: 800, height: 600, availability: 'pending' }]);
+  const ordinary = await (await send('B', route)).json() as { observations: { id: string }[] };
+  assert(!ordinary.observations.some(observation => observation.id === id));
+
+  objectStatus = 'verified';
+  assert.deepEqual(await (await complete(id, 'A')).json(), { role: 'original', availability: 'available' });
+  assert.deepEqual(await visiblePhotos(id), [{ role: 'original', width: 800, height: 600 }]);
+  assert.equal((await photo(id, 'original', 'B')).status, 200);
+  assert.equal((await send('C', route + '/' + id)).status, 404);
+  assert.equal((await send('A', route + '/' + id, {
+    operationId: 'owner-undoes-error', action: 'undo_recorded_in_error', expectedVersion: 2,
+  })).status, 200);
+  const restored = await (await send('A', route)).json() as { observations: { id: string; ownedByCurrentShopper: boolean }[] };
+  assert.equal(restored.observations.find(observation => observation.id === id)?.ownedByCurrentShopper, true);
+  const peerView = await (await send('B', route + '/' + id)).json() as { observation: { ownedByCurrentShopper: boolean } };
+  assert.equal(peerView.observation.ownedByCurrentShopper, false);
+});

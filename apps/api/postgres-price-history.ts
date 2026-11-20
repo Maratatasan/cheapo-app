@@ -1,4 +1,4 @@
-import { readShoppingMember, type ShoppingQuery, type ShoppingTransaction } from './postgres-shopping.ts';
+import { readShoppingMember, type ShoppingMember, type ShoppingQuery, type ShoppingTransaction } from './postgres-shopping.ts';
 import type { ExecutePriceHistory, PriceObservation, PriceObservationDetail } from './price-history.ts';
 
 const observationFields = `
@@ -45,13 +45,14 @@ const visibleObservations = `
 type PriceRow = PriceObservation & { errorReason: string | null };
 type DetailRow = PriceRow & { cropBox: PriceObservationDetail['cropBox'] };
 
-export async function readObservationDetail(query: ShoppingQuery, household: string, id: string, lock = false) {
+export async function readObservationDetail(query: ShoppingQuery, member: ShoppingMember, id: string, lock = false) {
   const { rows: [row] } = await query<DetailRow>(`
-    SELECT ${observationFields}, observation.crop_box AS "cropBox"
+    SELECT ${observationFields}, observation.crop_box AS "cropBox",
+      observation.shopper_id = $3::uuid AS "ownedByCurrentShopper"
     ${visibleObservations}
     AND observation.resource_id = $2::uuid
     ${lock ? 'FOR UPDATE OF observation' : ''}
-  `, [household, id]);
+  `, [member.household_id, id, member.shopper_id]);
   if (!row) return undefined;
   const { errorReason, ...detail } = row;
   const selectedPhotoRole = detail.photos.find(photo => photo.role === 'crop')?.role ?? detail.photos[0]?.role ?? null;
@@ -65,13 +66,13 @@ export function postgresPriceHistory(transaction: ShoppingTransaction): ExecuteP
     if (!member.active) return { status: 'forbidden' };
 
     if (read.kind === 'detail') {
-      const observation = await readObservationDetail(query, member.household_id, read.id);
+      const observation = await readObservationDetail(query, member, read.id);
       return observation ? { status: 'detail', observation } : { status: 'not_found' };
     }
 
     const { limit, cursor, filters, includeRecordedInError } = read;
     const { rows } = await query<PriceRow>(`
-      SELECT ${observationFields}
+      SELECT ${observationFields}, observation.shopper_id = $10::uuid AS "ownedByCurrentShopper"
       ${visibleObservations}
       AND ($2::timestamptz IS NULL OR (observation.captured_at, observation.resource_id) < ($2::timestamptz, $3::uuid))
       AND ($5::text IS NULL OR observation.product_id = $5)
@@ -85,7 +86,7 @@ export function postgresPriceHistory(transaction: ShoppingTransaction): ExecuteP
       ORDER BY observation.captured_at DESC, observation.resource_id DESC
       LIMIT $4::int
     `, [member.household_id, cursor?.[0] ?? null, cursor?.[1] ?? null, limit + 1,
-      filters.productId, filters.comparableGroupId, filters.productType, filters.currency, includeRecordedInError]);
+      filters.productId, filters.comparableGroupId, filters.productType, filters.currency, includeRecordedInError, member.shopper_id]);
     return {
       status: 'ok',
       observations: rows.map(({ errorReason, ...observation }) => errorReason
