@@ -1,12 +1,34 @@
-import { fireEvent, render, screen } from '@testing-library/react-native';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 
 import { AddProductPriceReview } from '@/component/add-product-price-review';
+import { readPhotoText } from '@/data/photo-text';
+import { requestPhotoDraft } from '@/lib/direct-auth/photo-analysis';
+
+jest.mock('@/data/photo-text', () => ({ readPhotoText: jest.fn() }));
+let mockProviderEnabled = false;
+jest.mock('@/lib/direct-auth/phone-session', () => ({
+  get fieldPhotoAnalysisEnabled() { return mockProviderEnabled; },
+  phoneAuth: { getState: () => ({ planAllowed: true, busy: false }), subscribe: jest.fn(), restore: jest.fn(),
+    withPlanAccess: (action: (token: string) => unknown) => action('test-token') },
+}));
+jest.mock('@/lib/direct-auth/photo-analysis', () => ({ requestPhotoDraft: jest.fn(), requestProductIdentityDraft: jest.fn() }));
+jest.mock('expo-file-system', () => ({ File: class {
+  exists = true;
+  size = 3;
+  async base64() { return '/9j/'; }
+} }));
 
 const shop = { id: 'market', displayName: 'Sample market' };
 const oats = { id: 'canonical-oats', name: 'Market Rolled Oats', brand: 'Market', productType: 'Oats',
   comparableGroupId: 'oats', barcode: '00036000291452' };
 const controls = { onChooseShop: jest.fn(), onCompare: jest.fn(), onCancel: jest.fn() };
 const exactCode = '036000291452';
+
+beforeEach(() => {
+  mockProviderEnabled = false;
+  jest.mocked(readPhotoText).mockReset().mockResolvedValue({ status: 'empty' });
+  jest.mocked(requestPhotoDraft).mockReset();
+});
 
 test('shows the matching product and dated shop price, then confirms a fresh observation in one tap', async () => {
   const findByBarcode = jest.fn(async () => oats);
@@ -61,4 +83,103 @@ test('keeps unavailable lookup as a draft with photo and reviewed details, witho
   expect(action).toHaveBeenCalledWith(expect.objectContaining({ choice: undefined, photo, shop, barcode: oats.barcode,
     review: expect.objectContaining(initialReview) }));
   expect(await screen.findByText('Draft saved · Review in Pending sync')).toBeOnTheScreen();
+});
+
+test('reviews an OCR price locally after choosing the exact product and discards it when the photo changes', async () => {
+  const product = { ...oats, pack: { quantity: 500, unit: 'g' } };
+  const asset = { uri: 'file:///chosen.jpg', width: 800, height: 600, mimeType: 'image/jpeg' } as const;
+  const photo = { id: 'source', capturedAt: '2026-11-20T12:00:00Z', original: asset, selected: asset };
+  const next = { ...asset, uri: 'file:///next.jpg' };
+  jest.mocked(readPhotoText).mockImplementation(async uri => uri === asset.uri ? { status: 'found', evidence: {
+    width: 800, height: 600, blocks: [{ lines: [
+      { text: 'Market Rolled Oats 500 g', box: [0.1, 0.1, 0.45, 0.14], elements: [] },
+      { text: '£2.50', box: [0.1, 0.17, 0.25, 0.22], elements: [] },
+    ] }],
+  } } : { status: 'empty' });
+  const onSubmit = jest.fn(async () => 'queued' as const);
+  const props = { ...controls, shop, initialBarcode: exactCode, onSubmit,
+    lookup: { findByBarcode: jest.fn(async () => product), findCandidates: jest.fn() } };
+  await render(<AddProductPriceReview {...props} photo={photo} />);
+  await fireEvent.press(screen.getByRole('button', { name: 'Check product' }));
+  expect(jest.mocked(readPhotoText)).not.toHaveBeenCalled();
+  await fireEvent.press(await screen.findByRole('button', { name: `Use ${oats.name}` }));
+  await waitFor(() => expect(screen.getByLabelText('Pack price')).toHaveDisplayValue('2.50'));
+  expect(onSubmit).not.toHaveBeenCalled();
+
+  await screen.rerender(<AddProductPriceReview {...props} photo={{ ...photo, original: next, selected: next }} />);
+  expect(screen.getByLabelText('Pack price')).toHaveDisplayValue('');
+  expect(screen.getByRole('button', { name: 'Confirm current price' })).toBeDisabled();
+  await screen.rerender(<AddProductPriceReview {...props} photo={photo} />);
+  await waitFor(() => expect(screen.getByLabelText('Pack price')).toHaveDisplayValue('2.50'));
+  await fireEvent.press(screen.getByRole('button', { name: 'Confirm current price' }));
+  expect(onSubmit).toHaveBeenCalledTimes(1);
+  expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ photo, shop, choice: { kind: 'reuse', product },
+    review: expect.objectContaining({ price: '2.50', currency: 'GBP' }),
+  }));
+});
+
+test('keeps packaging analysis optional and available to identify a photo without a price', async () => {
+  mockProviderEnabled = true;
+  const asset = { uri: 'file:///package.jpg', width: 400, height: 300, mimeType: 'image/jpeg' } as const;
+  const lookup = { findByBarcode: jest.fn(), findCandidates: jest.fn() };
+  const onSubmit = jest.fn();
+  await render(<AddProductPriceReview {...controls} shop={shop} lookup={lookup} onSubmit={onSubmit}
+    photo={{ id: 'source', capturedAt: '2026-11-20T12:00:00Z', original: asset, selected: asset }} />);
+  expect(screen.getByRole('button', { name: 'Analyse packaging photo' })).toBeEnabled();
+  expect(screen.getByLabelText('Pack price')).toHaveDisplayValue('');
+  expect(lookup.findCandidates).not.toHaveBeenCalled();
+  expect(onSubmit).not.toHaveBeenCalled();
+});
+
+test('uses only the selected country hint and rechecks a new product if accepted price analysis adds a pack', async () => {
+  mockProviderEnabled = true;
+  const asset = { uri: 'file:///label.jpg', width: 400, height: 300, mimeType: 'image/jpeg' } as const;
+  const country = { country: 'United Kingdom', source: 'postcode pattern' } as const;
+  const lookup = { findByBarcode: jest.fn(), findCandidates: jest.fn(async () => ({ candidates: [], truncated: false })) };
+  const onSubmit = jest.fn(async () => 'queued' as const);
+  jest.mocked(requestPhotoDraft).mockResolvedValue({ product: 'Other oats', price: 2.50, packSize: '500 g',
+    currency: 'GBP', uncertainty: '', unit_price: null });
+  await render(<AddProductPriceReview {...controls} shop={shop} shopCountry={country} lookup={lookup} onSubmit={onSubmit}
+    initialReview={{ productName: 'Sample oats', productType: 'Oats' }}
+    photo={{ id: 'source', capturedAt: '2026-11-20T12:00:00Z', original: asset, selected: asset }} />);
+  await fireEvent.press(screen.getByRole('button', { name: 'Check product' }));
+  await fireEvent.press(await screen.findByRole('button', { name: 'Add as new product' }));
+  await fireEvent.press(screen.getByRole('button', { name: 'Analyse photo' }));
+  await fireEvent.press(await screen.findByRole('button', { name: 'Use suggested details' }));
+
+  expect(requestPhotoDraft).toHaveBeenCalledWith(expect.objectContaining({ shopCountry: country }));
+  expect(screen.getByLabelText('Product name')).toHaveDisplayValue('Sample oats');
+  expect(screen.getByLabelText('Pack size')).toHaveDisplayValue('500 g');
+  expect(screen.getByLabelText('Pack price')).toHaveDisplayValue('2.5');
+  expect(screen.getByRole('button', { name: 'Confirm current price' })).toBeDisabled();
+  expect(onSubmit).not.toHaveBeenCalled();
+  await fireEvent.press(screen.getByRole('button', { name: 'Check product' }));
+  expect(lookup.findCandidates).toHaveBeenLastCalledWith(expect.objectContaining({ packSize: '500 g' }), expect.any(AbortSignal));
+});
+
+test.each([
+  { canonical: undefined, manual: undefined, expected: '500 g' },
+  { canonical: 750, manual: undefined, expected: '750 g' },
+  { canonical: undefined, manual: '600 g', expected: '600 g' },
+])('uses accepted AI pack data only when canonical and manual pack details are absent (%j)', async ({ canonical, manual, expected }) => {
+  mockProviderEnabled = true;
+  const product = { ...oats, ...(canonical ? { pack: { quantity: canonical, unit: 'g' } } : {}) };
+  const asset = { uri: 'file:///label.jpg', width: 400, height: 300, mimeType: 'image/jpeg' } as const;
+  const lookup = { findByBarcode: jest.fn(async () => product), findCandidates: jest.fn() };
+  const onSubmit = jest.fn(async () => 'queued' as const);
+  jest.mocked(requestPhotoDraft).mockResolvedValue({ product: 'Other oats', price: 2.50, packSize: '500 g',
+    currency: 'GBP', uncertainty: '', unit_price: null });
+  await render(<AddProductPriceReview {...controls} shop={shop} lookup={lookup} onSubmit={onSubmit}
+    initialBarcode={exactCode} photo={{ id: 'source', capturedAt: '2026-11-20T12:00:00Z', original: asset, selected: asset }} />);
+  await fireEvent.press(screen.getByRole('button', { name: 'Check product' }));
+  await fireEvent.press(await screen.findByRole('button', { name: `Use ${oats.name}` }));
+  if (manual) await fireEvent.changeText(screen.getByLabelText('Pack size'), manual);
+  await fireEvent.press(screen.getByRole('button', { name: 'Analyse photo' }));
+  await fireEvent.press(await screen.findByRole('button', { name: 'Use suggested details' }));
+
+  expect(screen.getByLabelText('Pack size')).toHaveDisplayValue(expected);
+  expect(onSubmit).not.toHaveBeenCalled();
+  await fireEvent.press(screen.getByRole('button', { name: 'Confirm current price' }));
+  expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ choice: { kind: 'reuse', product },
+    review: expect.objectContaining({ productName: oats.name, packSize: expected, price: '2.5' }) }));
 });

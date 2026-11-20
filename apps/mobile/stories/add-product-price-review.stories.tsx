@@ -4,6 +4,7 @@ import { View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { AddProductPriceReview } from '../component/add-product-price-review';
+import label from './fixtures/price-label-crop.jpg';
 
 const shop = { id: 'sample-market', displayName: 'Example Market' };
 const product = { id: 'sample-oats', name: 'Whole rolled oats', productType: 'Oats', brand: 'Example',
@@ -33,6 +34,12 @@ export const ConfirmCurrentShopPrice: Story = {
     await expect(canvas.getByRole('button', { name: 'Confirm current price' })).toBeEnabled();
     await expect(args.onSubmit).not.toHaveBeenCalled();
   },
+};
+
+const photo = { uri: label, mimeType: 'image/jpeg', width: 600, height: 400 } as const;
+export const ReviewPriceWithPhoto: Story = {
+  ...ConfirmCurrentShopPrice,
+  args: { photo: { id: 'sample-price-photo', capturedAt: '2026-11-20T12:00:00Z', original: photo, selected: photo } },
 };
 
 export const SaveDraftWhenUnavailable: Story = {
