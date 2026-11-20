@@ -1,3 +1,5 @@
+import { comparisonAttributeValues, comparisonGroupId } from '@cheapo/domain/price-history';
+
 import { readShoppingMember, type ShoppingMember, type ShoppingQuery, type ShoppingTransaction } from './postgres-shopping.ts';
 import type { ExecutePriceHistory, PriceObservation, PriceObservationDetail } from './price-history.ts';
 
@@ -35,34 +37,59 @@ const observationFields = `
   ), '[]'::jsonb) AS photos
 `;
 
-const visibleObservations = `
-  FROM cheapo.price_observation AS observation
-  LEFT JOIN cheapo.product AS product ON product.id = observation.product_id
-  WHERE observation.household_id = $1::uuid
-    AND observation.status = 'complete' AND observation.source_test_shop IS NOT TRUE
+const resolvedComparisonGroup = 'COALESCE(product.comparable_group_id, reviewed_group.comparable_group_id)';
+const comparisonFields = `
+  ${resolvedComparisonGroup} AS "comparableGroupId",
+  CASE WHEN reviewed_group.comparable_group_id = ${resolvedComparisonGroup}
+    THEN reviewed_group.attributes END AS "comparisonAttributes"
 `;
 
-type PriceRow = PriceObservation & { errorReason: string | null };
+function visibleObservations(includeComparison: boolean) {
+  return `
+    FROM cheapo.price_observation AS observation
+    LEFT JOIN cheapo.product AS product ON product.id = observation.product_id
+    ${includeComparison ? `LEFT JOIN cheapo.price_observation_group AS reviewed_group
+      ON (reviewed_group.household_id, reviewed_group.shopper_id, reviewed_group.observation_id) =
+        (observation.household_id, observation.shopper_id, observation.id)` : ''}
+    WHERE observation.household_id = $1::uuid
+      AND observation.status = 'complete' AND observation.source_test_shop IS NOT TRUE
+  `;
+}
+
+type PriceRow = Omit<PriceObservation, 'comparableGroupId' | 'comparisonAttributes'> & {
+  errorReason: string | null;
+  comparableGroupId?: string | null;
+  comparisonAttributes?: unknown;
+};
 type DetailRow = PriceRow & { cropBox: PriceObservationDetail['cropBox']; photoSelectionOverridden: boolean };
 
-export async function readObservationDetail(query: ShoppingQuery, member: ShoppingMember, id: string, lock = false) {
+function comparisonView(group: PriceRow['comparableGroupId'], attributes: unknown) {
+  const id = comparisonGroupId.safeParse(group);
+  if (!id.success) return {};
+  const values = comparisonAttributeValues.safeParse(attributes);
+  return { comparableGroupId: id.data, ...(values.success ? { comparisonAttributes: values.data } : {}) };
+}
+
+export async function readObservationDetail(query: ShoppingQuery, member: ShoppingMember, id: string,
+  { lock = false, includeComparison = false }: { lock?: boolean; includeComparison?: boolean } = {}) {
   const { rows: [row] } = await query<DetailRow>(`
     SELECT ${observationFields},
+      ${includeComparison ? `${comparisonFields},` : ''}
       CASE WHEN observation.photo_selection_overridden THEN observation.selected_crop_box ELSE observation.crop_box END AS "cropBox",
       observation.photo_selection_overridden AS "photoSelectionOverridden",
       observation.shopper_id = $3::uuid AS "ownedByCurrentShopper"
-    ${visibleObservations}
+    ${visibleObservations(includeComparison)}
     AND observation.resource_id = $2::uuid
     ${lock ? 'FOR UPDATE OF observation' : ''}
   `, [member.household_id, id, member.shopper_id]);
   if (!row) return undefined;
-  const { errorReason, photoSelectionOverridden, ...detail } = row;
+  const { errorReason, photoSelectionOverridden, comparableGroupId, comparisonAttributes, ...detail } = row;
   const original = detail.photos.find(photo => photo.role === 'original');
   const storedCrop = detail.photos.find(photo => photo.role === 'crop');
   const selectedPhotoRole = photoSelectionOverridden
     ? original ? detail.cropBox ? 'crop' : 'original' : null
     : storedCrop?.role ?? original?.role ?? null;
-  return { ...detail, selectedPhotoRole,
+  return { ...detail, selectedPhotoRole, ...comparisonView(comparableGroupId, comparisonAttributes),
     ...(photoSelectionOverridden ? { cropSource: 'original' as const } : {}),
     ...(errorReason ? { recordedInErrorReason: errorReason } : {}) };
 }
@@ -74,19 +101,19 @@ export function postgresPriceHistory(transaction: ShoppingTransaction): ExecuteP
     if (!member.active) return { status: 'forbidden' };
 
     if (read.kind === 'detail') {
-      const observation = await readObservationDetail(query, member, read.id);
+      const observation = await readObservationDetail(query, member, read.id, { includeComparison: true });
       return observation ? { status: 'detail', observation } : { status: 'not_found' };
     }
 
     const { limit, cursor, filters, sourceId, includeRecordedInError } = read;
     const { rows } = await query<PriceRow>(`
-      SELECT ${observationFields}, observation.shopper_id = $10::uuid AS "ownedByCurrentShopper"
-      ${visibleObservations}
+      SELECT ${observationFields}, ${comparisonFields}, observation.shopper_id = $10::uuid AS "ownedByCurrentShopper"
+      ${visibleObservations(true)}
       AND ($2::timestamptz IS NULL OR (observation.captured_at, observation.resource_id) < ($2::timestamptz, $3::uuid))
       AND ($5::text IS NULL OR observation.product_id = $5)
       AND (
-        ($6::text IS NULL AND $7::text IS NULL) OR product.comparable_group_id = $6
-        OR (($6::text IS NULL OR product.comparable_group_id IS NULL)
+        ($6::text IS NULL AND $7::text IS NULL) OR ${resolvedComparisonGroup} = $6
+        OR (($6::text IS NULL OR ${resolvedComparisonGroup} IS NULL)
           AND lower(btrim(coalesce(nullif(btrim(observation.review->>'productType'), ''), product.product_type))) = lower($7))
       )
       AND ($8::text IS NULL OR observation.currency = $8)
@@ -98,9 +125,11 @@ export function postgresPriceHistory(transaction: ShoppingTransaction): ExecuteP
       filters.productId, filters.comparableGroupId, filters.productType, filters.currency, includeRecordedInError, member.shopper_id, sourceId ?? null]);
     return {
       status: 'ok',
-      observations: rows.map(({ errorReason, ...observation }) => errorReason
-        ? { ...observation, recordedInErrorReason: errorReason }
-        : observation),
+      observations: rows.map(({ errorReason, comparableGroupId, comparisonAttributes, ...observation }) => ({
+        ...observation,
+        ...comparisonView(comparableGroupId, comparisonAttributes),
+        ...(errorReason ? { recordedInErrorReason: errorReason } : {}),
+      })),
     };
   });
 }

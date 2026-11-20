@@ -286,3 +286,16 @@ test('a restricted login can return versioned create receipts without changing t
     await assert.rejects(runtime.query(sql), { code: '42501' });
   }
 });
+
+
+test('runtime can read scoped comparison membership but cannot assign it', async () => {
+  const response = await request('/v1/me/price-observations?comparableGroupId=fixture', 'A');
+  assert.equal(response.status, 200);
+  for (const statement of [
+    'INSERT INTO cheapo.price_observation_group DEFAULT VALUES',
+    "UPDATE cheapo.price_observation_group SET comparable_group_id = 'fixture'",
+    'DELETE FROM cheapo.price_observation_group',
+  ]) {
+    await assert.rejects(runtime.query(statement), { code: '42501' });
+  }
+});
