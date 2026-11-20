@@ -116,13 +116,14 @@ export const KeptCloudOffline: Story = {
     const changes: PendingHistoryChange[] = [{ operationId: 'example-cloud-choice', title: 'Keep cloud', resourceId: chosen.id,
       state: 'acknowledged', acceptedVersion: chosen.version, change: { action: 'keep_cloud', observation: chosen } }];
     const kept = keptSharedPrice(observation.id, changes);
-    return kept ? <View style={{ width: '100%', maxWidth: frame.width, height: frame.height }}>
+    if (!kept) throw Error('Expected the saved example price.');
+    return <View style={{ width: '100%', maxWidth: frame.width, height: frame.height }}>
       <SafeAreaProvider initialMetrics={{ frame, insets }}>
         <SharedPriceEvidence observation={kept} cached activeRole="original"
           photo={{ role: 'original', status: 'cached', uri: images.original }} onPhotoRole={() => {}}
           onRetryPhoto={() => {}} onBack={() => {}} />
       </SafeAreaProvider>
-    </View> : null;
+    </View>;
   },
   play: async ({ canvas }) => {
     await expect(canvas.getByText('£3.45')).toBeVisible();
