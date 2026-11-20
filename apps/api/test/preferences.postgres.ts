@@ -235,6 +235,22 @@ test('rejects invalid barcodes and omits private import fields from canonical pr
   });
 });
 
+test('creates reviewed products without a barcode while keeping manual product IDs distinct', async () => {
+  const first = '/manual-oats-one';
+  const second = '/manual-oats-two';
+  const details = { name: ' Oats ', pack: { quantity: 2, unit: 'kg' } };
+  const expected = { ...details, id: 'manual-oats-one', name: 'Oats' };
+  const ok = { status: 200, body: { product: expected } };
+  assert.deepEqual(await catalogRequest('A', first, 'PUT', details), ok);
+  assert.deepEqual(await catalogRequest('B', first, 'PUT', details), ok);
+  assert.deepEqual(await catalogRequest('B', first), ok);
+  assert.deepEqual(await catalogRequest('B', second, 'PUT', details),
+    { status: 200, body: { product: { ...expected, id: 'manual-oats-two' } } });
+  assert.deepEqual(await catalogRequest('B', first, 'PUT', { ...details, name: 'Changed details' }),
+    { status: 409, body: { error: 'product_conflict', product: expected } });
+  assert.equal((await catalogRequest('A', '/invalid-manual', 'PUT', { ...details, barcode: '' })).status, 400);
+});
+
 const ok = (basis: string | null) => ({ status: 200, body: { basis } });
 
 test('reopens the shopper’s choice through a fresh API instance and second credential', async () => {

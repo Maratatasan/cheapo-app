@@ -39,7 +39,7 @@ export function postgresCatalog(transaction: ShoppingTransaction): ExecuteCatalo
     }
 
     const { id, barcode, name, productType, brand, variety, pack, comparableGroupId } = action.product;
-    const values = [id, barcode, name, productType ?? null, brand ?? null, variety ?? null, pack ?? null, comparableGroupId ?? null];
+    const values = [id, barcode ?? null, name, productType ?? null, brand ?? null, variety ?? null, pack ?? null, comparableGroupId ?? null];
     const { rows: [inserted] } = await query<ProductRow>(`
       INSERT INTO cheapo.product (${columns}) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)
       ON CONFLICT DO NOTHING RETURNING ${columns}
