@@ -12,14 +12,26 @@ type ProtectedStorage = {
   deleteItem(key: string): Promise<void>;
 };
 type Transport = (url: string, init: RequestInit) => Promise<Response>;
+export type CheapoReadSession = {
+  cacheScope: string;
+  assertCurrent(): void;
+  get(path: string, signal?: AbortSignal): Promise<Response>;
+};
 export type AccessState = "missing" | "connected" | "denied" | "unavailable";
 
 export class CheapoAccessError extends Error {}
 
-export function createCheapoAccess(originValue: string, storage: ProtectedStorage, transport: Transport) {
-  const origin = parseCheapoApiOrigin(originValue);
-  if (!origin) throw new Error("Invalid Cheapo API origin.");
+export function createCheapoAccess(
+  originValue: string,
+  storage: ProtectedStorage,
+  transport: Transport,
+  digestCacheScope?: (value: string) => Promise<string>,
+) {
+  const parsedOrigin = parseCheapoApiOrigin(originValue);
+  if (!parsedOrigin) throw new Error("Invalid Cheapo API origin.");
+  const origin = parsedOrigin;
   const probeUrl = new URL(checkPath, origin);
+  let enrollmentRevision = 0;
 
   async function loadCredential(): Promise<string | null> {
     const stored = await storage.getItem(storageKey);
@@ -63,6 +75,28 @@ export function createCheapoAccess(originValue: string, storage: ProtectedStorag
     }
   }
 
+  function apiUrl(path: string): URL {
+    const url = new URL(path, origin);
+    if (url.origin !== origin || !path.startsWith("/v1/") || !url.pathname.startsWith("/v1/") || url.hash) {
+      throw new Error("Invalid Cheapo API path.");
+    }
+    return url;
+  }
+
+  async function requiredCredential(): Promise<string> {
+    const credential = await loadCredential();
+    if (!credential) throw new CheapoAccessError("Ask your operator to connect this phone to Cheapo.");
+    return credential;
+  }
+
+  async function authenticatedRequest(url: URL, credential: string, init?: RequestInit): Promise<Response> {
+    const response = await send(url, credential, init);
+    if (response.status === 401 || response.status === 403) {
+      throw new CheapoAccessError("Cheapo access ended. Ask your operator for a replacement.");
+    }
+    return response;
+  }
+
   return {
     async check(): Promise<AccessState> {
       const credential = await loadCredential();
@@ -77,22 +111,34 @@ export function createCheapoAccess(originValue: string, storage: ProtectedStorag
       if (access === "denied") throw new CheapoAccessError("Cheapo declined this credential. Ask your operator for a replacement.");
       if (access !== "connected") throw new CheapoAccessError("Could not reach Cheapo. Try again when you’re online.");
       await storage.setItem(storageKey, JSON.stringify({ origin, credential }));
+      enrollmentRevision++;
     },
-    clear() {
-      return storage.deleteItem(storageKey);
+    async clear() {
+      await storage.deleteItem(storageKey);
+      enrollmentRevision++;
     },
     async request(path: string, init?: RequestInit): Promise<Response> {
-      const url = new URL(path, origin);
-      if (url.origin !== origin || !path.startsWith("/v1/") || !url.pathname.startsWith("/v1/") || url.hash) {
-        throw new Error("Invalid Cheapo API path.");
+      const url = apiUrl(path);
+      return authenticatedRequest(url, await requiredCredential(), init);
+    },
+    async openReadSession(): Promise<CheapoReadSession> {
+      if (!digestCacheScope) throw Error("Cheapo shopping reads are unavailable in this build.");
+      const revision = enrollmentRevision;
+      const credential = await requiredCredential();
+      // Bind the request and its cache partition to the same protected enrollment.
+      const cacheScope = await digestCacheScope(`cheapo-shopping-cache-v1\0${origin}\0${credential}`);
+      function confirmEnrollment() {
+        if (revision !== enrollmentRevision) throw new CheapoAccessError("Cheapo access changed. Try again.");
       }
-      const credential = await loadCredential();
-      if (!credential) throw new CheapoAccessError("Ask your operator to connect this phone to Cheapo.");
-      const response = await send(url, credential, init);
-      if (response.status === 401 || response.status === 403) {
-        throw new CheapoAccessError("Cheapo access ended. Ask your operator for a replacement.");
-      }
-      return response;
+      confirmEnrollment();
+      return {
+        cacheScope,
+        assertCurrent: confirmEnrollment,
+        get(path, signal) {
+          confirmEnrollment();
+          return authenticatedRequest(apiUrl(path), credential, { method: "GET", signal });
+        },
+      };
     },
   };
 }
