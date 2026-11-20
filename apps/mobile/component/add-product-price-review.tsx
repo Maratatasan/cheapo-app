@@ -8,6 +8,7 @@ import type { DraftShop, LocalPhotoDraft } from '@/data/local-photo';
 import { applyPhotoSuggestion, emptyReview, reviewComplete, type ManualReview } from '@/data/photo-review';
 import { dateLabel, priceLabel, type PriceValues } from '@/data/observation';
 import { fieldPhotoAnalysisEnabled } from '@/lib/direct-auth/phone-session';
+import type { PhotoShopCountry } from '@/lib/direct-auth/shop-country';
 import { CameraActionButton } from './camera-actions';
 import { DirectPhotoAnalysis, DirectProductIdentityAnalysis } from './direct-photo-analysis';
 import { PhotoReview, type ReviewSuggestion } from './photo-review';
@@ -28,6 +29,7 @@ export type ProductPriceSubmission = {
 
 export type AddProductPriceReviewProps = {
   shop?: DraftShop;
+  shopCountry?: PhotoShopCountry;
   initialReview?: Partial<ManualReview>;
   initialBarcode?: string;
   photo?: LocalPhotoDraft;
@@ -42,7 +44,7 @@ export type AddProductPriceReviewProps = {
 
 const identityFields = new Set<keyof ManualReview>(['productName', 'productType', 'brand', 'variety', 'packSize']);
 
-export function AddProductPriceReview({ shop, initialReview, initialBarcode, photo, lookup, loadLatestPrice,
+export function AddProductPriceReview({ shop, shopCountry, initialReview, initialBarcode, photo, lookup, loadLatestPrice,
   onChooseShop, onCompare, onPickPhoto, onSubmit, onCancel }: AddProductPriceReviewProps) {
   const [review, setReview] = useState(() => ({ ...emptyReview(), ...initialReview }));
   const [barcode, setBarcode] = useState(initialBarcode ?? '');
@@ -182,8 +184,12 @@ export function AddProductPriceReview({ shop, initialReview, initialBarcode, pho
 
   if (!photo || !fieldPhotoAnalysisEnabled) return renderReview();
   if (choice) return <DirectPhotoAnalysis key={photo.selected.uri} photo={photo.selected} photoText={photoText}
-    noPriceFound={shelfEvidence?.kind === 'no-price'} busy={disabled}
-    onApply={draft => setReview(current => applyPhotoSuggestion(current, draft, edited.current, true))}>
+    shopCountry={shopCountry} noPriceFound={shelfEvidence?.kind === 'no-price'} busy={disabled}
+    onApply={draft => {
+      const next = applyPhotoSuggestion(review, known ? { ...draft, packSize: null } : draft, edited.current, true);
+      if (!known && next.packSize !== review.packSize) resetIdentity();
+      setReview(next);
+    }}>
     {renderReview}
   </DirectPhotoAnalysis>;
   return renderReview(<DirectProductIdentityAnalysis key={photo.selected.uri} photo={photo.selected} busy={disabled || check.kind === 'checking'}

@@ -16,6 +16,7 @@ import type { CheapoShoppingRuntime } from '@/data/shopping-sync-runtime';
 import { useEnrolledCatalog } from '@/hooks/use-enrolled-catalog';
 import { useSavedShops } from '@/hooks/use-saved-shops';
 import { choosePhoto } from '@/lib/choose-photo';
+import { photoShopCountry } from '@/lib/direct-auth/shop-country';
 import { fieldCheapoApiOrigin } from '@/lib/cheapo-access/config';
 
 export default function AddProductScreen() {
@@ -103,7 +104,7 @@ function EnrolledAddProduct({ shopping }: { shopping: CheapoShoppingRuntime }) {
 
   return <View style={ui.page}>
     <View style={choosingShop ? { display: 'none' } : ui.page}>
-      <AddProductPriceReview shop={shop} photo={photo} lookup={lookup} loadLatestPrice={loadLatestPrice}
+      <AddProductPriceReview shop={shop} shopCountry={photoShopCountry(shops?.currentShop?.address)} photo={photo} lookup={lookup} loadLatestPrice={loadLatestPrice}
         onChooseShop={() => setChoosingShop(true)} onPickPhoto={() => { void pickPhoto(); }} onCancel={() => router.back()}
         onCompare={candidate => {
           if (candidate.kind === 'catalog') router.push({ pathname: '/find-product', params: { productId: candidate.product.id } });
