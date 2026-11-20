@@ -1,6 +1,8 @@
 import { productSchema, shopSchema, type Product, type Shop } from "@cheapo/domain";
 import { canonicalProductBarcode } from "@cheapo/domain/product-barcode";
+import type { PriceHistoryQuery, PriceObservationDetail } from "@cheapo/domain/price-history";
 import { CheapoAccessError, type CheapoReadSession } from "../lib/cheapo-access/client";
+import { decodeHistoryObservation, decodeHistoryPage, historyObservationPath, historyPagePath } from "./cheapo-price-history";
 
 export type ReadCache = {
   read(key: string): Promise<string | null>;
@@ -70,6 +72,7 @@ function decodeProduct(value: unknown): { product: Product | null } {
 export function createCheapoShoppingReads(openSession: () => Promise<CheapoReadSession>, cache: ReadCache) {
   async function read<T>(
     path: string, decode: Decoder<T>, cacheable: ((value: T) => boolean) | undefined, signal?: AbortSignal,
+    notFound?: () => T,
   ): Promise<ShoppingRead<T>> {
     const session = await openSession();
     const key = `${session.cacheScope}\0${path}`;
@@ -103,8 +106,8 @@ export function createCheapoShoppingReads(openSession: () => Promise<CheapoReadS
       return fromCache();
     }
     if (response.status === 429 || response.status >= 500) return fromCache();
-    if (!response.ok) throw Error("Could not read shopping data from Cheapo.");
-    const value = decode(await response.json());
+    if (!response.ok && (response.status !== 404 || !notFound)) throw Error("Could not read shopping data from Cheapo.");
+    const value = response.status === 404 && notFound ? notFound() : decode(await response.json());
     session.assertCurrent();
     const lastSyncedAt = new Date().toISOString();
     if (cacheable) {
@@ -132,6 +135,15 @@ export function createCheapoShoppingReads(openSession: () => Promise<CheapoReadS
     findProductById(id: string, signal?: AbortSignal) {
       if (!productSchema.shape.id.safeParse(id).success || id === "." || id === ".." || id.includes("\0")) throw Error("Invalid product ID.");
       return read(`/v1/products/${encodeURIComponent(id)}`, decodeProduct, value => value.product !== null, signal);
+    },
+    loadPriceHistory(query: PriceHistoryQuery = {}, signal?: AbortSignal) {
+      return read(historyPagePath(query), decodeHistoryPage, () => true, signal);
+    },
+    loadPriceObservation(id: string, signal?: AbortSignal) {
+      return read<{ observation: PriceObservationDetail | null }>(
+        historyObservationPath(id), raw => decodeHistoryObservation(raw, id), value => value.observation !== null, signal,
+        () => ({ observation: null }),
+      );
     },
   };
 }

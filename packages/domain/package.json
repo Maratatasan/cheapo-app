@@ -7,7 +7,8 @@
     "./names": "./names.ts",
     "./package-measures": "./package-measures.ts",
     "./product-barcode": "./product-barcode.ts",
-    "./price-append": "./price-append.ts"
+    "./price-append": "./price-append.ts",
+    "./price-history": "./price-history.ts"
   },
   "scripts": {
     "test": "node --test domain.test.mjs",
