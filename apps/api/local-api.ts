@@ -4,7 +4,7 @@ import { createCatalogHandler, isCatalogPath } from './catalog.ts';
 import { postgresCatalog } from './postgres-catalog.ts';
 import { postgresPriceHistory } from './postgres-price-history.ts';
 import { postgresSavedShops } from './postgres-saved-shops.ts';
-import type { ShoppingTransaction } from './postgres-shopping.ts';
+import type { ShoppingQuery, ShoppingTransaction } from './postgres-shopping.ts';
 import { postgresPreferences } from './postgres.ts';
 import { createPreferencesHandler } from './preferences.ts';
 import { createPriceHistoryHandler, isPriceHistoryPath } from './price-history.ts';
@@ -27,9 +27,10 @@ function localTransaction(pool: Pool): ShoppingTransaction {
   };
 }
 
-export function createLocalApi(pool: Pool) {
-  const preferences = createPreferencesHandler(postgresPreferences(pool));
-  const transaction = localTransaction(pool);
+export function createShoppingApi({ query, transaction }: {
+  query: ShoppingQuery; transaction: ShoppingTransaction;
+}) {
+  const preferences = createPreferencesHandler(postgresPreferences({ query }));
   const shops = createSavedShopHandler(postgresSavedShops(transaction));
   const catalog = createCatalogHandler(postgresCatalog(transaction));
   const prices = createPriceHistoryHandler(postgresPriceHistory(transaction));
@@ -40,4 +41,11 @@ export function createLocalApi(pool: Pool) {
     if (isPriceHistoryPath(path)) return prices(request);
     return preferences(request);
   };
+}
+
+export function createLocalApi(pool: Pool) {
+  return createShoppingApi({
+    query: (text, params) => pool.query(text, params),
+    transaction: localTransaction(pool),
+  });
 }

@@ -1,4 +1,4 @@
-import type { Pool } from 'pg';
+import type { ShoppingQuery } from './postgres-shopping.ts';
 
 import type { ExecutePreference, PreferenceOperation, PreferenceResult } from './preferences.ts';
 
@@ -20,7 +20,7 @@ const operationSql: Record<PreferenceOperation, string> = {
     RETURNING NULL::text AS basis`,
 };
 
-export function postgresPreferences(database: Pool): ExecutePreference {
+export function postgresPreferences(database: { query: ShoppingQuery }): ExecutePreference {
   return async (tokenDigest, productGroupId, operation, basis) => {
     // Check the credential and membership in the same statement as the read or write.
     const { rows } = await database.query<PreferenceResult>(`

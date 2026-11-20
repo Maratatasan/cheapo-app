@@ -1,0 +1,162 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Cheapo private beta API with an HTTPS front door and a scoped Aurora Data API connection.
+
+Metadata:
+  com.aws.cloudformation.Context:
+    why: Serve the two enrolled phones on demand without putting Lambda in the private database network.
+    must: Keep the public route disabled until scoped database access, artifact review, and activation approval are complete.
+
+Parameters:
+  DatabaseClusterIdentifier:
+    Type: String
+    AllowedPattern: '[a-zA-Z][a-zA-Z0-9-]{0,62}'
+    Description: The existing shopping storage cluster in this stack's Region and AWS project.
+  DatabaseName:
+    Type: String
+    AllowedPattern: '[a-zA-Z_][a-zA-Z0-9_]{0,62}'
+  RuntimeSecretResource:
+    Type: String
+    AllowedPattern: '[a-zA-Z0-9/_+=.@-]+-[a-zA-Z0-9]{6}'
+    Description: The ARN resource after secret colon, with the suffix, for the separate restricted database login secret.
+  ArtifactBucket:
+    Type: String
+    AllowedPattern: '[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]'
+    Description: Approved versioned private artifact bucket in this stack's Region.
+  ArtifactKey:
+    Type: String
+    MinLength: 1
+    Description: Key of the reviewed Lambda ZIP.
+  ArtifactVersion:
+    Type: String
+    MinLength: 1
+    Description: S3 version ID of the reviewed Lambda ZIP for release and rollback.
+  PublishRoute:
+    Type: String
+    AllowedValues: ['false', 'true']
+    Default: 'false'
+    Description: Enable only after deployment authorization and verification of the database login.
+
+Conditions:
+  ExposeRoute: !Equals [!Ref PublishRoute, 'true']
+
+Resources:
+  AccessLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/cheapo/${AWS::StackName}/http'
+      RetentionInDays: 7
+
+  RuntimeLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/cheapo/${AWS::StackName}/lambda'
+      RetentionInDays: 7
+
+  RuntimeRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action: sts:AssumeRole
+            Principal:
+              Service: lambda.amazonaws.com
+      Policies:
+        - PolicyName: RuntimeAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - rds-data:BeginTransaction
+                  - rds-data:ExecuteStatement
+                  - rds-data:CommitTransaction
+                  - rds-data:RollbackTransaction
+                Resource: !Sub 'arn:${AWS::Partition}:rds:${AWS::Region}:${AWS::AccountId}:cluster:${DatabaseClusterIdentifier}'
+              - Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource: !Sub 'arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${RuntimeSecretResource}'
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:${RuntimeLogs}:log-stream:*'
+
+  ShoppingFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Architectures: [arm64]
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Ref ArtifactKey
+        S3ObjectVersion: !Ref ArtifactVersion
+      Environment:
+        Variables:
+          CHEAPO_AWS_CLUSTER_ARN: !Sub 'arn:${AWS::Partition}:rds:${AWS::Region}:${AWS::AccountId}:cluster:${DatabaseClusterIdentifier}'
+          CHEAPO_AWS_RUNTIME_SECRET_ARN: !Sub 'arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${RuntimeSecretResource}'
+          CHEAPO_AWS_DB_NAME: !Ref DatabaseName
+      Handler: index.handler
+      LoggingConfig:
+        LogGroup: !Ref RuntimeLogs
+        LogFormat: JSON
+        ApplicationLogLevel: WARN
+        SystemLogLevel: WARN
+      MemorySize: 256
+      ReservedConcurrentExecutions: 4
+      Role: !GetAtt RuntimeRole.Arn
+      Runtime: nodejs24.x
+      Timeout: 28
+
+  ShoppingHttpApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: !Sub '${AWS::StackName}-cheapo'
+      ProtocolType: HTTP
+
+  ShoppingStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref ShoppingHttpApi
+      StageName: '$default'
+      AutoDeploy: true
+      AccessLogSettings:
+        DestinationArn: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:${AccessLogs}'
+        Format: '{"requestId":"$context.requestId","route":"$context.routeKey","status":"$context.status","latencyMs":"$context.responseLatency"}'
+      DefaultRouteSettings:
+        ThrottlingRateLimit: 5
+        ThrottlingBurstLimit: 10
+
+  ShoppingIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Condition: ExposeRoute
+    Properties:
+      ApiId: !Ref ShoppingHttpApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt ShoppingFunction.Arn
+      PayloadFormatVersion: '2.0'
+      TimeoutInMillis: 29000
+
+  ShoppingRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Condition: ExposeRoute
+    Properties:
+      ApiId: !Ref ShoppingHttpApi
+      AuthorizationType: NONE
+      RouteKey: 'ANY /v1/{proxy+}'
+      Target: !Sub 'integrations/${ShoppingIntegration}'
+
+  AllowShoppingApiInvoke:
+    Type: AWS::Lambda::Permission
+    Condition: ExposeRoute
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref ShoppingFunction
+      Principal: apigateway.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+      SourceArn: !Sub 'arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${ShoppingHttpApi}/$default/*/v1/*'
+
+Outputs:
+  ApiOrigin:
+    Description: HTTPS origin for the Android Field build after approval and route activation.
+    Value: !GetAtt ShoppingHttpApi.ApiEndpoint
