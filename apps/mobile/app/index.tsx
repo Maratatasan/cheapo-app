@@ -56,6 +56,7 @@ export default function Index() {
             onChooseShop={shops && !readError ? () => setChoosing(true) : undefined}
             onScan={() => router.push(Platform.OS === "web" ? "/scan" : { pathname: "/scan", params: { mode: "lookup" } })}
             onFindBarcode={Platform.OS === "web" ? undefined : () => router.push("/find-product")}
+            onAddProduct={shopping || showCheapoAccess ? () => router.push("/add-product") : undefined}
             onOpenSaved={() => router.push("/saved-products")}
             onOpenPending={shopping ? () => router.push("/pending-sync") : undefined}
             onExploreSamples={() => router.push("/results")}

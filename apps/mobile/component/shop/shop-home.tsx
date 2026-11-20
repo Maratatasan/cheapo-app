@@ -8,13 +8,14 @@ type ShopHomeProps = {
   onChooseShop?: () => void;
   onScan: () => void;
   onFindBarcode?: () => void;
+  onAddProduct?: () => void;
   onOpenSaved?: () => void;
   onOpenPending?: () => void;
   onExploreSamples?: () => void;
   onOpenStorage?: () => void;
 };
 
-export function ShopHome({ currentShop, onChooseShop, onScan, onFindBarcode, onOpenSaved, onOpenPending, onExploreSamples, onOpenStorage }: ShopHomeProps) {
+export function ShopHome({ currentShop, onChooseShop, onScan, onFindBarcode, onAddProduct, onOpenSaved, onOpenPending, onExploreSamples, onOpenStorage }: ShopHomeProps) {
   const shopLabel = currentShop ? shopDisplayName(currentShop) : undefined;
 
   return (
@@ -35,6 +36,11 @@ export function ShopHome({ currentShop, onChooseShop, onScan, onFindBarcode, onO
       {onFindBarcode ? (
         <Pressable accessibilityRole="button" onPress={onFindBarcode} style={[ui.button, styles.secondary, styles.lookup]}>
           <Text style={styles.action}>Find product by barcode</Text>
+        </Pressable>
+      ) : null}
+      {onAddProduct ? (
+        <Pressable accessibilityRole="button" onPress={onAddProduct} style={[ui.button, styles.secondary, styles.lookup]}>
+          <Text style={styles.action}>Add product</Text>
         </Pressable>
       ) : null}
       {onOpenSaved ? (
