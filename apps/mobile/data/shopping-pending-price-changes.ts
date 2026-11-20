@@ -1,3 +1,5 @@
+import { priceHistoryDetail, type PriceObservationDetail } from '@cheapo/domain/price-history';
+
 import type { PriceAppendQueue } from './price-append-queue';
 import type { QueuedShoppingMutation, ShoppingMutationQueue } from './shopping-mutation-queue';
 import type { ShoppingMutation } from './shopping-mutations';
@@ -8,9 +10,8 @@ export type PendingPriceChange = {
   title: string;
   sourceId?: string;
   resourceId?: string;
-  change: PriceAction['change'];
-} & ({ state: 'waiting' | 'failed' | 'conflict' | 'recovery' }
-  | { state: 'acknowledged'; acceptedVersion: number });
+} & ({ state: 'waiting' | 'failed' | 'conflict' | 'recovery'; change: PriceAction['change'] }
+  | { state: 'acknowledged'; acceptedVersion: number; change: PriceAction['change'] | { action: 'keep_cloud'; observation: PriceObservationDetail } });
 
 export function priceChangeIsNewerThan(change: PendingPriceChange, observedVersion: number | undefined) {
   return change.state !== 'acknowledged' || observedVersion === undefined || observedVersion < change.acceptedVersion;
@@ -51,7 +52,7 @@ export async function readPriceChangeOverlay(prices: PriceAppendQueue, mutations
   for (const entry of entries) {
     const { intent, outcome, resolution, superseded, failure } = entry;
     const { action, operationId, title } = intent;
-    if (action.kind !== 'price' || resolution || superseded) continue;
+    if (action.kind !== 'price' || resolution?.kind === 'keep-phone' || superseded) continue;
     const existingId = existingPriceId(entry, index);
     const localReceipt = records.get(action.priceKey);
     const provenLocal = records.has(action.priceKey) && (!existingId || localReceipt?.id === existingId);
@@ -60,6 +61,16 @@ export async function readPriceChangeOverlay(prices: PriceAppendQueue, mutations
     if (!sourceId && !resourceId) continue;
     const change = { operationId, title, sourceId, resourceId, change: action.change };
     const order = originalEdit(entry, index);
+    if (resolution?.kind === 'keep-cloud') {
+      if (outcome?.kind !== 'conflict' || unreadable.has(operationId)) continue;
+      const checked = priceHistoryDetail.safeParse({ observation: outcome.current });
+      const observation = checked.success ? checked.data.observation : undefined;
+      if (observation && observation.id === resourceId && observation.version === outcome.currentVersion) {
+        pending.push({ order, choice: { ...change, state: 'acknowledged', acceptedVersion: observation.version,
+          change: { action: 'keep_cloud', observation } } });
+      }
+      continue;
+    }
     if (outcome?.kind === 'applied') {
       if (typeof outcome.receipt.version === 'number') {
         pending.push({ choice: { ...change, state: 'acknowledged', acceptedVersion: outcome.receipt.version }, order });

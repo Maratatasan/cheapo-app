@@ -122,6 +122,10 @@ function PendingShopping({ shopping }: { shopping: CheapoShoppingRuntime }) {
           const item = items?.find(change => change.id === id);
           if (item?.state === 'needs-shop') setChooseFor(item.sourceId);
         }}
+        onReviewConflict={id => {
+          const item = items?.find(change => change.id === id);
+          if (item?.state === 'conflict') router.push({ pathname: '/shopping-conflict', params: { id: item.operationId } });
+        }}
         onBack={() => router.dismissTo('/')} bottomInset={bottom} />}
   </>;
 }

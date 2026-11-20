@@ -48,6 +48,16 @@ export async function readEnrolledPriceEdit(
       : localId !== undefined && candidate.sourceId === localId;
     if (!matches || !priceChangeIsNewerThan(candidate, observedVersion)) continue;
     const { change } = candidate;
+    if (change.action === 'keep_cloud') {
+      const cloud = change.observation;
+      const chosen = recordFromObservation(cloud);
+      review = chosen.review;
+      productId = chosen.productId;
+      shop = chosen.shop;
+      errorReason = cloud.recordedInErrorReason;
+      base = { kind: 'version', id: cloud.id, version: cloud.version };
+      continue;
+    }
     if (candidate.state !== 'recovery') base = { kind: 'operation', operationId: candidate.operationId };
     if (change.action === 'record_in_error') errorReason = change.reason;
     if (change.action === 'undo_recorded_in_error') errorReason = undefined;

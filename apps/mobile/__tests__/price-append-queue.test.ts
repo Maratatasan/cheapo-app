@@ -543,6 +543,34 @@ it('guards a price correction across enrollment changes and keeps a completed lo
   expect(openShoppingWriteSession).not.toHaveBeenCalled();
 });
 
+it('retains the reviewed cloud snapshot offline after keep cloud and hides later superseded corrections', async () => {
+  const runtime = (await openCheapoShopping({ lastVerifiedOwner: async () => owner, openShoppingWriteSession: jest.fn() }))!;
+  await runtime.priceRecords.saveManual(record);
+  await runtime.priceQueue.acknowledge(record.id, receipt);
+  const base = { kind: 'version', id: receipt.id, version: receipt.version } as const;
+  const change = { action: 'correct', review: { productName: 'Rice', price: '1.80', currency: 'GBP' } } as const;
+  await runtime.commitMutation({ operationId: 'choose-cloud', title: 'First edit', createdAt: operationTime,
+    action: { kind: 'price', priceKey: record.id, base, change } });
+  await runtime.commitMutation({ operationId: 'later-edited', title: 'Later edit', createdAt: operationTime,
+    action: { kind: 'price', priceKey: record.id, base: { kind: 'operation', operationId: 'choose-cloud' }, change } });
+  await runtime.mutationQueue.freeze('choose-cloud');
+  const cloud = { id: receipt.id, sourceId: record.id, version: 2, ownedByCurrentShopper: true,
+    capturedAt: '2026-11-19T12:00:00.000000Z', productId: null, sourceProductId: null,
+    productName: 'Cloud rice', shopId: shop.id, sourceShopId: null, shopDisplayName: shop.displayName,
+    priceAmount: '1.95', currency: 'GBP', review: null, unitPrice: null, photos: [], cropBox: null, selectedPhotoRole: null };
+  await runtime.mutationQueue.settle('choose-cloud', { kind: 'conflict', currentVersion: 2, current: cloud });
+  await runtime.resolveConflict('choose-cloud', { kind: 'keep-cloud', laterIds: ['later-edited'] });
+  const projected = await runtime.loadPriceChanges();
+  expect(projected).toEqual([{ operationId: 'choose-cloud', title: 'First edit', sourceId: record.id, resourceId: receipt.id,
+    state: 'acknowledged', acceptedVersion: 2, change: { action: 'keep_cloud', observation: cloud } }]);
+  expect(priceChangeIsNewerThan(projected[0], 1)).toBe(true);
+  expect(priceChangeIsNewerThan(projected[0], 2)).toBe(false);
+  expect(await runtime.priceRecords.load(record.id)).toEqual(record);
+  expect((await runtime.mutationQueue.read()).entries).toEqual(expect.arrayContaining([
+    expect.objectContaining({ intent: expect.objectContaining({ operationId: 'later-edited' }), superseded: true }),
+  ]));
+});
+
 it('holds mismatched conflict replies and preserves the full valid version for the requested record', async () => {
   const unrelatedPrice = 'a9208dad-5a8e-4966-812c-879a550706c2';
   const version = '2:fa91641f-d265-4a3b-9695-4ff553ab5138';
