@@ -1,3 +1,4 @@
+import { comparisonGroupId, type ComparisonAttributeValues } from '@cheapo/domain/price-history';
 import { z } from 'zod';
 
 import { json, unauthorized } from './api-http.ts';
@@ -14,7 +15,7 @@ const queryKeys = new Set(['limit', 'cursor', 'productId', 'sourceId', 'comparab
 const filterId = z.string().regex(/^[^\s\0]{1,128}$/);
 const historyFilters = z.object({
   productId: filterId.nullable(),
-  comparableGroupId: filterId.nullable(),
+  comparableGroupId: comparisonGroupId.nullable(),
   productType: z.string().trim().min(1).max(120).refine(value => !value.includes('\0')).nullable(),
   currency: z.string().regex(/^[A-Z]{3}$/).nullable(),
 });
@@ -33,6 +34,8 @@ export type PriceObservation = {
   capturedAt: string;
   productId: string | null;
   sourceProductId: string | null;
+  comparableGroupId?: string;
+  comparisonAttributes?: ComparisonAttributeValues;
   productName: string | null;
   shopId: string | null;
   sourceShopId: string | null;

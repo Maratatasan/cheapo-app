@@ -11,6 +11,13 @@ const photos = z.array(z.object({
 })).max(2).refine(items => new Set(items.map(item => item.role)).size === items.length);
 
 export const priceObservationId = z.uuid();
+export const comparisonGroupId = z.string().regex(/^[^\s\0]{1,128}$/);
+export const comparisonAttributeValues = z.record(
+  z.string().regex(/^[a-z][a-z0-9-]*$/),
+  z.union([z.string().trim().min(1), z.number(), z.boolean()]),
+);
+export type ComparisonAttributeValues = z.infer<typeof comparisonAttributeValues>;
+
 const priceObservation = z.object({
   id: priceObservationId,
   sourceId: z.string().min(1),
@@ -19,6 +26,8 @@ const priceObservation = z.object({
   capturedAt: z.iso.datetime({ precision: 6 }),
   productId: z.string().nullable(),
   sourceProductId: z.string().nullable(),
+  comparableGroupId: comparisonGroupId.optional(),
+  comparisonAttributes: comparisonAttributeValues.optional(),
   productName: z.string().nullable(),
   shopId: z.string().nullable(),
   sourceShopId: z.string().nullable(),
@@ -66,7 +75,7 @@ export const priceHistoryQuery = z.strictObject({
   cursor: cursor.optional(),
   productId: filterId.optional(),
   sourceId: filterId.optional(),
-  comparableGroupId: filterId.optional(),
+  comparableGroupId: comparisonGroupId.optional(),
   productType: z.string().trim().min(1).max(120).refine(value => !value.includes('\0')).optional(),
   currency: z.string().regex(/^[A-Z]{3}$/).optional(),
   includeRecordedInError: z.literal(true).optional(),

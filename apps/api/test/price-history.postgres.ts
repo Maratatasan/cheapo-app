@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { once } from 'node:events';
 import { after, before, test } from 'node:test';
+import { priceHistoryPage } from '@cheapo/domain/price-history';
 import { Pool } from 'pg';
 
 import { createLocalApi } from '../local-api.ts';
@@ -406,4 +407,56 @@ test('records an error with a reason, preserves direct evidence, and allows a ve
   await pool.query('UPDATE cheapo.shopper_credential SET revoked_at = statement_timestamp() WHERE token_digest = $1',
     [createHash('sha256').update(token('I')).digest('hex')]);
   assert.equal((await request('I', route, 'PATCH', undo)).status, 401);
+});
+
+test('reads a reviewed comparison group for unlinked history and respects a linked product’s explicit group', async () => {
+  const group = 'fixture-rice-group';
+  const unrelated = 'fixture-unrelated-group';
+  await pool.query(`INSERT INTO cheapo.product (id, name, product_type, comparable_group_id)
+    VALUES ('fixture-group-linked', 'Linked fixture', 'A different recorded type', $1),
+           ('fixture-group-other', 'Other group fixture', 'Old rice label', $2)`, [group, unrelated]);
+  const fixtures = [
+    ['group-legacy', household, shopper, null, group, { size: 'sample', count: 6, organic: false }],
+    ['group-linked', household, otherShopper, 'fixture-group-linked', group, { preparation: 'dry' }],
+    ['group-different', household, shopper, 'fixture-group-other', group, { preparation: 'invalid for resolved group' }],
+    ['group-unassigned', household, shopper, null, null, null],
+    ['group-other-household', otherHousehold, visitor, null, group, { preparation: 'outside' }],
+  ] as const;
+  for (const [id, home, owner, productId, assignment, attributes] of fixtures) {
+    await pool.query(`INSERT INTO cheapo.price_observation
+      (household_id, shopper_id, id, product_id, source_product_name, captured_at, status, price_amount, currency, review)
+      VALUES ($1, $2, $3, $4, 'A saved label', $5, 'complete', '2.40', 'GBP', '{"productType":"Old rice label"}')`,
+    [home, owner, id, productId, capturedAt]);
+    if (assignment) await pool.query(`INSERT INTO cheapo.price_observation_group
+      (household_id, shopper_id, observation_id, comparable_group_id, attributes) VALUES ($1, $2, $3, $4, $5)`,
+    [home, owner, id, assignment, attributes]);
+  }
+
+  const read = async (params: Record<string, string>, member = 'H') => {
+    const response = await request(member, `?${new URLSearchParams(params)}`);
+    assert.equal(response.status, 200);
+    return priceHistoryPage.parse(await response.json()).observations;
+  };
+  const rows = await read({ comparableGroupId: group, currency: 'GBP' });
+  assert.deepEqual(rows.map(row => row.sourceId).sort(), ['group-legacy', 'group-linked']);
+  const legacy = rows.find(row => row.sourceId === 'group-legacy');
+  assert(legacy);
+  assert.equal(legacy.productId, null);
+  assert.equal(legacy.comparableGroupId, group);
+  assert.deepEqual(legacy.comparisonAttributes, { size: 'sample', count: 6, organic: false });
+  assert.equal(legacy.review?.productType, 'Old rice label');
+  assert.equal(legacy.capturedAt, capturedAt);
+  assert.equal(legacy.priceAmount, '2.40');
+  const detail = await request('H', `/${legacy.id}`);
+  assert.equal(detail.status, 200);
+  assert.deepEqual((await detail.json() as { observation: PriceObservation }).observation.comparisonAttributes, legacy.comparisonAttributes);
+  assert.equal((await request('J', `/${legacy.id}`)).status, 404);
+
+  const matching = await read({ comparableGroupId: group, productType: 'Old rice label', currency: 'GBP' });
+  assert.deepEqual(matching.map(row => row.sourceId).sort(), ['group-legacy', 'group-linked', 'group-unassigned']);
+  const [different] = await read({ productId: 'fixture-group-other' });
+  assert.equal(different.comparableGroupId, unrelated);
+  assert.equal(different.comparisonAttributes, undefined);
+  assert.deepEqual(await read({ comparableGroupId: group, currency: 'EUR' }), []);
+  assert.deepEqual((await read({ comparableGroupId: group }, 'J')).map(row => row.sourceId), ['group-other-household']);
 });

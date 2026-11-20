@@ -269,9 +269,14 @@ when present and the selected photo role. A crop is selected when present.
 Both the original and crop remain separate evidence references.
 
 Use `productId` for exact product history. For comparisons, filter with
-`comparableGroupId` and optionally include `productType` to match legacy
-observations without a canonical group. A `productType` filter on its own
-uses the reviewed category with the catalog category as a fallback.
+`comparableGroupId` to read resolved group membership. The linked Product’s
+explicit group takes precedence over a reviewed observation assignment. A
+reviewed assignment can group older records without an exact Product link.
+List and detail responses expose `comparableGroupId` and reviewed
+`comparisonAttributes` when present. The optional `productType` filter keeps
+the legacy free-text fallback for rows without a group when used together
+with `comparableGroupId`. A `productType` filter on its own uses the reviewed
+category with the catalog category as a fallback.
 `currency` can narrow a page to one currency. Keep the same filters while
 following the returned cursor.
 

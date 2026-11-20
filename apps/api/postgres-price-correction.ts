@@ -54,7 +54,7 @@ export function postgresPriceCorrection(transaction: ShoppingTransaction): Execu
       ? { status: 'ok', observation: { ...replay.observation, ownedByCurrentShopper: replay.ownedByCurrentShopper } }
       : { status: 'operation_conflict' };
 
-    const before = await readObservationDetail(query, member, id, true);
+    const before = await readObservationDetail(query, member, id, { lock: true });
     if (!before) return { status: 'not_found' };
     if (before.version !== action.expectedVersion) return { status: 'version_conflict', current: before };
 
