@@ -156,3 +156,30 @@ test('uses only the selected country hint and rechecks a new product if accepted
   await fireEvent.press(screen.getByRole('button', { name: 'Check product' }));
   expect(lookup.findCandidates).toHaveBeenLastCalledWith(expect.objectContaining({ packSize: '500 g' }), expect.any(AbortSignal));
 });
+
+test.each([
+  { canonical: undefined, manual: undefined, expected: '500 g' },
+  { canonical: 750, manual: undefined, expected: '750 g' },
+  { canonical: undefined, manual: '600 g', expected: '600 g' },
+])('uses accepted AI pack data only when canonical and manual pack details are absent (%j)', async ({ canonical, manual, expected }) => {
+  mockProviderEnabled = true;
+  const product = { ...oats, ...(canonical ? { pack: { quantity: canonical, unit: 'g' } } : {}) };
+  const asset = { uri: 'file:///label.jpg', width: 400, height: 300, mimeType: 'image/jpeg' } as const;
+  const lookup = { findByBarcode: jest.fn(async () => product), findCandidates: jest.fn() };
+  const onSubmit = jest.fn(async () => 'queued' as const);
+  jest.mocked(requestPhotoDraft).mockResolvedValue({ product: 'Other oats', price: 2.50, packSize: '500 g',
+    currency: 'GBP', uncertainty: '', unit_price: null });
+  await render(<AddProductPriceReview {...controls} shop={shop} lookup={lookup} onSubmit={onSubmit}
+    initialBarcode={exactCode} photo={{ id: 'source', capturedAt: '2026-11-20T12:00:00Z', original: asset, selected: asset }} />);
+  await fireEvent.press(screen.getByRole('button', { name: 'Check product' }));
+  await fireEvent.press(await screen.findByRole('button', { name: `Use ${oats.name}` }));
+  if (manual) await fireEvent.changeText(screen.getByLabelText('Pack size'), manual);
+  await fireEvent.press(screen.getByRole('button', { name: 'Analyse photo' }));
+  await fireEvent.press(await screen.findByRole('button', { name: 'Use suggested details' }));
+
+  expect(screen.getByLabelText('Pack size')).toHaveDisplayValue(expected);
+  expect(onSubmit).not.toHaveBeenCalled();
+  await fireEvent.press(screen.getByRole('button', { name: 'Confirm current price' }));
+  expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ choice: { kind: 'reuse', product },
+    review: expect.objectContaining({ productName: oats.name, packSize: expected, price: '2.5' }) }));
+});

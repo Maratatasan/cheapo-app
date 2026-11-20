@@ -186,7 +186,8 @@ export function AddProductPriceReview({ shop, shopCountry, initialReview, initia
   if (choice) return <DirectPhotoAnalysis key={photo.selected.uri} photo={photo.selected} photoText={photoText}
     shopCountry={shopCountry} noPriceFound={shelfEvidence?.kind === 'no-price'} busy={disabled}
     onApply={draft => {
-      const next = applyPhotoSuggestion(review, known ? { ...draft, packSize: null } : draft, edited.current, true);
+      const keepPack = Boolean(packSize || edited.current.has('packSize'));
+      const next = applyPhotoSuggestion(review, keepPack ? { ...draft, packSize: null } : draft, edited.current, true);
       if (!known && next.packSize !== review.packSize) resetIdentity();
       setReview(next);
     }}>
