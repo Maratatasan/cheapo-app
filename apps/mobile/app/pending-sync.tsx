@@ -6,11 +6,12 @@ import type { Shop } from '@cheapo/domain';
 import { shopDisplayName } from '@cheapo/domain/names';
 
 import { useCheapoShopping } from '@/component/cheapo-shopping-provider';
-import { PendingSync } from '@/component/pending-sync';
+import { PendingSync, type PendingSyncItem } from '@/component/pending-sync';
 import { ui } from '@/component/results/theme';
 import { ShopLoadFeedback } from '@/component/shop/shop-chooser';
 import { ShopPicker } from '@/component/shop/shop-picker';
 import type { CheapoShoppingRuntime, PendingShoppingChange } from '@/data/shopping-sync-runtime';
+import { usePendingProductPriceChecks, type PendingProductPriceCheck } from '@/hooks/use-pending-product-price-checks';
 import { useSavedShops } from '@/hooks/use-saved-shops';
 
 export default function PendingSyncRoute() {
@@ -31,6 +32,7 @@ function PendingShopping({ shopping }: { shopping: CheapoShoppingRuntime }) {
   const [chooseFor, setChooseFor] = useState<string>();
   const [confirming, setConfirming] = useState(false);
   const [shopError, setShopError] = useState(false);
+  const productDrafts = usePendingProductPriceChecks(shopping);
   const active = useRef<AbortController | null>(null);
   const readRevision = useRef(0);
   const processing = useRef(false);
@@ -111,13 +113,17 @@ function PendingShopping({ shopping }: { shopping: CheapoShoppingRuntime }) {
     }
   }
 
+  const productRows = productDrafts.checks.status === 'ready' ? productDrafts.checks.rows : [];
+  const displayed = items && [...items, ...productRows.map(productDraftItem)];
+
   return <>
     <Stack.Screen options={{ title: 'Pending sync' }} />
     {chooseFor ? <ChoosePriceShop busy={confirming} failed={shopError} onSelect={confirm}
       onCancel={() => { setChooseFor(undefined); setShopError(false); }} />
-      : <PendingSync snapshot={unavailable ? { state: 'unavailable' } : items ? { state: 'ready', items } : { state: 'loading' }}
+      : <PendingSync snapshot={unavailable || productDrafts.checks.status === 'unavailable' ? { state: 'unavailable' }
+        : displayed && productDrafts.checks.status === 'ready' ? { state: 'ready', items: displayed } : { state: 'loading' }}
         retrying={retrying} syncProblem={syncProblem} onRetry={retry}
-        onReload={() => { if (active.current) void refresh(active.current.signal); }}
+        onReload={() => { if (active.current) void refresh(active.current.signal); productDrafts.reload(); }}
         onChooseShop={id => {
           const item = items?.find(change => change.id === id);
           if (item?.state === 'needs-shop') setChooseFor(item.sourceId);
@@ -128,8 +134,21 @@ function PendingShopping({ shopping }: { shopping: CheapoShoppingRuntime }) {
             router.push({ pathname: '/shopping-conflict', params: { id: item.operationId } });
           }
         }}
+        onReviewDraft={id => {
+          const row = productRows.find(({ draft }) => `product-draft:${draft.record.id}` === id);
+          if (row) router.push({ pathname: '/product-price-draft/[id]', params: { id: row.draft.record.id } });
+        }}
         onBack={() => router.dismissTo('/')} bottomInset={bottom} />}
   </>;
+}
+
+function productDraftItem({ draft, check }: PendingProductPriceCheck): PendingSyncItem {
+  const detail = !check ? 'Checking product…' : check.kind === 'unavailable' ? 'Catalog unavailable · Needs review'
+    : check.kind === 'checked' && check.exact ? 'Product already exists · Needs review'
+      : check.kind === 'checked' && check.candidates.length ? 'Possible matches · Needs review'
+        : 'Needs review';
+  return { id: `product-draft:${draft.record.id}`, title: draft.record.review?.productName ?? 'Product and price draft',
+    state: 'product-price-draft', detail };
 }
 
 function ChoosePriceShop({ busy, failed, onSelect, onCancel }: {

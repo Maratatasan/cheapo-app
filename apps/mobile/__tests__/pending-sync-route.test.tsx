@@ -9,7 +9,15 @@ const mockConfirmShop = jest.fn();
 const mockDismiss = jest.fn();
 const mockPush = jest.fn();
 const mockSubscribe = jest.fn();
+const mockPendingDrafts = jest.fn();
+const mockFindByBarcode = jest.fn();
+const mockLookup = { findByBarcode: mockFindByBarcode, findCandidates: jest.fn() };
 const held: PendingShoppingChange = { id: 'price:rice', sourceId: 'rice', title: 'Brown rice', state: 'needs-shop' };
+const mockShopping = {
+  owner: { origin: 'https://shopping.example', householdId: 'owner-home', shopperId: 'owner-phone' },
+  readPending: mockReadPending, retry: mockRetry, confirmPriceShop: mockConfirmShop, subscribeSync: mockSubscribe,
+  productPrices: { pendingDrafts: mockPendingDrafts },
+};
 
 jest.mock('expo-router', () => ({
   Redirect: () => null, Stack: { Screen: () => null }, usePreventRemove: jest.fn(),
@@ -17,10 +25,8 @@ jest.mock('expo-router', () => ({
   useFocusEffect: (effect: () => void) => jest.requireActual('react').useEffect(effect, [effect]),
 }));
 jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ bottom: 0 }) }));
-jest.mock('@/component/cheapo-shopping-provider', () => ({ useCheapoShopping: () => ({
-  owner: { origin: 'https://shopping.example', householdId: 'owner-home', shopperId: 'owner-phone' },
-  readPending: mockReadPending, retry: mockRetry, confirmPriceShop: mockConfirmShop, subscribeSync: mockSubscribe,
-}) }));
+jest.mock('@/component/cheapo-shopping-provider', () => ({ useCheapoShopping: () => mockShopping }));
+jest.mock('@/hooks/use-add-product-lookup', () => ({ useAddProductLookup: () => mockLookup }));
 jest.mock('@/hooks/use-saved-shops', () => ({ useSavedShops: () => ({
   shops: { shops: [{ id: 'shop-42', name: 'Example Market', nickname: 'Weekly shop' }],
     currentShop: { id: 'different-shop', name: 'Default store' } },
@@ -31,6 +37,7 @@ beforeEach(() => {
   mockConfirmShop.mockResolvedValue(undefined);
   mockSubscribe.mockReturnValue(() => {});
   mockReadPending.mockResolvedValue([held]);
+  mockPendingDrafts.mockResolvedValue([]);
   mockRetry.mockResolvedValue({ state: 'complete', items: [] });
 });
 
@@ -38,8 +45,23 @@ it('updates the visible queue when an automatic sync finishes', async () => {
   mockReadPending.mockResolvedValue([{ id: 'price:rice', sourceId: 'rice', title: 'Brown rice', state: 'waiting' }]);
   await render(<PendingSyncRoute />);
   expect(await screen.findByText('Saved on this phone · Waiting to sync')).toBeOnTheScreen();
-  await act(() => mockSubscribe.mock.calls[0][0]({ state: 'complete', items: [] }));
+  await act(() => { mockSubscribe.mock.calls.forEach(([listener]) => listener({ state: 'complete', items: [] })); });
   expect(screen.getByText('No changes waiting to sync.')).toBeOnTheScreen();
+  expect(mockRetry).not.toHaveBeenCalled();
+});
+
+it('rechecks an offline draft after sync reconnects and keeps a found product for explicit review', async () => {
+  const barcode = '00036000291452';
+  mockReadPending.mockResolvedValue([]);
+  mockPendingDrafts.mockResolvedValue([{ barcode, record: { id: 'draft-oats', review: { productName: 'Sample oats' } } }]);
+  mockFindByBarcode.mockRejectedValueOnce(Error('Offline')).mockResolvedValue({ id: 'oats', name: 'Market oats', barcode });
+  await render(<PendingSyncRoute />);
+  expect(await screen.findByText('Catalog unavailable · Needs review')).toBeOnTheScreen();
+  await act(async () => { mockSubscribe.mock.calls.forEach(([listener]) => listener({ state: 'complete', items: [] })); });
+  expect(await screen.findByText('Product already exists · Needs review')).toBeOnTheScreen();
+  await fireEvent.press(screen.getByRole('button', { name: 'Review product draft for Sample oats' }));
+  expect(mockPush).toHaveBeenCalledWith({ pathname: '/product-price-draft/[id]', params: { id: 'draft-oats' } });
+  expect(mockLookup.findCandidates).not.toHaveBeenCalled();
   expect(mockRetry).not.toHaveBeenCalled();
 });
 
