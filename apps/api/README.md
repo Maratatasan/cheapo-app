@@ -46,13 +46,22 @@ package measures to decide which choices it offers.
 | GET | No body | `200 {"basis":"wash"}` or `200 {"basis":null}` |
 | PUT | `Content-Type: application/json` and `{"basis":"wash"}` | `200 {"basis":"wash"}` |
 | DELETE | No body | `200 {"basis":null}` |
+| PATCH | `{"operationId":"edit-42","expectedVersion":1,"basis":"wash"}` | `200 {"basis":"wash","version":2}` |
 
-The client uses the shared group default when the basis is `null`. Replacement
-and clearing are idempotent. For different choices written concurrently for
-one shopper and group, the last committed mutation wins. The client should
-serialize edits for that group. Malformed requests get `400`, missing or
-invalid credentials get `401`, and a valid credential with revoked household
-membership gets `403`. Retry a `503` when the service is reachable.
+The client uses the shared group default when the basis is `null`. Each
+read includes a version ETag such as `"0"` for a group the shopper has never
+set. Enrolled phones send that version as `expectedVersion` on PATCH. To clear
+the choice, send `basis: null`. Clearing retains the new version, including
+when an earlier caller uses DELETE. An identical operation replays its
+original result. A stale operation returns `409 version_conflict` with
+`currentVersion` and `current: { basis }`. Changing an existing operation ID's
+input returns `409 operation_conflict`.
+
+Existing GET, PUT and DELETE bodies retain their shape. Legacy writers advance
+the version when the choice changes. For concurrent legacy changes to one
+shopper and group, the last committed change wins. Malformed requests get
+`400`, missing or invalid credentials get `401`, and a valid credential with
+revoked membership gets `403`.
 
 The credential format is `cheapo_` followed by 32 random bytes encoded as
 base64url. The database keeps its SHA-256 digest, expiration and revocation

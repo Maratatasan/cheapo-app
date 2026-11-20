@@ -39,7 +39,7 @@ function localTransaction(pool: Pool): ShoppingTransaction {
 export function createShoppingApi({ query, transaction }: {
   query: ShoppingQuery; transaction: ShoppingTransaction;
 }, evidence: EvidenceStorage = {}) {
-  const preferences = createPreferencesHandler(postgresPreferences({ query }));
+  const preferences = createPreferencesHandler(postgresPreferences({ query, transaction }));
   const shops = createSavedShopHandler(postgresSavedShops(transaction));
   const catalog = createCatalogHandler(postgresCatalog(transaction));
   const prices = createPriceHistoryHandler(

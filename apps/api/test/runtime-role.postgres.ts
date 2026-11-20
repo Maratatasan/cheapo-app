@@ -211,3 +211,22 @@ test('restricted shop corrections preserve private prior names and immutable aud
     await assert.rejects(runtime.query(sql), { code: '42501' });
   }
 });
+
+test('restricted preference corrections are personal and keep immutable revisions after clearing', async () => {
+  const path = '/v1/me/comparison-preferences/scoped-versioned-basis';
+  const operation = { operationId: 'runtime-basis-v1', expectedVersion: 0, basis: '100g' };
+  const saved = await request(path, 'A', 'PATCH', operation);
+  assert.equal(saved.status, 200);
+  assert.deepEqual(await saved.json(), { basis: '100g', version: 1 });
+  assert.deepEqual(await (await request(path, 'B')).json(), { basis: null });
+  assert.equal((await request(path, 'A', 'DELETE')).status, 200);
+  assert.equal((await request(path, 'A')).headers.get('ETag'), '"2"');
+  for (const sql of [
+    'DELETE FROM cheapo.comparison_preference',
+    'SELECT before_basis FROM cheapo.comparison_preference_revision',
+    'UPDATE cheapo.comparison_preference_revision SET after_basis = NULL',
+    'DELETE FROM cheapo.comparison_preference_revision',
+  ]) {
+    await assert.rejects(runtime.query(sql), { code: '42501' });
+  }
+});
