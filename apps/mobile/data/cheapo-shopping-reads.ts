@@ -19,7 +19,7 @@ export type ShoppingRead<T> =
 type SavedShop = Shop & { testShop?: boolean };
 type SavedShopRead = { shops: SavedShop[]; currentShop?: SavedShop };
 export type EditableSavedShopRead = SavedShopRead & { versions: { shopId: string; version: string }[] };
-type ShopCandidate = Pick<Shop, "id" | "name" | "address" | "location">;
+export type ShopCandidate = Pick<Shop, "id" | "name" | "address" | "location">;
 type Decoder<T> = (raw: unknown, etag?: string | null) => T;
 const readDeadlineMs = 35_000;
 

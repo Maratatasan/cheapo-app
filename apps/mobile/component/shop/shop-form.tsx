@@ -15,6 +15,9 @@ export type ShopFormProps = {
   onRemove?: () => void;
   error?: string;
   isSubmitting?: boolean;
+  submitLabel?: string;
+  busyLabel?: string;
+  canCancelWhileBusy?: boolean;
   onChange: (values: ShopFormValues) => void;
   onSubmit: (values: ShopFormValues) => void;
   onCancel: () => void;
@@ -32,6 +35,9 @@ export function ShopForm({
   onRemove,
   error,
   isSubmitting = false,
+  submitLabel,
+  busyLabel,
+  canCancelWhileBusy = false,
   onChange,
   onSubmit,
   onCancel,
@@ -83,16 +89,16 @@ export function ShopForm({
         }}
         style={[ui.button, isSubmitting && styles.disabled]}
       >
-        <Text style={ui.buttonText}>{isSubmitting ? "Saving shop…" : editing ? "Save changes" : "Save shop"}</Text>
+        <Text style={ui.buttonText}>{isSubmitting ? busyLabel ?? "Saving shop…" : submitLabel ?? (editing ? "Save changes" : "Save shop")}</Text>
       </Pressable>
       <Pressable
         accessibilityRole="button"
-        disabled={isSubmitting}
+        disabled={isSubmitting && !canCancelWhileBusy}
         onPress={() => {
           Keyboard.dismiss();
           onCancel();
         }}
-        style={[ui.button, styles.cancel, isSubmitting && styles.disabled]}
+        style={[ui.button, styles.cancel, isSubmitting && !canCancelWhileBusy && styles.disabled]}
       >
         <Text style={styles.label}>Cancel</Text>
       </Pressable>

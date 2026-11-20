@@ -2,7 +2,7 @@ import { shopSchema, type Shop } from '@cheapo/domain';
 import { normalizeName, shopDisplayName } from '@cheapo/domain/names';
 import { randomUUID } from 'expo-crypto';
 
-import type { EditableSavedShopRead, ShoppingRead } from './cheapo-shopping-reads';
+import type { EditableSavedShopRead, ShopCandidate, ShoppingRead } from './cheapo-shopping-reads';
 import type { SavedShopState, ShopEditBase, ShopRepository } from './shop-repository';
 import type { QueuedShoppingMutation, ShoppingMutationQueue } from './shopping-mutation-queue';
 import { mutationResource, type ShoppingMutation } from './shopping-mutations';
@@ -13,6 +13,7 @@ const offline: Baseline = { state: { shops: [], sync: { status: 'unavailable' } 
 type Dependencies = {
   queue: Pick<ShoppingMutationQueue, 'read' | 'enqueue'>;
   loadHosted: (observedOperations: readonly string[]) => Promise<ShoppingRead<EditableSavedShopRead>>;
+  loadCandidates?: (query: string, signal?: AbortSignal) => Promise<ShoppingRead<ShopCandidate[]>>;
   assertCurrent: () => Promise<void>;
   sync: () => Promise<unknown>;
 };
@@ -185,6 +186,24 @@ export function createEnrolledSavedShops(dependencies: Dependencies): ShopReposi
   return {
     loadSavedShops() {
       return loading ??= readSavedShops().finally(() => { loading = undefined; });
+    },
+    async findShopCandidates(details, signal) {
+      await dependencies.assertCurrent();
+      const searches = [...new Set([normalizeName(details.address), normalizeName(details.name)])]
+        .filter((value): value is string => value !== undefined && value.length >= 2 && value.length <= 120 && !value.includes('\0'));
+      if (searches.length === 0) return { status: 'needs-details', shops: [] };
+      const read = dependencies.loadCandidates;
+      if (!read) return { status: 'unavailable', shops: [] };
+      const responses = await Promise.all(searches.map(query => read(query, signal)));
+      await dependencies.assertCurrent();
+      const matches = new Map<string, ShopCandidate>();
+      for (const result of responses) {
+        if (result.status !== 'unavailable') {
+          for (const shop of result.value) if (!matches.has(shop.id)) matches.set(shop.id, shop);
+        }
+      }
+      return { status: responses.some(result => result.status === 'unavailable') ? 'unavailable' : 'checked',
+        shops: [...matches.values()].slice(0, 20) };
     },
     saveShop(input, options) {
       return write(() => ({

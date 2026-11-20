@@ -210,3 +210,19 @@ test('marks an enrolled first read without a checked snapshot as unavailable', a
   const { repository } = fixture();
   expect(await repository.loadSavedShops()).toMatchObject({ shops: [], sync: { status: 'unavailable' } });
 });
+
+test('prioritizes address candidates, deduplicates stable IDs and suppresses results after owner changes', async () => {
+  const primary = { id: 'first', name: 'Market', address: '10 Market Road' };
+  const other = { id: 'second', name: 'Market', address: '11 High Street' };
+  const { args } = fixture();
+  const loadCandidates = jest.fn(async (query: string) => ({
+    status: 'fresh' as const, lastSyncedAt: at, value: query === 'Market Road' ? [primary] : [primary, other],
+  }));
+  const repository = createEnrolledSavedShops({ ...args, loadCandidates });
+  const query = { name: ' Market ', address: ' Market Road ', nickname: 'Keep this on the phone' };
+  const signal = new AbortController().signal;
+  expect(await repository.findShopCandidates?.(query, signal)).toEqual({ status: 'checked', shops: [primary, other] });
+  expect(loadCandidates.mock.calls).toEqual([['Market Road', signal], ['Market', signal]]);
+  args.assertCurrent.mockResolvedValueOnce(undefined).mockRejectedValueOnce(Error('Cheapo access changed.'));
+  await expect(repository.findShopCandidates?.(query, signal)).rejects.toThrow('access changed');
+});
