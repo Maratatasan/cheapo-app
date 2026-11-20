@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, renderHook, screen } from '@testing-library/react-native';
 import type { PriceObservationDetail } from '@cheapo/domain/price-history';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ShopRepositoryProvider } from '../component/shop/shop-repository-provider';
@@ -8,6 +8,7 @@ import SavedComparison from '../app/compare/[id]';
 import { emptyReview, loadSavedPriceRecords, type LocalPhotoDraft, type ManualPriceRecord } from '../data/local-photo';
 import { openCheapoSavedPriceReads } from '../data/cheapo-shopping-read-device';
 import type { PendingHistoryChange } from '../data/saved-price-history';
+import { useSavedPriceReads } from '../data/use-saved-price-reads';
 
 const mockPush = jest.fn();
 let mockFocusRevision = 0;
@@ -109,6 +110,31 @@ test('keeps the local list when a former owner’s shared detail resolves after 
   expect(await screen.findByRole('button', { name: 'Open Basmati rice' })).toBeOnTheScreen();
   expect(screen.queryByText('Peer rice')).not.toBeOnTheScreen();
   expect(session.loadPhoto).not.toHaveBeenCalled();
+});
+
+test('keeps a newer history refresh when an older page resolves under the same focus', async () => {
+  const queue = { owner, read: jest.fn().mockResolvedValue({ entries: [], recovery: [] }) };
+  type Page = ReturnType<typeof cached<{ observations: PriceObservationDetail[]; nextCursor: string | null }>>;
+  let resolveOlder!: (value: Page) => void;
+  let markOlderStarted!: () => void;
+  const olderStarted = new Promise<void>(resolve => { markOlderStarted = resolve; });
+  const latest = { ...shared, productName: 'Refreshed rice' };
+  const session = {
+    assertCurrent: jest.fn(), loadPriceObservation: jest.fn(), loadPhoto: jest.fn(),
+    loadPriceHistory: jest.fn().mockResolvedValueOnce(cached({ observations: [shared], nextCursor: 'older-page' }))
+      .mockImplementationOnce(() => new Promise<Page>(resolve => { resolveOlder = resolve; markOlderStarted(); }))
+      .mockResolvedValueOnce({ ...cached({ observations: [latest], nextCursor: null }), status: 'fresh' }),
+  };
+  jest.mocked(openCheapoSavedPriceReads).mockResolvedValue(session);
+  const { result } = await renderHook(() => useSavedPriceReads(queue));
+  const signal = new AbortController().signal;
+  await act(async () => { await result.current.refresh(signal); });
+  let older!: Promise<void>;
+  await act(async () => { older = result.current.refresh(signal, 'older-page'); await olderStarted; });
+  await act(async () => { await result.current.refresh(signal); });
+  expect(session.loadPriceHistory.mock.calls[1][1].aborted).toBe(true);
+  await act(async () => { resolveOlder(cached({ observations: [peer], nextCursor: 'still-older' })); await older; });
+  expect(result.current.history).toMatchObject({ status: 'fresh', observations: [latest], nextCursor: null });
 });
 
 test('reopens a saved product with its shop, price, and original photo', async () => {

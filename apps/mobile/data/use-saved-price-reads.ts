@@ -26,25 +26,32 @@ type Detail = { queue: SavedPriceQueueRead; id: string } & (
 export function useSavedPriceReads(queue: SavedPriceQueueRead | null, loadPriceChanges?: () => Promise<readonly PendingHistoryChange[]>) {
   const [historyState, setHistory] = useState<History>();
   const [detailState, setDetail] = useState<Detail>();
+  const historyWork = useRef<AbortController | null>(null);
   const detailWork = useRef<AbortController | null>(null);
   const history = historyState?.queue === queue ? historyState : undefined;
   const detail = detailState?.queue === queue ? detailState : undefined;
 
   const refresh = useCallback(async (signal: AbortSignal, cursor?: string) => {
-    if (!queue) return;
+    if (!queue || signal.aborted) return;
+    historyWork.current?.abort();
+    const controller = new AbortController();
+    historyWork.current = controller;
+    const cancel = () => controller.abort();
+    signal.addEventListener('abort', cancel, { once: true });
+    const latest = () => !signal.aborted && !controller.signal.aborted;
     const empty: History = { queue, entries: [], observations: [], changes: [], nextCursor: null, status: 'loading' };
-    setHistory(previous => previous?.queue === queue ? { ...previous, status: 'loading' } : empty);
+    setHistory(previous => !latest() ? previous : previous?.queue === queue ? { ...previous, status: 'loading' } : empty);
     try {
       const session = await openCheapoSavedPriceReads(queue.owner);
       const [{ entries }, changes] = await Promise.all([queue.read(), loadPriceChanges?.() ?? []]);
       session.assertCurrent();
-      if (signal.aborted) return;
-      setHistory(previous => previous?.queue === queue ? { ...previous, entries, changes } : previous);
-      const result = await session.loadPriceHistory({ includeRecordedInError: true, cursor }, signal);
+      if (!latest()) return;
+      setHistory(previous => latest() && previous?.queue === queue ? { ...previous, entries, changes } : previous);
+      const result = await session.loadPriceHistory({ includeRecordedInError: true, cursor }, controller.signal);
       session.assertCurrent();
-      if (signal.aborted) return;
+      if (!latest()) return;
       setHistory(previous => {
-        if (previous?.queue !== queue) return previous;
+        if (!latest() || previous?.queue !== queue) return previous;
         if (result.status === 'unavailable') {
           return cursor ? { ...previous, status: 'unavailable' } : { ...empty, entries, changes, status: 'unavailable' };
         }
@@ -52,12 +59,14 @@ export function useSavedPriceReads(queue: SavedPriceQueueRead | null, loadPriceC
         return { queue, entries, observations, changes, nextCursor: result.value.nextCursor, status: result.status, lastSyncedAt: result.lastSyncedAt };
       });
     } catch (error) {
-      if (signal.aborted) return;
-      setHistory(previous => previous?.queue === queue ? { ...empty, entries: previous.entries, changes: previous.changes, status: 'unavailable' } : previous);
+      if (!latest()) return;
+      setHistory(previous => latest() && previous?.queue === queue ? { ...empty, entries: previous.entries, changes: previous.changes, status: 'unavailable' } : previous);
       if (error instanceof CheapoAccessError) {
         detailWork.current?.abort();
-        setDetail(previous => previous?.queue === queue ? { queue, id: previous.id, status: 'unavailable' } : previous);
+        setDetail(previous => latest() && previous?.queue === queue ? { queue, id: previous.id, status: 'unavailable' } : previous);
       }
+    } finally {
+      signal.removeEventListener('abort', cancel);
     }
   }, [queue, loadPriceChanges]);
 
