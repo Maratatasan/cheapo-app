@@ -185,6 +185,11 @@ export function createShoppingSync(access: SyncAccess, priceQueue: PriceAppendQu
       await priceQueue.confirmShop(sourceId, shop);
       await assertOwner();
     },
+    async resolveConflict(operationId: string, choice: Parameters<ShoppingMutationQueue['resolve']>[1]) {
+      await assertOwner();
+      await mutationQueue.resolve(operationId, choice);
+      await assertOwner();
+    },
     readPending,
     loadPriceChanges,
     subscribeSync(listener: (snapshot: SyncSnapshot) => void) {

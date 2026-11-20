@@ -38,7 +38,7 @@ export default function EditSavedPrice() {
   const [error, setError] = useState<string>();
   const saving = useRef(false);
   const lifecycle = useRef<AbortController | null>(null);
-  usePreventRemove(linkSaving || busy);
+  usePreventRemove(linkSaving);
 
   useEffect(() => {
     const controller = new AbortController();
