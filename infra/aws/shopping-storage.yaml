@@ -29,12 +29,20 @@ Parameters:
   DatabaseSubnetBCidr:
     Type: String
     Description: Unused IPv4 range in the VPC for the private subnet in the secondary zone.
+  EnableDataApi:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['false', 'true']
+    Description: Enable the IAM-authorized Aurora Data API for the reviewed shopping service.
 
 Rules:
   DatabaseZones:
     Assertions:
       - Assert: !Not [!Equals [!Ref PrimaryAvailabilityZone, !Ref SecondaryAvailabilityZone]]
         AssertDescription: The database subnets must be in two distinct zones.
+
+Conditions:
+  DataApiEnabled: !Equals [!Ref EnableDataApi, 'true']
 
 Resources:
   DatabaseSubnetA:
@@ -118,7 +126,7 @@ Resources:
     Metadata:
       com.aws.cloudformation.Context:
         why: Stores Cheapo's PostgreSQL data while photo files live separately.
-        must: Keep private networking, encryption, backups and deletion protection.
+        must: Keep private networking, encryption, backups and deletion protection. Enable the Data API only by explicit opt-in.
     Properties:
       Engine: aurora-postgresql
       EngineMode: provisioned
@@ -127,7 +135,7 @@ Resources:
       DatabaseName: !Ref DatabaseName
       MasterUsername: !Ref DatabaseAdminUsername
       ManageMasterUserPassword: true
-      EnableHttpEndpoint: false
+      EnableHttpEndpoint: !If [DataApiEnabled, true, false]
       DBSubnetGroupName: !Ref DatabaseSubnets
       VpcSecurityGroupIds: [!GetAtt DatabaseSecurityGroup.GroupId]
       StorageType: aurora
