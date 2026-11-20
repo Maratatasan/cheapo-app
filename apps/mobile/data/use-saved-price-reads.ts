@@ -24,14 +24,18 @@ type Detail = { queue: SavedPriceQueueRead; id: string } & (
   { status: 'loading' | 'unavailable' } |
   { status: 'fresh' | 'cached'; lastSyncedAt?: string; observation: PriceObservationDetail; role: PriceEvidenceRole | null; photo?: EvidenceView; pending?: PendingPriceState }
 );
+type LoadedDetail = Extract<Detail, { observation: PriceObservationDetail }>;
+type SavedPriceReads = Awaited<ReturnType<typeof openCheapoSavedPriceReads>>;
 
 async function loadDisplayedPrice(
-  session: Awaited<ReturnType<typeof openCheapoSavedPriceReads>>,
+  session: SavedPriceReads,
   id: string,
   pendingChanges: readonly PendingHistoryChange[] | Promise<readonly PendingHistoryChange[]>,
   signal: AbortSignal,
+  cacheOnly = false,
 ) {
-  const [result, changes] = await Promise.all([session.loadPriceObservation(id, signal), pendingChanges]);
+  const load = cacheOnly ? session.cached.loadPriceObservation : session.loadPriceObservation;
+  const [result, changes] = await Promise.all([load(id, signal), pendingChanges]);
   session.assertCurrent();
   if (signal.aborted) return;
   const read = result.status === 'unavailable' ? undefined : result;
@@ -41,6 +45,18 @@ async function loadDisplayedPrice(
   if (!observed) return;
   return { ...projectSharedPrice(observed, changes), status: kept ? 'cached' as const : read?.status ?? 'cached',
     lastSyncedAt: read?.lastSyncedAt };
+}
+
+function hasReadyPhoto({ observation, role }: LoadedDetail) {
+  return !!role && viewedPricePhotoRoles(observation).some(photo => photo.role === role && photo.availability !== 'pending');
+}
+
+function samePhoto(first: LoadedDetail, second: LoadedDetail) {
+  const a = first.observation;
+  const b = second.observation;
+  return first.id === second.id && first.role === second.role && a.version === b.version && a.cropSource === b.cropSource
+    && a.cropBox?.left === b.cropBox?.left && a.cropBox?.top === b.cropBox?.top
+    && a.cropBox?.right === b.cropBox?.right && a.cropBox?.bottom === b.cropBox?.bottom;
 }
 
 export function useSavedPriceReads(queue: SavedPriceQueueRead | null, loadPriceChanges?: () => Promise<readonly PendingHistoryChange[]>) {
@@ -80,7 +96,17 @@ export function useSavedPriceReads(queue: SavedPriceQueueRead | null, loadPriceC
       session.assertCurrent();
       if (!latest()) return;
       setHistory(previous => latest() && previous?.queue === queue ? { ...previous, entries } : previous);
-      const result = await session.loadPriceHistory({ includeRecordedInError: true, cursor }, controller.signal);
+      const query = { includeRecordedInError: true as const, cursor };
+      if (!cursor) {
+        const saved = await session.cached.loadPriceHistory(query, controller.signal);
+        session.assertCurrent();
+        if (!latest()) return;
+        if (saved.status === 'cached') setHistory(previous => latest() && previous?.queue === queue ? {
+          queue, entries, changes, observations: saved.value.observations, nextCursor: saved.value.nextCursor,
+          status: saved.status, lastSyncedAt: saved.lastSyncedAt,
+        } : previous);
+      }
+      const result = await session.loadPriceHistory(query, controller.signal);
       session.assertCurrent();
       if (!latest()) return;
       setHistory(previous => {
@@ -108,7 +134,7 @@ export function useSavedPriceReads(queue: SavedPriceQueueRead | null, loadPriceC
     for (const controller of thumbnailWork.current) controller.abort();
   }, []);
 
-  const loadThumbnail = useCallback(async (id: string, changes: readonly PendingHistoryChange[], rowSignal: AbortSignal) => {
+  const loadThumbnail = useCallback(async (id: string, changes: readonly PendingHistoryChange[], rowSignal: AbortSignal, version?: number) => {
     if (!queue || rowSignal.aborted) return;
     const controller = new AbortController();
     const { signal } = controller;
@@ -118,6 +144,17 @@ export function useSavedPriceReads(queue: SavedPriceQueueRead | null, loadPriceC
     try {
       const session = await openCheapoSavedPriceReads(queue.owner);
       if (signal.aborted) return;
+      if (version !== undefined) {
+        const saved = await loadDisplayedPrice(session, id, changes, signal, true);
+        const observation = saved?.display;
+        const role = observation?.selectedPhotoRole;
+        if (observation?.version === version && role
+          && viewedPricePhotoRoles(observation).some(photo => photo.role === role && photo.availability !== 'pending')) {
+          const photo = await session.cached.loadSelectedPhoto(observation, role, signal);
+          session.assertCurrent();
+          if (!signal.aborted && photo.status !== 'unavailable') return photo.value.uri;
+        }
+      }
       const loaded = await loadDisplayedPrice(session, id, changes, signal);
       if (!loaded) return;
       const observation = loaded.display;
@@ -139,26 +176,46 @@ export function useSavedPriceReads(queue: SavedPriceQueueRead | null, loadPriceC
 
   async function open(id: string, requestedRole?: PriceEvidenceRole) {
     if (!queue) return;
+    const currentQueue = queue;
     abort();
     const controller = new AbortController();
     detailWork.current = controller;
     const signal = controller.signal;
     setDetail({ queue, id, status: 'loading' });
+    function makeDetail(projected: NonNullable<Awaited<ReturnType<typeof loadDisplayedPrice>>>): LoadedDetail {
+      const { display: observation, pending, status, lastSyncedAt } = projected;
+      const role = requestedRole && viewedPricePhotoRoles(observation).some(photo => photo.role === requestedRole)
+        ? requestedRole : observation.selectedPhotoRole;
+      return { queue: currentQueue, id, status, lastSyncedAt, observation, role, pending };
+    }
     try {
       const session = await openCheapoSavedPriceReads(queue.owner);
-      const projected = await loadDisplayedPrice(session, id, loadPriceChanges?.() ?? [], signal);
+      const changes = loadPriceChanges?.() ?? [];
+      const snapshot = await loadDisplayedPrice(session, id, changes, signal, true);
+      let preview: LoadedDetail | undefined;
+      if (snapshot) {
+        preview = makeDetail(snapshot);
+        const role = preview.role;
+        if (role && hasReadyPhoto(preview)) {
+          const photo = await session.cached.loadSelectedPhoto(preview.observation, role, signal);
+          session.assertCurrent();
+          if (photo.status !== 'unavailable') preview.photo = { role, status: 'cached', uri: photo.value.uri };
+        }
+        if (signal.aborted) return;
+        setDetail(preview);
+      }
+      const projected = await loadDisplayedPrice(session, id, changes, signal);
       if (signal.aborted) return;
       if (!projected) {
         setDetail({ queue, id, status: 'unavailable' });
         return;
       }
-      const { display: observation, pending, status, lastSyncedAt } = projected;
-      const displayedRoles = viewedPricePhotoRoles(observation);
-      const role = requestedRole && displayedRoles.some(photo => photo.role === requestedRole)
-        ? requestedRole : observation.selectedPhotoRole;
-      const loaded: Detail = { queue, id, status, lastSyncedAt, observation, role, pending };
+      const loaded = makeDetail(projected);
+      const { role, observation } = loaded;
+      const ready = role && hasReadyPhoto(loaded);
+      if (ready && preview?.photo && samePhoto(preview, loaded)) loaded.photo = preview.photo;
       setDetail(loaded);
-      if (!role || !displayedRoles.some(photo => photo.role === role && photo.availability !== 'pending')) return;
+      if (!ready || loaded.photo) return;
       try {
         const photo = await session.loadSelectedPhoto(observation, role, signal);
         session.assertCurrent();

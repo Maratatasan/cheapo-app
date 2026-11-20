@@ -104,6 +104,14 @@ const peer = { ...shared, id: '5353588d-923b-4f09-903d-f72adeaded5a', ownedByCur
 const lastSyncedAt = '2026-11-12T13:00:00Z';
 const safeArea = { frame: { x: 0, y: 0, width: 425, height: 680 }, insets: { top: 0, left: 0, bottom: 0, right: 0 } };
 const cached = <T,>(value: T) => ({ status: 'cached' as const, value, lastSyncedAt });
+type BoundReads = Awaited<ReturnType<typeof openCheapoSavedPriceReads>>;
+function mockSavedReads(session: Omit<BoundReads, 'cached'> & Partial<Pick<BoundReads, 'cached'>>) {
+  const empty = async () => ({ status: 'unavailable' as const });
+  jest.mocked(openCheapoSavedPriceReads).mockResolvedValue({
+    ...session, cached: session.cached ?? { loadPriceHistory: empty, loadPriceObservation: empty, loadSelectedPhoto: empty },
+  });
+}
+
 
 beforeEach(() => {
   mockPreferenceProduct.mockReset().mockResolvedValue({ status: 'unavailable' });
@@ -123,7 +131,7 @@ test('exports the selected owner’s protected work through the actual Android S
     jest.mocked(loadSavedPriceRecords).mockResolvedValue([complete]);
     const queue = { owner, read: jest.fn().mockResolvedValue({ entries: [], recovery: [] }) };
     mockShoppingRuntime = { owner, priceQueue: queue, loadPriceChanges: async () => [] };
-    jest.mocked(openCheapoSavedPriceReads).mockResolvedValue({ assertCurrent: jest.fn(), loadPriceObservation: jest.fn(),
+    mockSavedReads({ assertCurrent: jest.fn(), loadPriceObservation: jest.fn(),
       loadPhoto: jest.fn(), loadSelectedPhoto: jest.fn(), loadPriceHistory: jest.fn().mockResolvedValue({ status: 'unavailable' }) });
     jest.mocked(exportSavedShopping).mockResolvedValue(undefined);
     await render(<ShopRepositoryProvider repository={shopRepository}><SavedProducts /></ShopRepositoryProvider>);
@@ -142,7 +150,7 @@ test('checks and saves the personal preference from the existing shared comparis
   mockShoppingRuntime = { owner, priceQueue: { read: jest.fn().mockResolvedValue({ entries: [], recovery: [] }) }, loadPriceChanges: async () => [] };
   mockPreferenceProduct.mockResolvedValue(cached({ product: { id: shared.productId, name: 'Basmati rice', comparableGroupId: 'dry-rice' } }));
   mockPreferenceRead.mockResolvedValue(cached({ basis: '100g', version: 2 }));
-  jest.mocked(openCheapoSavedPriceReads).mockResolvedValue({
+  mockSavedReads({
     assertCurrent: jest.fn(),
     loadPriceHistory: jest.fn().mockResolvedValue(cached({ observations: [observation], nextCursor: null })),
     loadPriceObservation: jest.fn().mockResolvedValue(cached({ observation })),
@@ -165,7 +173,7 @@ test('drops replaceable preference state on clear and retains the protected queu
   mockCompareParams = { id: shared.id, source: 'shared' };
   mockShoppingRuntime = { owner, priceQueue: { read: jest.fn().mockResolvedValue({ entries: [], recovery: [] }) }, loadPriceChanges: async () => [] };
   mockPreferenceRead.mockResolvedValue(cached({ basis: 'kg', version: 1 }));
-  jest.mocked(openCheapoSavedPriceReads).mockResolvedValue({
+  mockSavedReads({
     assertCurrent: jest.fn(),
     loadPriceHistory: jest.fn().mockResolvedValue(cached({ observations: [observation], nextCursor: null })),
     loadPriceObservation: jest.fn().mockResolvedValue(cached({ observation })),
@@ -187,7 +195,7 @@ test('shows the selected private photo on a visible shared card without opening 
   const queue = { owner, read: jest.fn().mockResolvedValue({ entries: [], recovery: [] }) };
   const loadPriceObservation = jest.fn().mockResolvedValue(cached({ observation: shared }));
   const loadSelectedPhoto = jest.fn().mockResolvedValue(cached({ uri: 'file:///private-selected.jpg' }));
-  jest.mocked(openCheapoSavedPriceReads).mockResolvedValue({ assertCurrent: jest.fn(), loadPriceObservation,
+  mockSavedReads({ assertCurrent: jest.fn(), loadPriceObservation,
     loadPhoto: jest.fn(), loadSelectedPhoto,
     loadPriceHistory: jest.fn().mockResolvedValue(cached({ observations: [shared, peer], nextCursor: null })) });
 
@@ -215,7 +223,7 @@ test('uses a queued photo selection in the shared list and cancels a read when i
   const loadSelectedPhoto = jest.fn().mockImplementation(() => new Promise(resolve => { completePhoto = resolve; }));
   const pendingPhoto = { ...peer, photos: [{ ...peer.photos[0], availability: 'pending' as const }] };
   const loadPriceObservation = jest.fn().mockResolvedValue(cached({ observation: shared }));
-  jest.mocked(openCheapoSavedPriceReads).mockResolvedValue({ assertCurrent: jest.fn(), loadPriceObservation,
+  mockSavedReads({ assertCurrent: jest.fn(), loadPriceObservation,
     loadPhoto: jest.fn(), loadSelectedPhoto,
     loadPriceHistory: jest.fn().mockResolvedValue(cached({ observations: [shared, pendingPhoto], nextCursor: null })) });
 
@@ -236,6 +244,23 @@ test('uses a queued photo selection in the shared list and cancels a read when i
   expect(screen.getByRole('button', { name: 'Open Peer rice' })).toBeOnTheScreen();
 });
 
+test('uses a checked thumbnail without a metadata or grant request when the row version matches', async () => {
+  jest.mocked(loadSavedPriceRecords).mockResolvedValue([]);
+  const queue = { owner, read: jest.fn().mockResolvedValue({ entries: [], recovery: [] }) };
+  const loadPriceHistory = jest.fn().mockResolvedValue(cached({ observations: [shared, peer], nextCursor: null }));
+  const loadPriceObservation = jest.fn().mockResolvedValue(cached({ observation: peer }));
+  const loadSelectedPhoto = jest.fn().mockResolvedValue(cached({ uri: 'file:///cache/new-checked.jpg' }));
+  mockSavedReads({ assertCurrent: jest.fn(), loadPriceObservation, loadSelectedPhoto, loadPriceHistory, loadPhoto: jest.fn(),
+    cached: { loadPriceHistory, loadPriceObservation: jest.fn().mockResolvedValue(cached({ observation: shared })),
+      loadSelectedPhoto: jest.fn().mockResolvedValue(cached({ uri: 'file:///cache/checked-thumbnail.jpg' })) } });
+  await render(<SafeAreaProvider initialMetrics={safeArea}><SavedProductsScreen priceQueue={queue} /></SafeAreaProvider>);
+  await screen.findByRole('button', { name: 'Open Original shared rice' });
+  await act(() => mockListVisibility?.({ viewableItems: [{ key: `shared:${shared.id}`, isViewable: true, item: shared, index: 0 }], changed: [] }));
+  expect(await screen.findByLabelText('Saved price thumbnail')).toHaveProp('source', { uri: 'file:///cache/checked-thumbnail.jpg' });
+  expect(loadPriceObservation).not.toHaveBeenCalled();
+  expect(loadSelectedPhoto).not.toHaveBeenCalled();
+});
+
 test('opens shared history and only the selected photo, applying the current owner’s pending correction', async () => {
   jest.mocked(loadSavedPriceRecords).mockResolvedValue([complete]);
   const queue = { owner, read: jest.fn().mockResolvedValue({ entries: [], recovery: [] }) };
@@ -248,7 +273,7 @@ test('opens shared history and only the selected photo, applying the current own
     loadPriceObservation: jest.fn().mockResolvedValue(cached({ observation: shared })),
     loadPhoto: jest.fn(), loadSelectedPhoto: jest.fn().mockResolvedValue(cached({ uri: 'file:///cache/verified.jpg' })),
   };
-  jest.mocked(openCheapoSavedPriceReads).mockResolvedValue(session);
+  mockSavedReads(session);
   await render(<SafeAreaProvider initialMetrics={safeArea}><SavedProductsScreen priceQueue={queue}
     loadPriceChanges={async () => [correction]} /></SafeAreaProvider>);
 
@@ -281,7 +306,7 @@ test('returns from a price on the loaded second page to the original native list
     loadPriceObservation: jest.fn().mockResolvedValue(cached({ observation: peer })),
     loadPhoto: jest.fn(), loadSelectedPhoto: jest.fn().mockResolvedValue(cached({ uri: 'file:///cache/verified.jpg' })),
   };
-  jest.mocked(openCheapoSavedPriceReads).mockResolvedValue(session);
+  mockSavedReads(session);
   await render(<SafeAreaProvider initialMetrics={safeArea}><SavedProductsScreen priceQueue={queue} /></SafeAreaProvider>);
 
   await fireEvent.press(await screen.findByRole('button', { name: 'Load more saved prices' }));
@@ -293,6 +318,29 @@ test('returns from a price on the loaded second page to the original native list
 
   expect(screen.getByRole('button', { name: 'Open Peer rice' }) === card).toBe(true);
   expect(session.loadPriceHistory).toHaveBeenCalledTimes(2);
+});
+
+test('reopens a cached shared price and its checked photo while the server read is delayed', async () => {
+  jest.mocked(loadSavedPriceRecords).mockResolvedValue([]);
+  const queue = { owner, read: jest.fn().mockResolvedValue({ entries: [], recovery: [] }) };
+  const savedPhoto = cached({ uri: 'file:///cache/verified-reopen.jpg' });
+  type DetailResult = ReturnType<typeof cached<{ observation: PriceObservationDetail }>>;
+  let finishRemote!: (value: DetailResult) => void;
+  const delayed = new Promise<DetailResult>(resolve => { finishRemote = resolve; });
+  const loadPriceHistory = jest.fn().mockResolvedValue(cached({ observations: [shared], nextCursor: null }));
+  const loadSelectedPhoto = jest.fn().mockResolvedValue(savedPhoto);
+  mockSavedReads({ assertCurrent: jest.fn(), loadPriceObservation: jest.fn(() => delayed),
+    loadPhoto: jest.fn(), loadSelectedPhoto, loadPriceHistory,
+    cached: { loadPriceHistory, loadPriceObservation: jest.fn().mockResolvedValue(cached({ observation: shared })), loadSelectedPhoto } });
+
+  await render(<SafeAreaProvider initialMetrics={safeArea}><SavedProductsScreen priceQueue={queue} /></SafeAreaProvider>);
+  await fireEvent.press(await screen.findByRole('button', { name: 'Open Original shared rice' }));
+  expect(await screen.findByLabelText('Cropped price photo')).toHaveProp('source', { uri: savedPhoto.value.uri });
+  expect(screen.getByRole('header', { name: 'Original shared rice' })).toBeOnTheScreen();
+  expect(screen.queryByText('Loading saved price…')).not.toBeOnTheScreen();
+
+  await act(() => finishRemote(cached({ observation: { ...shared, version: 3, productName: 'Updated shared rice' } })));
+  expect(await screen.findByRole('header', { name: 'Updated shared rice' })).toBeOnTheScreen();
 });
 
 test('reopens a kept cloud record offline without an old detail cache and hides it after access denial', async () => {
@@ -308,7 +356,7 @@ test('reopens a kept cloud record offline without an old detail cache and hides 
       .mockRejectedValueOnce(new CheapoAccessError('unauthorized')),
     loadPhoto: jest.fn(), loadSelectedPhoto: jest.fn().mockResolvedValue(cached({ uri: 'file:///cache/kept-original.jpg' })),
   };
-  jest.mocked(openCheapoSavedPriceReads).mockResolvedValue(session);
+  mockSavedReads(session);
   await render(<SafeAreaProvider initialMetrics={safeArea}><SavedProductsScreen priceQueue={queue}
     loadPriceChanges={async () => [keepCloud]} /></SafeAreaProvider>);
 
@@ -340,7 +388,7 @@ test('opens a newly derived crop and hides the stored crop when the selection re
     loadSelectedPhoto: jest.fn().mockResolvedValueOnce(cached({ uri: 'file:///cache/revised-crop.jpg' }))
       .mockResolvedValueOnce(cached({ uri: 'file:///cache/verified-original.jpg' })),
   };
-  jest.mocked(openCheapoSavedPriceReads).mockResolvedValue(session);
+  mockSavedReads(session);
   await render(<SafeAreaProvider initialMetrics={safeArea}><SavedProductsScreen priceQueue={queue} /></SafeAreaProvider>);
   await fireEvent.press(await screen.findByRole('button', { name: 'Open Original shared rice' }));
   expect(await screen.findByLabelText('Cropped price photo')).toHaveProp('source', { uri: 'file:///cache/revised-crop.jpg' });
@@ -363,7 +411,7 @@ test('clearing downloads aborts an open photo and keeps the protected queue visi
     loadPhoto: jest.fn(),
     loadSelectedPhoto: jest.fn().mockImplementation(() => new Promise(resolve => { finishPhoto = resolve; })),
   };
-  jest.mocked(openCheapoSavedPriceReads).mockResolvedValue(session);
+  mockSavedReads(session);
   await render(<SafeAreaProvider initialMetrics={safeArea}><SavedProductsScreen priceQueue={queue} /></SafeAreaProvider>);
   await fireEvent.press(await screen.findByRole('button', { name: 'Open Peer rice' }));
   await screen.findByText('Loading photo…');
@@ -386,7 +434,7 @@ test('keeps the local list when a former owner’s shared detail resolves after 
     assertCurrent: jest.fn(), loadPriceHistory: jest.fn().mockResolvedValue(cached({ observations: [peer], nextCursor: null })),
     loadPriceObservation: jest.fn().mockImplementation(() => new Promise(resolve => { completeRead = resolve; })), loadPhoto: jest.fn(), loadSelectedPhoto: jest.fn(),
   };
-  jest.mocked(openCheapoSavedPriceReads).mockResolvedValue(session);
+  mockSavedReads(session);
   await render(<SafeAreaProvider initialMetrics={safeArea}><SavedProductsScreen priceQueue={queue} /></SafeAreaProvider>);
   await fireEvent.press(await screen.findByRole('button', { name: 'Open Peer rice' }));
   expect(await screen.findByText('Loading saved price…')).toBeOnTheScreen();
@@ -410,7 +458,7 @@ test('keeps a newer history refresh when an older page resolves under the same f
       .mockImplementationOnce(() => new Promise<Page>(resolve => { resolveOlder = resolve; markOlderStarted(); }))
       .mockResolvedValueOnce({ ...cached({ observations: [latest], nextCursor: null }), status: 'fresh' }),
   };
-  jest.mocked(openCheapoSavedPriceReads).mockResolvedValue(session);
+  mockSavedReads(session);
   const { result } = await renderHook(() => useSavedPriceReads(queue));
   const signal = new AbortController().signal;
   await act(async () => { await result.current.refresh(signal); });
@@ -544,7 +592,7 @@ test('opens a shared comparison with corrected prices, leaves unrankable values 
   const session = { assertCurrent: jest.fn(), loadPriceObservation: jest.fn().mockResolvedValue(cached({ observation: sharedReference })),
     loadPriceHistory: jest.fn().mockResolvedValue(cached({ observations: [cheapPeer, missing, error], nextCursor: null })),
     loadPhoto: jest.fn(), loadSelectedPhoto: jest.fn().mockResolvedValue(cached({ uri: 'file:///cache/shared-crop.jpg' })) };
-  jest.mocked(openCheapoSavedPriceReads).mockResolvedValue(session);
+  mockSavedReads(session);
   await render(<SavedComparison />);
 
   expect(await screen.findByText('Showing saved shared prices')).toBeOnTheScreen();
@@ -577,7 +625,7 @@ test('replaces a linked phone reference with the newest shared version and its e
     loadPriceObservation: jest.fn().mockResolvedValue(cached({ observation: canonical })),
     loadSelectedPhoto: jest.fn().mockResolvedValue(cached({ uri: 'file:///cache/comparison-revised-crop.jpg' })),
     loadPriceHistory: jest.fn().mockResolvedValue(cached({ observations: [canonical, peer], nextCursor: null })) };
-  jest.mocked(openCheapoSavedPriceReads).mockResolvedValue(session);
+  mockSavedReads(session);
   await render(<SavedComparison />);
 
   await fireEvent.press(await screen.findByRole('button', { name: 'Edit Updated shared rice at Shared branch' }));
@@ -603,7 +651,7 @@ test('uses exact product history when a shared price has no category and omits u
   jest.mocked(loadSavedPriceRecords).mockResolvedValue([unrelated]);
   const session = { assertCurrent: jest.fn(), loadPriceObservation: jest.fn().mockResolvedValue(cached({ observation: reference })),
     loadPriceHistory: jest.fn().mockResolvedValue(cached({ observations: [exactPeer], nextCursor: null })), loadPhoto: jest.fn(), loadSelectedPhoto: jest.fn() };
-  jest.mocked(openCheapoSavedPriceReads).mockResolvedValue(session);
+  mockSavedReads(session);
   await render(<SavedComparison />);
 
   expect(await screen.findByText('Exact Product Market')).toBeOnTheScreen();
@@ -629,7 +677,7 @@ test('reopens an acknowledged queue item by its exact receipt before choosing an
   jest.mocked(loadSavedPriceRecords).mockResolvedValue([]);
   const session = { assertCurrent: jest.fn(), loadPriceObservation: jest.fn().mockResolvedValue(cached({ observation: canonical })),
     loadPriceHistory: jest.fn().mockResolvedValue(cached({ observations: [], nextCursor: null })), loadPhoto: jest.fn(), loadSelectedPhoto: jest.fn() };
-  jest.mocked(openCheapoSavedPriceReads).mockResolvedValue(session);
+  mockSavedReads(session);
   await render(<SavedComparison />);
 
   expect(await screen.findByText('Current queued rice')).toBeOnTheScreen();

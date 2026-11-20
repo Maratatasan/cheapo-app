@@ -60,6 +60,10 @@ test('downloads one requested crop with no credentials and reopens the checked s
   expect(JSON.stringify([...stored])).not.toContain(url);
   expect(JSON.stringify([...stored])).not.toContain(first);
 
+  expect(await read(observationId, 'crop', undefined, 'cache-only')).toEqual({ ...fresh, status: 'cached' });
+  expect(request).toHaveBeenCalledTimes(1);
+  expect(objectFetch).toHaveBeenCalledTimes(1);
+
   request.mockResolvedValueOnce(Response.json(grant));
   expect(await read(observationId, 'crop')).toEqual(fresh);
   request.mockRejectedValue(new Error('Offline'));

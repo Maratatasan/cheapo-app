@@ -6,7 +6,7 @@ import type { CachedPricePhoto, PriceEvidenceRole, PricePhotoCache } from './che
 import type { ShoppingRead } from './cheapo-shopping-reads';
 import { cropToPixels, type CropBox } from './crop-geometry';
 
-type ReadPhoto = (id: string, role: PriceEvidenceRole, signal?: AbortSignal) => Promise<ShoppingRead<CachedPricePhoto>>;
+type ReadPhoto = (id: string, role: PriceEvidenceRole, signal?: AbortSignal, mode?: 'cache-only') => Promise<ShoppingRead<CachedPricePhoto>>;
 export type RenderSelectedCrop = (original: CachedPricePhoto, box: CropBox) => Promise<{
   bytes: Uint8Array<ArrayBuffer>; width: number; height: number; sha256: string;
 }>;
@@ -27,9 +27,11 @@ export function createSelectedPricePhotoRead(
   renderCrop: RenderSelectedCrop,
 ) {
   return async function loadSelectedPhoto(
-    observation: PriceObservationDetail, role: PriceEvidenceRole, signal?: AbortSignal,
+    observation: PriceObservationDetail, role: PriceEvidenceRole, signal?: AbortSignal, mode?: 'cache-only',
   ): Promise<ShoppingRead<CachedPricePhoto>> {
-    if (role !== 'crop' || observation.cropSource !== 'original') return loadPhoto(observation.id, role, signal);
+    const readPhoto = (physicalRole: PriceEvidenceRole) => mode
+      ? loadPhoto(observation.id, physicalRole, signal, mode) : loadPhoto(observation.id, physicalRole, signal);
+    if (role !== 'crop' || observation.cropSource !== 'original') return readPhoto(role);
     const box = observation.cropBox;
     if (!box || !observation.photos.some(photo => photo.role === 'original' && photo.availability !== 'pending')) {
       return { status: 'unavailable' };
@@ -41,14 +43,15 @@ export function createSelectedPricePhotoRead(
       session.assertCurrent();
     }
     assertCurrent();
-    const original = await loadPhoto(observation.id, 'original', signal);
+    const original = await readPhoto('original');
     assertCurrent();
     if (original.status === 'unavailable') return original;
     const key = JSON.stringify([session.cacheScope, 'derived-price-crop-v1', observation.id, observation.version,
       box.left, box.top, box.right, box.bottom, original.value.sha256]);
-    const previous = await cache.read(key, generation);
+    const previous = await cache.read(key, generation).catch(() => null);
     assertCurrent();
     if (previous) return { ...original, value: previous };
+    if (mode === 'cache-only') return { status: 'unavailable' };
 
     const { bytes, width, height, sha256 } = await renderCrop(original.value, box);
     assertCurrent();

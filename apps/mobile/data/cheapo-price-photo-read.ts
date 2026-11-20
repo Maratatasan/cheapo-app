@@ -78,7 +78,9 @@ async function verifiedJpeg(response: Response, metadata: PricePhotoMetadata, si
 export function createCheapoPricePhotoRead(
   openSession: () => Promise<CheapoReadSession>, cache: PricePhotoCache, objectFetch: ObjectFetch = fetch,
 ) {
-  return async function readPricePhoto(observationId: string, role: PriceEvidenceRole, signal?: AbortSignal): Promise<ShoppingRead<CachedPricePhoto>> {
+  return async function readPricePhoto(
+    observationId: string, role: PriceEvidenceRole, signal?: AbortSignal, mode?: 'cache-only',
+  ): Promise<ShoppingRead<CachedPricePhoto>> {
     if (role !== 'original' && role !== 'crop') throw Error('Invalid Cheapo photo role.');
     if (signal?.aborted) throw requestInterrupted();
     const path = `${historyObservationPath(observationId)}/photos/${role}`;
@@ -97,6 +99,7 @@ export function createCheapoPricePhotoRead(
       assertCurrent();
       return value && revision === cache.revision() ? { status: 'cached', value, lastSyncedAt: value.lastSyncedAt } : { status: 'unavailable' };
     }
+    if (mode === 'cache-only') return fromCache();
 
     let checked: { ok: boolean; status: number; body: unknown };
     try {
