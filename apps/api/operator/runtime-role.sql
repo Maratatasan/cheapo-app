@@ -38,9 +38,12 @@ GRANT SELECT (resource_id, household_id, actor_shopper_id, operation_id, operati
   INSERT (resource_id, version, household_id, actor_shopper_id, operation_id, operation_request, before_state, after_state)
   ON cheapo.price_observation_revision TO cheapo_api_runtime;
 
-GRANT INSERT (id, name, address, location), UPDATE (name, address) ON cheapo.shop TO cheapo_api_runtime;
-GRANT INSERT (household_id, shop_id, nickname), UPDATE (nickname), DELETE
+GRANT INSERT (id, name, address, location), UPDATE (name, address, record_version) ON cheapo.shop TO cheapo_api_runtime;
+GRANT INSERT (household_id, shop_id, nickname), UPDATE (nickname, link_revision), DELETE
   ON cheapo.household_saved_shop TO cheapo_api_runtime;
+GRANT SELECT (shop_id, household_id, actor_shopper_id, operation_id, operation_request, after_state),
+  INSERT (shop_id, household_id, actor_shopper_id, operation_id, operation_request, before_state, after_state)
+  ON cheapo.saved_shop_revision TO cheapo_api_runtime;
 GRANT INSERT (household_id, shopper_id, shop_id), UPDATE (shop_id), DELETE
   ON cheapo.shopper_current_shop TO cheapo_api_runtime;
 GRANT INSERT (shopper_id, product_group_id, basis), UPDATE (basis), DELETE

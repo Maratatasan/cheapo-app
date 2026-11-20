@@ -118,6 +118,7 @@ The response includes `testShop` when the imported link records that flag.
 | Method and route | Body and behavior |
 | --- | --- |
 | `GET /v1/me/saved-shops` | Reads the household list and the shopper’s selection. |
+| `GET /v1/me/saved-shops/{id}` | Reads the saved branch and private nickname with a version. |
 | `PUT /v1/me/saved-shops/{id}` | Save the branch named by the URL with shop details and optional `select: true`. A repeat keeps the existing branch and nickname. Reuse the ID of a confirmed branch when linking it. |
 | `PATCH /v1/me/saved-shops/{id}` | Edit `name`, `address`, or `nickname` on a saved branch. Omitted fields are retained; use `null` to clear a field when the shop would still have a display name. |
 | `PUT /v1/me/current-shop` | Select a saved branch with `{ "shopId": "..." }`. |
@@ -134,6 +135,20 @@ The service matches literal, case-insensitive text and returns up to 20
 branches in `{ "shops": [...] }`. Candidates include stable ID and any known
 name, address and location. A search has no effect on household links or
 selections. Confirm the branch before reusing its ID.
+
+Use the version from a saved-shop detail when editing from an enrolled phone.
+Send `PATCH` with `operationId`, `expectedVersion`, and `details` containing
+the changed fields. A successful edit returns the same `{ shop, version }`
+shape as detail. A stale edit returns `409 version_conflict` with
+`currentVersion` and `current`. Replaying the same operation returns its
+original acknowledgement. A changed request under an existing operation ID
+returns `409 operation_conflict`.
+
+Shared name and address edits change the version for each household that
+saved the branch. Nickname edits affect only the authenticated household.
+Unlinking and saving the same branch again invalidates old versions. Earlier
+callers can continue to send the edit fields directly. Their changes also
+advance the relevant version and enter the audit history.
 
 ## Canonical product contract
 

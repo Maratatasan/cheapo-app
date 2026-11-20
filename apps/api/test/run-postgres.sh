@@ -34,6 +34,7 @@ psql -X -v ON_ERROR_STOP=1 -h "$root" -p "$port" -U cheapo_test -d postgres \
   -f migrations/008-price-observation-audit.sql \
   -f migrations/009-price-photo-uploads.sql \
   -f migrations/010-product-revisions.sql \
+  -f migrations/011-saved-shop-revisions.sql \
   -f operator/runtime-role.sql \
   -f test/shopping-history.postgres.sql >/dev/null
 CHEAPO_TEST_PG_SOCKET="$root" CHEAPO_TEST_PG_PORT="$port" node --test test/preferences.postgres.ts test/shopping-import.postgres.ts test/hosted-import.postgres.ts test/price-history.postgres.ts test/runtime-role.postgres.ts test/price-photo.postgres.ts
