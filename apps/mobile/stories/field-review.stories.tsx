@@ -37,6 +37,37 @@ export const PriceCalculation: Story = {
   },
 };
 
+function QueuedPhotoExample({ needsShop = false }: { needsShop?: boolean }) {
+  const shop = 'Example shop';
+  const [saved, setSaved] = useState(false);
+  const [review, setReview] = useState<ManualReview>({
+    ...emptyReview(shop), productName: 'Example basmati rice', packSize: '500 g', price: '2.50',
+  });
+  const status = needsShop ? 'Saved on this phone · Needs shop' : 'Saved on this phone · Waiting to sync';
+  return <View style={{ height: 700, width: 360, maxWidth: '100%' }}>
+    <SafeAreaProvider initialMetrics={{ frame: { x: 0, y: 0, width: 360, height: 700 }, insets: { top: 0, bottom: 0, left: 0, right: 0 } }}>
+      <PhotoReview review={review} selectedShopName={needsShop ? undefined : shop} saved={saved}
+        savedStatus={saved ? status : undefined} busy={false} onReviewChange={setReview} onSave={() => setSaved(true)} />
+    </SafeAreaProvider>
+  </View>;
+}
+
+export const PhotoWaitingToSync: Story = {
+  render: () => <QueuedPhotoExample />,
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole('button', { name: 'Save Price' }));
+    await expect(canvas.getByText('Saved on this phone · Waiting to sync')).toBeVisible();
+  },
+};
+
+export const PhotoNeedsShop: Story = {
+  render: () => <QueuedPhotoExample needsShop />,
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole('button', { name: 'Save Price' }));
+    await expect(canvas.getByText('Saved on this phone · Needs shop')).toBeVisible();
+  },
+};
+
 export const MultipackReview: Story = {
   render: () => <ReviewExample productName="Sparkling water" packSize="8 × 500" price="3.20" />,
   play: async ({ canvas, userEvent }) => {

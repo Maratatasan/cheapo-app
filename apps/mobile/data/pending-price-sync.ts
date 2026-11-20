@@ -1,6 +1,6 @@
 import type { PriceAppendQueue } from './price-append-queue';
 
-type PendingPriceState = 'waiting' | 'failed' | 'photo-pending' | 'photo-failed' | 'recovery';
+type PendingPriceState = 'waiting' | 'failed' | 'photo-pending' | 'photo-failed' | 'needs-shop' | 'recovery';
 export type PendingPriceItem = { id: string; sourceId: string; title: string; state: PendingPriceState };
 
 export async function readPendingPrices(queue: PriceAppendQueue): Promise<PendingPriceItem[]> {
@@ -9,11 +9,14 @@ export async function readPendingPrices(queue: PriceAppendQueue): Promise<Pendin
   const recoveredIds = new Set(recovery.map(({ sourceId }) => sourceId));
   const unreadableIds = new Set(recovery.filter(({ reason }) => reason === 'unreadable').map(({ sourceId }) => sourceId));
   const titleById = new Map(entries.map(({ record }) => [record.id, record.review?.productName ?? 'Saved price']));
-  for (const { record, body, receipt } of entries) {
+  for (const { record, body, receipt, needsShop } of entries) {
     const sourceId = record.id;
     const title = record.review?.productName ?? 'Saved price';
     if (unreadableIds.has(sourceId)) continue;
-    if (body && !receipt) {
+    if (needsShop) {
+      rows.push({ id: `price:${sourceId}`, sourceId, title, state: 'needs-shop' });
+      recoveredIds.delete(sourceId);
+    } else if (body && !receipt) {
       const state = queue.hasFailed(sourceId, 'price') ? 'failed' : 'waiting';
       rows.push({ id: `price:${sourceId}`, sourceId, title, state });
       recoveredIds.delete(sourceId);

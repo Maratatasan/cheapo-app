@@ -31,6 +31,7 @@ jest.mock('expo-file-system', () => {
       mockFiles.delete(this.uri);
       this.uri = target.uri;
     }
+    async copy(target: File) { mockFiles.set(target.uri, mockFiles.get(this.uri)!); }
     async write(value: string) { mockFiles.set(this.uri, value); }
     async text() { return mockFiles.get(this.uri); }
     async bytes() { return new TextEncoder().encode(mockFiles.get(this.uri) ?? ''); }
@@ -367,6 +368,47 @@ it('keeps the evidence plan on another enrollment and retries an interrupted rol
     [intents[0], expect.any(Object), undefined], [intents[1], expect.any(Object), undefined],
     [intents[1], expect.any(Object), undefined],
   ]);
+});
+
+it('holds a complete photo with no stable shop and preserves it through interrupted branch confirmation', async () => {
+  const { photo } = await photoEvidence();
+  const openShoppingWriteSession = jest.fn();
+  const access = { lastVerifiedOwner: async () => owner, openShoppingWriteSession };
+  const runtime = (await openCheapoShopping(access))!;
+  const unconfirmed = { ...photo, shop: undefined, review: { ...photo.review, shop: 'Typed shop name' } };
+  const result = await runtime.priceRecords.saveNewPhoto(unconfirmed);
+  expect(result.pending).toBe('needs-shop');
+  expect(mockFiles.get(result.record.original.uri)).toBe('synthetic original');
+  expect(mockFiles.get(result.record.selected.uri)).toBe('synthetic crop');
+  expect(await runtime.priceRecords.loadAll({ requireAll: true })).toEqual([result.record]);
+  const committedPath = [...mockFiles.keys()].find(key => key.endsWith('.needs-shop.json'))!;
+  const interrupted = '{"record":';
+  mockFiles.set(`${committedPath}.fixture.pending`, interrupted);
+  const snapshot = await runtime.priceQueue.backup();
+  expect(snapshot.entries).toEqual([{ record: result.record, needsShop: true }]);
+  expect(snapshot.recovery).toEqual([{ sourceId: record.id, reason: 'unfinished' }]);
+  const bytes = Object.fromEntries(snapshot.files.map(file => [file.name, new TextDecoder().decode(file.bytes)]));
+  expect(JSON.parse(bytes[`${record.id}.needs-shop.json`]).record).toEqual(result.record);
+  expect(bytes[`${record.id}.needs-shop.json.fixture.pending`]).toBe(interrupted);
+  mockFiles.delete(`${committedPath}.fixture.pending`);
+  expect(await runtime.retry()).toMatchObject({ state: 'pending', items: [{ sourceId: record.id, state: 'needs-shop' }] });
+  expect(openShoppingWriteSession).not.toHaveBeenCalled();
+
+  const reopened = (await openCheapoShopping(access))!;
+  mockFailedPublication = /\.price\.json$/;
+  await expect(reopened.priceQueue.confirmShop(record.id, shop)).rejects.toThrow('Publication interrupted');
+  expect(await reopened.priceRecords.load(record.id)).toEqual(result.record);
+  expect(await reopened.readPending()).toMatchObject([{ sourceId: record.id, state: 'needs-shop' }]);
+  mockFailedPublication = /$a/;
+  const confirmed = await reopened.priceQueue.confirmShop(record.id, shop);
+  expect(confirmed).toMatchObject({ id: record.id, shop, review: { shop: shop.displayName, price: record.review.price },
+    original: result.record.original, selected: result.record.selected });
+  expect(await reopened.priceQueue.confirmShop(record.id, shop)).toEqual(confirmed);
+  expect(await reopened.priceRecords.loadAll()).toEqual([confirmed]);
+  expect(await reopened.readPending()).toMatchObject([{ sourceId: record.id, state: 'waiting' }]);
+  const entry = (await reopened.priceQueue.read()).entries[0];
+  expect(JSON.parse(entry.body ?? '{}')).toMatchObject({ sourceId: record.id, shopId: shop.id, shopDisplayName: shop.displayName });
+  expect([...mockFiles.keys()].some(key => key.endsWith('.needs-shop.json'))).toBe(true);
 });
 
 const queuedShop = { id: shop.id, name: shop.displayName };

@@ -33,11 +33,11 @@ function serializePriceWrite<T>(operation: () => Promise<T>): Promise<T> {
 }
 
 // A manifest is published only after both image files have been copied and checked.
-export function saveLocalPhoto(draft: LocalPhotoDraft): Promise<LocalPhotoDraft> {
-  return serializePriceWrite(() => persistLocalPhoto(draft));
+export function saveLocalPhoto(draft: LocalPhotoDraft, commit?: (saved: LocalPhotoDraft) => Promise<void>): Promise<LocalPhotoDraft> {
+  return serializePriceWrite(() => persistLocalPhoto(draft, commit));
 }
 
-async function persistLocalPhoto(draft: LocalPhotoDraft): Promise<LocalPhotoDraft> {
+async function persistLocalPhoto(draft: LocalPhotoDraft, commit?: (saved: LocalPhotoDraft) => Promise<void>): Promise<LocalPhotoDraft> {
   const previous = await loadSavedPriceRecord(draft.id);
   if (previous?.productId && draft.productId && previous.productId !== draft.productId) {
     throw Error('This price is already linked to a different product.');
@@ -56,7 +56,8 @@ async function persistLocalPhoto(draft: LocalPhotoDraft): Promise<LocalPhotoDraf
   const savedOriginal = await copy(original, 'original');
   const productId = previous?.productId ?? draft.productId;
   const saved = { ...draft, ...(productId ? { productId } : {}), original: savedOriginal, selected: draft.original.uri === draft.selected.uri ? savedOriginal : await copy(selected, `selected-${Date.now()}`) };
-  await writeSavedDraft(directory, saved);
+  if (commit) await commit(saved);
+  else await writeSavedDraft(directory, saved);
   return saved;
 }
 
