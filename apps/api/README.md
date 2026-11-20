@@ -145,6 +145,11 @@ branches in `{ "shops": [...] }`. Candidates include stable ID and any known
 name, address and location. A search has no effect on household links or
 selections. Confirm the branch before reusing its ID.
 
+For a replay-safe link, send `PUT` with `operationId`, `shop`, and optional
+`select`. This returns the accepted `{ shop, version }`. An exact replay
+returns that original detail and version, including after a nickname edit,
+unlink or a later selection. The replay has no new selection effect.
+
 Use the version from a saved-shop detail when editing from an enrolled phone.
 Send `PATCH` with `operationId`, `expectedVersion`, and `details` containing
 the changed fields. A successful edit returns the same `{ shop, version }`
@@ -175,6 +180,12 @@ A successful response is `{ "product": {...} }`. A lookup miss returns
 conflicting ID, barcode, or review payload returns `409` with the existing
 canonical product for review. Use a separate correction operation to change
 saved details. No lookup or creation matches products by name.
+
+For a replay-safe creation, send `PUT` with `operationId` and the reviewed
+`product` fields. The response includes `{ product, version }` and the
+matching version ETag. An exact replay returns the accepted product and
+version even after a later correction. Reusing an ID with different input
+returns `409 operation_conflict`. The earlier raw PUT request still works.
 
 ### Correct a canonical product
 

@@ -267,3 +267,22 @@ test('restricted preference corrections are personal and keep immutable revision
     await assert.rejects(runtime.query(sql), { code: '42501' });
   }
 });
+
+test('a restricted login can return versioned create receipts without changing their history', async () => {
+  const product = '/v1/products/scoped-create-receipt';
+  const creation = { operationId: 'runtime-product-create', product: { name: 'Enrolled creation' } };
+  const created = await request(product, 'A', 'PUT', creation);
+  assert.equal(created.status, 200);
+  assert.deepEqual(await created.json(), { version: 1, product: { id: 'scoped-create-receipt', name: 'Enrolled creation' } });
+  const shop = '/v1/me/saved-shops/scoped-create-receipt';
+  const link = { operationId: 'runtime-shop-create', shop: { name: 'Enrolled shop' } };
+  assert.equal((await request(shop, 'A', 'PUT', link)).status, 200);
+  assert.equal((await request(shop, 'B', 'PUT', link)).status, 200);
+  assert.equal((await request(shop, 'E', 'PUT', link)).status, 401);
+  for (const sql of [
+    "UPDATE cheapo.shopping_create_receipt SET response = '{}'::jsonb",
+    'DELETE FROM cheapo.shopping_create_receipt',
+  ]) {
+    await assert.rejects(runtime.query(sql), { code: '42501' });
+  }
+});

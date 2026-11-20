@@ -8,11 +8,11 @@ import { readCredentialDigest } from './credential.ts';
 export type CatalogProduct = Omit<Product, 'photoIds'>;
 export type CatalogAction =
   | { kind: 'find'; key: 'barcode' | 'id'; value: string }
-  | { kind: 'create'; product: CatalogProduct }
+  | { kind: 'create'; product: CatalogProduct; operationId?: string }
   | { kind: 'correct'; product: CatalogProduct; expectedVersion: number; operationId: string };
 export type CatalogResult =
   | { status: 'ok'; product: CatalogProduct | null; version?: number }
-  | { status: 'corrected'; product: CatalogProduct; version: number }
+  | { status: 'corrected' | 'created'; product: CatalogProduct; version: number }
   | { status: 'version_conflict'; current: CatalogProduct; currentVersion: number }
   | { status: 'conflict'; product: CatalogProduct }
   | { status: 'operation_conflict' | 'not_found' | 'unauthenticated' | 'forbidden' };
@@ -21,8 +21,10 @@ export type ExecuteCatalog = (digest: string, action: CatalogAction) => Promise<
 const collection = '/v1/products';
 const item = /^\/v1\/products\/([^/]+)$/;
 const idInput = productSchema.shape.id.refine(id => !id.includes('\0'));
+const operationId = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
+const creation = z.strictObject({ operationId, product: z.unknown() });
 const correction = z.strictObject({
-  operationId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/),
+  operationId,
   expectedVersion: z.number().int().min(1).max(2_147_483_647),
   product: z.unknown(),
 });
@@ -77,7 +79,14 @@ async function readAction(request: Request, url: URL): Promise<CatalogAction | R
     const product = readProduct(patch.data.product, id);
     return product ? { kind: 'correct', ...patch.data, product } : invalid();
   }
-  const product = readProduct(body.value, id);
+  const value = body.value;
+  if (value && typeof value === 'object' && 'operationId' in value) {
+    const parsed = creation.safeParse(value);
+    if (!parsed.success) return invalid();
+    const product = readProduct(parsed.data.product, id);
+    return product ? { kind: 'create', product, operationId: parsed.data.operationId } : invalid();
+  }
+  const product = readProduct(value, id);
   return product ? { kind: 'create', product } : invalid();
 }
 
@@ -92,6 +101,7 @@ export function createCatalogHandler(execute: ExecuteCatalog) {
       switch (result.status) {
         case 'ok': return json({ product: result.product }, 200,
           result.version === undefined ? {} : { ETag: `"${result.version}"` });
+        case 'created':
         case 'corrected': return json({ product: result.product, version: result.version }, 200,
           { ETag: `"${result.version}"` });
         case 'version_conflict': return json({ error: 'version_conflict',

@@ -592,3 +592,52 @@ test('versions a private preference across phone credentials and preserves the c
     { version: 4, before_basis: 'wash', after_basis: null },
   ]);
 });
+
+test('returns the original product creation receipt after a household peer corrects it', async () => {
+  const path = '/catalog-create-receipt';
+  const input = { operationId: 'new-catalog-entity', product: { name: 'Original catalog record' } };
+  const original = { status: 200, body: { product: { id: path.slice(1), ...input.product }, version: 1 } };
+  assert.deepEqual(await Promise.all([
+    catalogRequest('A', path, 'PUT', input), catalogRequest('G', path, 'PUT', input),
+  ]), [original, original]);
+
+  const correction = { operationId: 'correct-catalog-receipt', expectedVersion: 1, product: { name: 'Peer edit' } };
+  assert.equal((await catalogRequest('B', path, 'PATCH', correction)).status, 200);
+  assert.deepEqual(await catalogRequest('G', path, 'PUT', input), original);
+  assert.deepEqual(await catalogRequest('A', path), { status: 200, body: { product: { id: path.slice(1), name: 'Peer edit' } } });
+  assert.deepEqual(await catalogRequest('A', path, 'PUT', { ...input, product: { name: 'Changed request' } }),
+    { status: 409, body: { error: 'operation_conflict' } });
+  assert.equal((await catalogRequest('F', path, 'PUT', input)).status, 401);
+  assert.equal((await catalogRequest('D', path, 'PUT', input)).status, 403);
+  assert.equal((await catalogRequest('A', '/different-create-receipt', 'PUT', input)).status, 409);
+});
+
+test('returns the original saved link receipt without resetting the branch or the current selection', async () => {
+  const id = 'shop-create-receipt';
+  const path = `/${id}`;
+  const input = { operationId: 'new-household-link', shop: { name: 'Original branch', nickname: 'Original nickname' }, select: true };
+  const first = await savedShopRequest('A', path, 'PUT', input);
+  assert.equal(first.status, 200);
+  const created = first.body as { shop: object; version: string };
+  assert.deepEqual(created.shop, { id, ...input.shop });
+  assert.match(created.version, /^1:/);
+  await savedShopRequest('A', '/receipt-alternative-shop', 'PUT', { name: 'Other shop', select: true });
+  assert.equal((await savedShopRequest('B', path, 'PATCH', {
+    operationId: 'peer-renames-created-shop', expectedVersion: created.version, details: { nickname: 'Peer nickname' },
+  })).status, 200);
+
+  assert.deepEqual(await savedShopRequest('G', path, 'PUT', input), first);
+  const current = (await savedShopRequest('A', path)).body as { shop: { nickname: string }; version: string };
+  assert.equal(current.shop.nickname, 'Peer nickname');
+  assert.notEqual(current.version, created.version);
+  const { currentShop } = (await savedShopRequest('A')).body as { currentShop: { id: string } };
+  assert.equal(currentShop.id, 'receipt-alternative-shop');
+  assert.deepEqual(await savedShopRequest('A', path, 'PUT', { ...input, select: false }),
+    { status: 409, body: { error: 'operation_conflict' } });
+  assert.equal((await catalogRequest('A', '/operation-only-one-resource', 'PUT', {
+    operationId: input.operationId, product: { name: 'A product' },
+  })).status, 409);
+  assert.equal((await savedShopRequest('A', path, 'DELETE')).status, 200);
+  assert.deepEqual(await savedShopRequest('G', path, 'PUT', input), first);
+  assert.equal((await savedShopRequest('A', path)).status, 404);
+});

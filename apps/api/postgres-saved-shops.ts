@@ -3,6 +3,7 @@ import { shopDisplayName, type Shop } from '@cheapo/domain';
 import type {
   ExecuteSavedShop, SavedShopResult, SavedShopState, ShopAction, ShopCandidate, VersionedSavedShop,
 } from './saved-shops.ts';
+import { readCreateReceipt, saveCreateReceipt } from './postgres-create-receipt.ts';
 import { readShoppingMember, type ShoppingMember, type ShoppingQuery, type ShoppingTransaction } from './postgres-shopping.ts';
 
 type BranchRow = { id: string; name: string | null; address: string | null; location: Shop['location'] | null };
@@ -159,6 +160,18 @@ export function postgresSavedShops(transaction: ShoppingTransaction): ExecuteSav
       return detail ? { status: 'detail', detail } : { status: 'shop_not_saved' };
     }
     if (action.kind === 'edit') return editShop(query, member, action);
+    if (action.kind === 'save' && action.operationId) {
+      const operation = { kind: 'saved_shop' as const, id: action.shop.id, operationId: action.operationId, request: action };
+      const receipt = await readCreateReceipt<VersionedSavedShop>(query, member, operation);
+      if (receipt) return receipt.matches ? { status: 'detail', detail: receipt.response } : { status: 'operation_conflict' };
+
+      const status = await changeShop(query, member, action);
+      if (status !== 'ok') return { status };
+      const detail = await readSavedShop(query, member.household_id, action.shop.id);
+      if (!detail) throw Error('Could not read the saved branch receipt.');
+      await saveCreateReceipt(query, member, operation, detail);
+      return { status: 'detail', detail };
+    }
     if (action.kind !== 'read') {
       const status = await changeShop(query, member, action);
       if (status !== 'ok') return { status };
