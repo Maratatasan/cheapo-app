@@ -38,6 +38,7 @@ export type AddProductPriceReviewProps = {
   onChooseShop: () => void;
   onCompare: (candidate: ProductCandidate) => void;
   onPickPhoto?: () => void;
+  onScanBarcode?: (read: (barcode: string) => void) => void;
   onSubmit: (value: ProductPriceSubmission) => Promise<'queued' | 'draft'>;
   onCancel: () => void;
 };
@@ -45,7 +46,7 @@ export type AddProductPriceReviewProps = {
 const identityFields = new Set<keyof ManualReview>(['productName', 'productType', 'brand', 'variety', 'packSize']);
 
 export function AddProductPriceReview({ shop, shopCountry, initialReview, initialBarcode, photo, lookup, loadLatestPrice,
-  onChooseShop, onCompare, onPickPhoto, onSubmit, onCancel }: AddProductPriceReviewProps) {
+  onChooseShop, onCompare, onPickPhoto, onScanBarcode, onSubmit, onCancel }: AddProductPriceReviewProps) {
   const [review, setReview] = useState(() => ({ ...emptyReview(), ...initialReview }));
   const [barcode, setBarcode] = useState(initialBarcode ?? '');
   const [check, setCheck] = useState<Check>({ kind: 'entry' });
@@ -94,6 +95,11 @@ export function AddProductPriceReview({ shop, shopCountry, initialReview, initia
     setChoice(undefined);
     setObservedPackSize(undefined);
     setSaveError(undefined);
+  }
+
+  function enterBarcode(value: string) {
+    resetIdentity();
+    setBarcode(value);
   }
 
   async function checkIdentity() {
@@ -160,7 +166,8 @@ export function AddProductPriceReview({ shop, shopCountry, initialReview, initia
     </View> : <View style={ui.card}>
       <Text style={ui.body}>Product barcode (optional)</Text>
       <TextInput accessibilityLabel="Product barcode (optional)" value={barcode} maxLength={14} keyboardType="number-pad"
-        editable={!disabled} style={styles.barcode} onChangeText={value => { resetIdentity(); setBarcode(value); }} />
+        editable={!disabled} style={styles.barcode} onChangeText={enterBarcode} />
+      {onScanBarcode ? <CameraActionButton label="Scan barcode" disabled={disabled} onPress={() => onScanBarcode(enterBarcode)} /> : null}
       <CameraActionButton label={check.kind === 'checking' ? 'Checking product…' : 'Check product'} busy={check.kind === 'checking'}
         disabled={disabled || (!barcode.trim() && !review.productName.trim())} onPress={() => { void checkIdentity(); }} />
       {check.kind === 'invalid' ? <Text accessibilityRole="alert" style={ui.body}>{check.message}</Text> : null}

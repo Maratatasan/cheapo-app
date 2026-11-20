@@ -1,6 +1,8 @@
 import { fireEvent, render, screen } from '@testing-library/react-native';
 
 import AddProductScreen from '@/app/add-product';
+import { addProductPhotoSources } from '@/data/photo-price-source';
+import type { CheapoShoppingRuntime } from '@/data/shopping-sync-runtime';
 
 const mockStage = jest.fn();
 const mockConfirm = jest.fn();
@@ -10,6 +12,7 @@ const mockFindCandidates = jest.fn();
 const mockChoosePhoto = jest.fn();
 const mockLoadPrices = jest.fn();
 let mockId = 0;
+let mockPhotoSource: string | undefined;
 const mockShop = { id: 'sample-market', name: 'Sample Market' };
 const mockShopping = { owner: { householdId: 'sample-household', shopperId: 'sample-shopper', origin: 'https://cheapo.example' },
   productPrices: { stage: mockStage, confirm: mockConfirm }, retry: mockRetry };
@@ -17,7 +20,13 @@ const mockCatalog = { findByBarcode: mockFindByBarcode };
 const mockShops = { shops: [mockShop], currentShop: mockShop };
 
 jest.mock('expo-crypto', () => ({ randomUUID: () => `add-id-${++mockId}` }));
-jest.mock('expo-router', () => ({ useRouter: () => ({ push: jest.fn(), back: jest.fn() }), Stack: { Screen: () => null }, Redirect: () => null }));
+jest.mock('expo-camera', () => ({ useCameraPermissions: () => [{ granted: true }, jest.fn()] }));
+jest.mock('expo-router', () => ({ useRouter: () => ({ push: jest.fn(), back: jest.fn() }),
+  useLocalSearchParams: () => ({ photoSource: mockPhotoSource }), Stack: { Screen: () => null }, Redirect: () => null }));
+jest.mock('@/component/photo-barcode-scan', () => ({ PhotoBarcodeScan: ({ onRead }: { onRead: (code: string) => void }) => {
+  const { Button } = require('react-native');
+  return <Button title="Detected barcode in camera fixture" onPress={() => onRead('036000291452')} />;
+} }));
 jest.mock('@/component/cheapo-shopping-provider', () => ({ useCheapoShopping: () => mockShopping }));
 jest.mock('@/hooks/use-enrolled-catalog', () => ({ useEnrolledCatalog: () => mockCatalog }));
 jest.mock('@/hooks/use-saved-shops', () => ({ useSavedShops: () => ({ shops: mockShops }) }));
@@ -28,6 +37,8 @@ jest.mock('@/data/barcode-shared-prices', () => ({ loadSharedBarcodePrices: (...
 
 beforeEach(() => {
   mockId = 0;
+  mockPhotoSource = undefined;
+  addProductPhotoSources.clear();
   mockStage.mockReset().mockResolvedValue(undefined);
   mockConfirm.mockReset().mockResolvedValue(undefined);
   mockRetry.mockReset().mockResolvedValue(undefined);
@@ -106,4 +117,40 @@ test('reuse confirms the canonical product and selected shop without proposing a
     review: expect.objectContaining({ brand: product.brand, variety: product.variety, productType: product.productType, packSize: '80 g' }),
   }) }));
   expect(mockFindCandidates).not.toHaveBeenCalled();
+});
+
+test('feeds a dedicated live scan into the same Add lookup without replacing other fields', async () => {
+  await render(<AddProductScreen />);
+  await enterPrice();
+  await fireEvent.press(screen.getByRole('button', { name: 'Scan barcode' }));
+  await fireEvent.press(screen.getByRole('button', { name: 'Detected barcode in camera fixture' }));
+  expect(screen.getByLabelText('Product barcode (optional)')).toHaveDisplayValue('036000291452');
+  expect(screen.getByLabelText('Product name')).toHaveDisplayValue('Sample tea');
+  await fireEvent.press(screen.getByRole('button', { name: 'Check product' }));
+  expect(mockFindByBarcode).toHaveBeenCalledWith('00036000291452', expect.any(AbortSignal));
+  expect(mockStage).not.toHaveBeenCalled();
+});
+
+test('carries the same camera photo, reviewed metadata and stable source into Add before saving the shop price', async () => {
+  mockPhotoSource = 'camera-draft';
+  const image = { uri: 'file:///package.jpg', mimeType: 'image/jpeg' as const, width: 800, height: 600 };
+  const draft = { id: mockPhotoSource, capturedAt: '2026-11-20T11:00:00.000Z', original: image,
+    selected: { ...image, uri: 'file:///crop.jpg' } };
+  addProductPhotoSources.set(mockPhotoSource, { owner: mockShopping as unknown as CheapoShoppingRuntime, draft,
+    details: { barcode: '036000291452', review: { productName: 'Package oats', productType: 'Oats', brand: 'Sample' } } });
+  const view = await render(<AddProductScreen />);
+  expect(screen.getByLabelText('Product name')).toHaveDisplayValue('Package oats');
+  expect(screen.getByLabelText('Product type')).toHaveDisplayValue('Oats');
+  expect(screen.getByLabelText('Product barcode (optional)')).toHaveDisplayValue('036000291452');
+  expect(screen.getByLabelText('Price photo preview')).toHaveProp('source', { uri: 'file:///crop.jpg' });
+  expect(mockStage).not.toHaveBeenCalled();
+  await fireEvent.changeText(screen.getByLabelText('Pack price'), '3.19');
+  await fireEvent.press(screen.getByRole('button', { name: 'Check product' }));
+  await fireEvent.press(await screen.findByRole('button', { name: 'Add as new product' }));
+  await fireEvent.press(screen.getByRole('button', { name: 'Confirm current price' }));
+  expect(mockStage).toHaveBeenCalledWith(expect.objectContaining({ record: expect.objectContaining({ ...draft,
+    shop: { id: mockShop.id, displayName: mockShop.name },
+  }) }));
+  await view.unmount();
+  expect(addProductPhotoSources.has(mockPhotoSource)).toBe(false);
 });

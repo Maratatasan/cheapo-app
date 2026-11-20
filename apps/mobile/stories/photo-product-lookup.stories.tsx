@@ -36,6 +36,15 @@ export const FoundByPhotoBarcode: Story = {
 
 export const CheckedMiss: Story = { args: { findProduct: async () => undefined } };
 
+export const CheckedMissCanContinueToPrice: Story = {
+  args: { findProduct: async () => undefined, onContinueToPrice: fn() },
+  play: async ({ args, canvas }) => {
+    await expect(await canvas.findByRole('button', { name: 'Add using this barcode' })).toBeEnabled();
+    await expect(canvas.getByLabelText('Product photo')).toBeVisible();
+    await expect(args.onContinueToPrice).not.toHaveBeenCalled();
+  },
+};
+
 export const UnavailableCatalog: Story = { args: { findProduct: async () => { throw Error('Sample catalog unavailable.'); } } };
 
 export const EnterCodeFromPackaging: Story = {

@@ -1,16 +1,19 @@
 import { shopDisplayName } from '@cheapo/domain/names';
+import { useCameraPermissions } from 'expo-camera';
 import { randomUUID } from 'expo-crypto';
-import { Redirect, Stack, useRouter } from 'expo-router';
+import { Redirect, Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Platform, Text, View } from 'react-native';
 
 import { AddProductPriceReview, type AddProductPriceReviewProps, type ProductPriceSubmission } from '@/component/add-product-price-review';
 import { CameraActionButton } from '@/component/camera-actions';
 import { useCheapoShopping } from '@/component/cheapo-shopping-provider';
+import { PhotoBarcodeScan } from '@/component/photo-barcode-scan';
 import { ShopChooser, ShopLoadFeedback } from '@/component/shop/shop-chooser';
 import { ui } from '@/component/results/theme';
 import { loadSharedBarcodePrices } from '@/data/barcode-shared-prices';
 import type { LocalPhotoDraft } from '@/data/local-photo';
+import { addProductPhotoSources, type AddProductPhotoSource } from '@/data/photo-price-source';
 import type { CheapoShoppingRuntime } from '@/data/shopping-sync-runtime';
 import { useAddProductLookup } from '@/hooks/use-add-product-lookup';
 import { useSavedShops } from '@/hooks/use-saved-shops';
@@ -21,10 +24,17 @@ import { fieldCheapoApiOrigin } from '@/lib/cheapo-access/config';
 export default function AddProductScreen() {
   const router = useRouter();
   const shopping = useCheapoShopping();
+  const { photoSource } = useLocalSearchParams<{ photoSource?: string }>();
+  const draftSource = typeof photoSource === 'string' ? addProductPhotoSources.get(photoSource) : undefined;
+  const source = draftSource?.owner === shopping ? draftSource : undefined;
+  useEffect(() => {
+    if (!source || typeof photoSource !== 'string') return;
+    return () => { if (addProductPhotoSources.get(photoSource) === source) addProductPhotoSources.delete(photoSource); };
+  }, [photoSource, source]);
   if (Platform.OS === 'web' || (!shopping && !fieldCheapoApiOrigin())) return <Redirect href="/" />;
   return <>
     <Stack.Screen options={{ title: 'Add product' }} />
-    {shopping ? <EnrolledAddProduct key={JSON.stringify(shopping.owner)} shopping={shopping} /> :
+    {shopping ? <EnrolledAddProduct key={JSON.stringify([shopping.owner, source?.draft.id])} shopping={shopping} source={source} /> :
       <View style={[ui.page, ui.content]}>
         <Text style={ui.body}>Connect Cheapo to check the shared catalog and record a shop price.</Text>
         <CameraActionButton label="Cheapo access" onPress={() => router.push('/cheapo-access')} />
@@ -32,13 +42,15 @@ export default function AddProductScreen() {
   </>;
 }
 
-function EnrolledAddProduct({ shopping }: { shopping: CheapoShoppingRuntime }) {
+function EnrolledAddProduct({ shopping, source }: { shopping: CheapoShoppingRuntime; source?: AddProductPhotoSource }) {
   const router = useRouter();
   const lookup = useAddProductLookup();
   const { shops, shopRepository, setShops, readError, retry } = useSavedShops();
   const [choosingShop, setChoosingShop] = useState(false);
-  const [photo, setPhoto] = useState<LocalPhotoDraft>();
-  const [ids] = useState(() => ({ sourceId: randomUUID(), productId: randomUUID(), catalogOperationId: randomUUID() }));
+  const [photo, setPhoto] = useState<LocalPhotoDraft | undefined>(source?.draft);
+  const [ids] = useState(() => ({ sourceId: source?.draft.id ?? randomUUID(), productId: randomUUID(), catalogOperationId: randomUUID() }));
+  const [permission, requestPermission] = useCameraPermissions();
+  const [scan, setScan] = useState<{ read: (barcode: string) => void }>();
   const active = useRef(true);
   const picking = useRef(false);
   const when = useRef<string | undefined>(undefined);
@@ -90,6 +102,8 @@ function EnrolledAddProduct({ shopping }: { shopping: CheapoShoppingRuntime }) {
   return <View style={ui.page}>
     <View style={choosingShop ? { display: 'none' } : ui.page}>
       <AddProductPriceReview shop={shop} shopCountry={photoShopCountry(shops?.currentShop?.address)} photo={photo} lookup={lookup} loadLatestPrice={loadLatestPrice}
+        initialReview={source?.details.review} initialBarcode={source?.details.barcode}
+        onScanBarcode={permission ? read => setScan({ read }) : undefined}
         onChooseShop={() => setChoosingShop(true)} onPickPhoto={() => { void pickPhoto(); }} onCancel={() => router.back()}
         onCompare={candidate => {
           if (candidate.kind === 'catalog') router.push({ pathname: '/find-product', params: { productId: candidate.product.id } });
@@ -102,5 +116,8 @@ function EnrolledAddProduct({ shopping }: { shopping: CheapoShoppingRuntime }) {
         <ShopLoadFeedback error={readError} onRetry={retry} />
         <CameraActionButton label="Back to price review" onPress={() => setChoosingShop(false)} />
       </View> : null}
+    {scan && permission ? <PhotoBarcodeScan permission={permission} requestPermission={requestPermission}
+      onRead={barcode => { setScan(undefined); scan.read(barcode); }}
+      onCancel={() => setScan(undefined)} onError={message => { setScan(undefined); Alert.alert('Camera unavailable', message); }} /> : null}
   </View>;
 }

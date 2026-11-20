@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import { Button } from 'react-native';
 
 import { ProductCandidateLookup, type ProductCandidateLookupProps } from '@/component/product-candidate-lookup';
 
@@ -60,4 +61,19 @@ test('an edit cancels an in-flight search and prevents stale matches appearing a
   expect(findCandidates.mock.calls[0][1].aborted).toBe(true);
   await act(async () => { request.resolve({ candidates: [catalog], truncated: false }); });
   expect(screen.queryByRole('button', { name: 'Compare Sample Rolled Oats' })).not.toBeOnTheScreen();
+});
+
+test('carries an applied product type and packaging details to Add after a checked miss', async () => {
+  const onContinueToPrice = jest.fn();
+  const findCandidates = jest.fn(async () => ({ candidates: [], truncated: false }));
+  await openSearch({ findCandidates, onCompare: jest.fn(), onContinueToPrice, renderIdentitySuggestions: apply =>
+      <Button title="Apply checked details" onPress={() => apply({ product: 'Rolled Oats', brand: 'Sample', variety: null,
+        packSize: '500 g', productType: 'Oats', uncertainty: '' })} /> });
+  await fireEvent.press(screen.getByRole('button', { name: 'Apply checked details' }));
+  await fireEvent.press(screen.getByRole('button', { name: 'Check catalog' }));
+  expect(findCandidates).toHaveBeenCalledWith({ name: 'Rolled Oats', brand: 'Sample', variety: '', packSize: '500 g' }, expect.any(AbortSignal));
+  expect(onContinueToPrice).not.toHaveBeenCalled();
+  await fireEvent.press(await screen.findByRole('button', { name: 'Add product' }));
+  expect(onContinueToPrice).toHaveBeenCalledWith({ review: { productName: 'Rolled Oats', brand: 'Sample',
+    variety: '', packSize: '500 g', productType: 'Oats' } });
 });

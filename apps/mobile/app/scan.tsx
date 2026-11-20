@@ -7,7 +7,7 @@ import { BarcodeScan } from "@/component/barcode-scan";
 import { useCheapoShopping } from "@/component/cheapo-shopping-provider";
 import { ShopChooser, ShopLoadFeedback } from "@/component/shop/shop-chooser";
 import { createOwnerShoppingReads } from "@/data/cheapo-shopping-read-device";
-import { productPhotoPriceSources } from "@/data/photo-price-source";
+import { addProductPhotoSources, productPhotoPriceSources } from "@/data/photo-price-source";
 import type { LocalPhotoDraft } from "@/data/local-photo";
 import { useSavedShops } from "@/hooks/use-saved-shops";
 import { photoShopCountry } from "@/lib/direct-auth/shop-country";
@@ -23,7 +23,10 @@ function ProductLookupScreen() {
   const shopping = useCheapoShopping();
   const activePhotoSource = useRef<string>(undefined);
   const clearPhotoSource = useCallback(() => {
-    if (activePhotoSource.current) productPhotoPriceSources.delete(activePhotoSource.current);
+    if (activePhotoSource.current) {
+      productPhotoPriceSources.delete(activePhotoSource.current);
+      addProductPhotoSources.delete(activePhotoSource.current);
+    }
     activePhotoSource.current = undefined;
   }, []);
   useEffect(() => clearPhotoSource, [clearPhotoSource, shopping]);
@@ -57,6 +60,12 @@ function ProductLookupScreen() {
     <CameraComponent productLookup={{ onCompare: (barcode, product, draft) => {
       router.push({ pathname: "/find-product", params: { barcode, photoSource: rememberPhotoSource(product.id, draft) } });
     },
+      onContinueToPrice: shopping ? (details, draft) => {
+        clearPhotoSource();
+        activePhotoSource.current = draft.id;
+        addProductPhotoSources.set(draft.id, { owner: shopping, draft, details });
+        router.push({ pathname: "/add-product", params: { photoSource: draft.id } });
+      } : undefined,
       onRetake: clearPhotoSource, candidateLookup }} />
   </>;
 }

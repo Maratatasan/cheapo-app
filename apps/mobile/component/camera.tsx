@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState, useEffect, type ReactNode } from "react";
 import type { PricePhotoSelection } from "@cheapo/domain/price-history";
+import type { AddProductPhotoDetails } from "@/data/photo-price-source";
 import type { Product } from "@cheapo/domain";
 import { randomUUID } from 'expo-crypto';
 import {
@@ -66,6 +67,7 @@ type BarcodeCapture = {
 
 export type CameraProductLookup = {
   onCompare: (barcode: string, product: Product, draft: LocalPhotoDraft) => void;
+  onContinueToPrice?: (details: AddProductPhotoDetails, draft: LocalPhotoDraft) => void;
   onRetake?: () => void;
   candidateLookup?: Omit<ProductCandidateLookupProps, 'onCompare'> & {
     onCompare: (candidate: ProductCandidate, draft: LocalPhotoDraft) => void;
@@ -488,6 +490,7 @@ export const CameraComponent = ({ currentShop, currentShopCountry, onScanBarcode
   if (draft && productLookup) return <PhotoProductLookup key={draft.id} photo={draft.original}
     decoded={decodedBarcodes?.draftId === draft.id ? decodedBarcodes.result : undefined}
     findProduct={findLookupProduct} onCompare={(code, product) => productLookup.onCompare(code, product, draft)} onRetake={retakePhoto}
+    onContinueToPrice={productLookup.onContinueToPrice ? details => productLookup.onContinueToPrice?.(details, draft) : undefined}
     candidateLookup={productLookup.candidateLookup ? {
       ...productLookup.candidateLookup,
       onCompare: candidate => productLookup.candidateLookup?.onCompare(candidate, draft),

@@ -5,6 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import type { PhotoAsset } from '@/data/local-photo';
 import type { PhotoBarcodeResult } from '@/data/photo-barcode';
+import type { AddProductPhotoDetails } from '@/data/photo-price-source';
 import { canonicalProductBarcode } from '@/data/product-barcode';
 import { CameraActionButton } from './camera-actions';
 import { PhotoBarcodeMissing, PhotoBarcodeReview } from './photo-barcode-review';
@@ -20,10 +21,11 @@ export type ProductPhotoLookupProps = {
   findProduct: (barcode: string, signal: AbortSignal) => Promise<Product | undefined>;
   onCompare: (barcode: string, product: Product) => void;
   onRetake: () => void;
+  onContinueToPrice?: (details: AddProductPhotoDetails) => void;
   candidateLookup?: ProductCandidateLookupProps;
 };
 
-export function PhotoProductLookup({ photo, decoded, findProduct, onCompare, onRetake, candidateLookup }: ProductPhotoLookupProps) {
+export function PhotoProductLookup({ photo, decoded, findProduct, onCompare, onRetake, candidateLookup, onContinueToPrice }: ProductPhotoLookupProps) {
   const [value, setValue] = useState('');
   const [check, setCheck] = useState<Check>({ kind: 'entry' });
   const interacted = useRef(false);
@@ -81,7 +83,12 @@ export function PhotoProductLookup({ photo, decoded, findProduct, onCompare, onR
         busy={false} checking={check.kind === 'checking'} confirmLabel={check.kind === 'unavailable' ? 'Retry barcode lookup' : 'Find product'}
         confirmedLabel="Barcode checked" error={error} onChange={changeBarcode} onClear={() => changeBarcode('')}
         onConfirm={() => { void checkBarcode(value); }}>
-        {check.kind === 'missing' ? <PhotoBarcodeMissing /> : null}
+        {check.kind === 'missing' ? <>
+          <PhotoBarcodeMissing />
+          {onContinueToPrice ? <CameraActionButton label="Add using this barcode" onPress={() => onContinueToPrice({ barcode: value })} /> : null}
+        </> : null}
+        {check.kind === 'unavailable' && onContinueToPrice ?
+          <CameraActionButton label="Use barcode in price review" onPress={() => onContinueToPrice({ barcode: value })} /> : null}
         {check.kind === 'known' ? <View style={styles.result}>
           <Text style={ui.small}>Matching saved product</Text>
           <Text accessibilityRole="header" style={ui.title}>{check.product.name}</Text>
@@ -90,6 +97,7 @@ export function PhotoProductLookup({ photo, decoded, findProduct, onCompare, onR
       </PhotoBarcodeReview>
       {candidateLookup ? <View style={showCandidateLookup ? undefined : styles.hidden}>
         <ProductCandidateLookup {...candidateLookup}
+          onContinueToPrice={onContinueToPrice && (details => onContinueToPrice({ ...details, barcode: value || undefined }))}
           renderIdentitySuggestions={showCandidateLookup ? candidateLookup.renderIdentitySuggestions : undefined} />
       </View> : null}
     </ScrollView>

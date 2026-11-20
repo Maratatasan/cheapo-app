@@ -54,3 +54,14 @@ export const SaveDraftWhenUnavailable: Story = {
     await expect(args.onSubmit).not.toHaveBeenCalled();
   },
 };
+
+export const ScanBarcodeForAdd: Story = {
+  args: { initialBarcode: '', initialReview: { productName: 'Whole rolled oats' },
+    onScanBarcode: fn(read => read('036000291452')) },
+  play: async ({ args, canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole('button', { name: 'Scan barcode' }));
+    await expect(canvas.getByLabelText('Product barcode (optional)')).toHaveValue('036000291452');
+    await expect(canvas.getByLabelText('Product name')).toHaveValue('Whole rolled oats');
+    await expect(args.onSubmit).not.toHaveBeenCalled();
+  },
+};
