@@ -17,7 +17,7 @@ import { addProductPhotoSources, type AddProductPhotoSource } from '@/data/photo
 import type { CheapoShoppingRuntime } from '@/data/shopping-sync-runtime';
 import { useAddProductLookup } from '@/hooks/use-add-product-lookup';
 import { useSavedShops } from '@/hooks/use-saved-shops';
-import { choosePhoto } from '@/lib/choose-photo';
+import { choosePhoto, takePhoto } from '@/lib/choose-photo';
 import { photoShopCountry } from '@/lib/direct-auth/shop-country';
 import { fieldCheapoApiOrigin } from '@/lib/cheapo-access/config';
 
@@ -67,12 +67,17 @@ function EnrolledAddProduct({ shopping, source }: { shopping: CheapoShoppingRunt
     return currentPrice ?? (history.cached || history.unavailable || history.hasMore ? undefined : null);
   }, [shopping]);
 
-  async function pickPhoto() {
+  async function pickPhoto(source: 'camera' | 'library') {
     if (picking.current) return;
     picking.current = true;
     try {
-      const asset = await choosePhoto();
-      if (active.current && asset) setPhoto({ id: ids.sourceId, capturedAt: new Date().toISOString(), original: asset, selected: asset });
+      const asset = await (source === 'camera' ? takePhoto() : choosePhoto());
+      if (!active.current || !asset) return;
+      if (asset === 'camera-denied') {
+        Alert.alert('Camera access is off', 'You can choose an existing photo or enter details manually.');
+        return;
+      }
+      setPhoto({ id: ids.sourceId, capturedAt: new Date().toISOString(), original: asset, selected: asset });
     } catch {
       if (active.current) Alert.alert('Photo unavailable', 'Keep entering details manually or choose another photo.');
     } finally { picking.current = false; }
@@ -104,7 +109,8 @@ function EnrolledAddProduct({ shopping, source }: { shopping: CheapoShoppingRunt
       <AddProductPriceReview shop={shop} shopCountry={photoShopCountry(shops?.currentShop?.address)} photo={photo} lookup={lookup} loadLatestPrice={loadLatestPrice}
         initialReview={source?.details.review} initialBarcode={source?.details.barcode}
         onScanBarcode={permission ? read => setScan({ read }) : undefined}
-        onChooseShop={() => setChoosingShop(true)} onPickPhoto={() => { void pickPhoto(); }} onCancel={() => router.back()}
+        onChooseShop={() => setChoosingShop(true)} onPickPhoto={() => { void pickPhoto('library'); }}
+        onTakePhoto={() => { void pickPhoto('camera'); }} onCancel={() => router.back()}
         onCompare={candidate => {
           if (candidate.kind === 'catalog') router.push({ pathname: '/find-product', params: { productId: candidate.product.id } });
           else router.push({ pathname: '/compare/[id]', params: { id: candidate.observationId, source: 'shared' } });

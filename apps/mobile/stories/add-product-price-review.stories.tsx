@@ -65,3 +65,15 @@ export const ScanBarcodeForAdd: Story = {
     await expect(args.onSubmit).not.toHaveBeenCalled();
   },
 };
+
+export const TakePhotoForAdd: Story = {
+  args: { initialReview: { productName: 'Whole rolled oats', price: '3.19' },
+    onTakePhoto: fn(), onPickPhoto: fn() },
+  play: async ({ args, canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole('button', { name: 'Take photo' }));
+    await expect(args.onTakePhoto).toHaveBeenCalledOnce();
+    await expect(args.onPickPhoto).not.toHaveBeenCalled();
+    await expect(canvas.getByLabelText('Product name')).toHaveValue('Whole rolled oats');
+    await expect(args.onSubmit).not.toHaveBeenCalled();
+  },
+};
