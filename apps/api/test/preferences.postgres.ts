@@ -467,3 +467,63 @@ test('keeps a barcode unique across concurrent catalog creation and correction',
   const returnedProduct = (winner.body as { product: { id: string } }).product;
   assert.deepEqual(agreed.body, { product: returnedProduct });
 });
+
+test('versions shared branch edits and household nicknames without exposing other saved names', async () => {
+  const id = 'versioned-market';
+  const path = `/${id}`;
+  await savedShopRequest('A', path, 'PUT', { name: 'Market Road', nickname: 'First name', select: true });
+  await savedShopRequest('C', path, 'PUT', { name: 'Market Road', nickname: 'Second home only' });
+  const before = await savedShopRequest('A', path);
+  assert.equal(before.status, 200);
+  const initial = before.body as { version: string };
+  const other = (await savedShopRequest('C', path)).body as { version: string };
+  const update = { operationId: 'revise-market-address', expectedVersion: initial.version, details: { address: '12 Market Road' } };
+  const results = await Promise.all([savedShopRequest('B', path, 'PATCH', update), savedShopRequest('B', path, 'PATCH', update)]);
+  assert.deepEqual(results.map(result => result.status), [200, 200]);
+  assert.deepEqual(results[0], results[1]);
+  const committed = results[0].body as { version: string; shop: { nickname: string; address: string } };
+  assert.notEqual(committed.version, initial.version);
+  assert.equal(committed.shop.nickname, 'First name');
+  assert.equal(committed.shop.address, '12 Market Road');
+
+  const stale = await savedShopRequest('C', path, 'PATCH', {
+    operationId: 'other-market-edit', expectedVersion: other.version, details: { name: 'Other edit' },
+  });
+  assert.equal(stale.status, 409);
+  const conflict = stale.body as { error: string; currentVersion: string; current: { nickname: string } };
+  assert.equal(conflict.error, 'version_conflict');
+  assert.equal(conflict.current.nickname, 'Second home only');
+
+  const nicknameEdit = await savedShopRequest('A', path, 'PATCH', {
+    operationId: 'revise-market-nickname', expectedVersion: committed.version, details: { nickname: 'Our market' },
+  });
+  assert.equal(nicknameEdit.status, 200);
+  const selected = (await savedShopRequest('A')).body as { currentShop: object };
+  assert.deepEqual(selected.currentShop, { id, name: 'Market Road', address: '12 Market Road', nickname: 'Our market' });
+  assert.deepEqual(await savedShopRequest('C', path), { status: 200,
+    body: { version: conflict.currentVersion, shop: { id, name: 'Market Road', address: '12 Market Road', nickname: 'Second home only' } } });
+  assert.deepEqual(await savedShopRequest('B', path, 'PATCH', update), results[0]);
+  assert.deepEqual(await savedShopRequest('B', path, 'PATCH', { ...update, details: { address: 'Wrong address' } }),
+    { status: 409, body: { error: 'operation_conflict' } });
+  const { rows } = await pool.query(`
+    SELECT actor_shopper_id, before_state, after_state FROM cheapo.saved_shop_revision
+    WHERE household_id = $1 AND shop_id = $2 ORDER BY recorded_at
+  `, [household, id]);
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].actor_shopper_id, sam);
+  assert.equal(rows[1].actor_shopper_id, alex);
+  assert.equal(rows[0].before_state.shop.address, undefined);
+  assert.equal(rows[1].before_state.shop.nickname, 'First name');
+
+  const last = (nicknameEdit.body as { version: string }).version;
+  assert.equal((await savedShopRequest('A', path, 'PATCH', { nickname: 'Legacy update' })).status, 200);
+  const legacyDetail = (await savedShopRequest('A', path)).body as { version: string };
+  assert.notEqual(legacyDetail.version, last);
+  assert.equal((await savedShopRequest('A', path, 'DELETE')).status, 200);
+  assert.equal((await savedShopRequest('B', path)).status, 404);
+  assert.equal((await savedShopRequest('B', path, 'PUT', { name: 'Market Road', nickname: 'Relinked' })).status, 200);
+  assert.equal((await savedShopRequest('A', path, 'PATCH', {
+    operationId: 'stale-before-relink', expectedVersion: legacyDetail.version, details: { nickname: 'Old device' },
+  })).status, 409);
+  assert.equal((await savedShopRequest('D', path, 'PATCH', update)).status, 403);
+});

@@ -192,3 +192,22 @@ test('a restricted login corrects canonical fields without rewriting product rev
     await assert.rejects(runtime.query(sql), { code: '42501' });
   }
 });
+
+test('restricted shop corrections preserve private prior names and immutable audit rows', async () => {
+  const path = '/v1/me/saved-shops/runtime-versioned-shop';
+  assert.equal((await request(path, 'A', 'PUT', { name: 'First shop' })).status, 200);
+  assert.equal((await request(path, 'B')).status, 404);
+  const detail = await request(path, 'A');
+  const { version } = await detail.json() as { version: string };
+  const edit = { operationId: 'scoped-edit-shop', expectedVersion: version, details: { name: 'Corrected shop', nickname: 'Home only' } };
+  assert.equal((await request(path, 'A', 'PATCH', edit)).status, 200);
+  assert.equal((await request(path, 'B', 'PATCH', edit)).status, 404);
+  for (const sql of [
+    'UPDATE cheapo.shop SET location = NULL',
+    'SELECT before_state FROM cheapo.saved_shop_revision',
+    "UPDATE cheapo.saved_shop_revision SET after_state = '{}'::jsonb",
+    'DELETE FROM cheapo.saved_shop_revision',
+  ]) {
+    await assert.rejects(runtime.query(sql), { code: '42501' });
+  }
+});
