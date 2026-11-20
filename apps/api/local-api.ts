@@ -10,6 +10,7 @@ import { postgresPreferences } from './postgres.ts';
 import { createPreferencesHandler } from './preferences.ts';
 import { createPriceHistoryHandler, isPriceHistoryPath } from './price-history.ts';
 import { createSavedShopHandler, isSavedShopPath } from './saved-shops.ts';
+import { createShoppingIdentityHandler } from './shopping-identity.ts';
 
 function localTransaction(pool: Pool): ShoppingTransaction {
   return async run => {
@@ -35,8 +36,10 @@ export function createShoppingApi({ query, transaction }: {
   const shops = createSavedShopHandler(postgresSavedShops(transaction));
   const catalog = createCatalogHandler(postgresCatalog(transaction));
   const prices = createPriceHistoryHandler(postgresPriceHistory(transaction), postgresPriceAppend(transaction));
+  const identity = createShoppingIdentityHandler(query);
   return (request: Request) => {
     const path = new URL(request.url).pathname;
+    if (path === '/v1/me') return identity(request);
     if (isSavedShopPath(path)) return shops(request);
     if (isCatalogPath(path)) return catalog(request);
     if (isPriceHistoryPath(path)) return prices(request);

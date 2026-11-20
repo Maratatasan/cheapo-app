@@ -34,6 +34,7 @@ before(async () => {
     ['C', household, anotherShopper, 'open'],
     ['D', household, shopper, 'expired'],
     ['E', household, shopper, 'revoked'],
+    ['F', household, shopper, 'open'],
   ]) {
     await operator.query(`
       INSERT INTO cheapo.shopper_credential (token_digest, household_id, shopper_id, issued_at, expires_at, revoked_at)
@@ -56,6 +57,25 @@ function request(path: string, letter: string, method = 'GET', body?: object) {
     body: body === undefined ? undefined : JSON.stringify(body),
   }));
 }
+
+test('runtime resolves only the active credential owner and keeps their identity across rotation', async () => {
+  for (const letter of ['A', 'F']) {
+    const owner = await request('/v1/me', letter);
+    assert.equal(owner.status, 200);
+    assert.equal(owner.headers.get('Cache-Control'), 'no-store');
+    assert.deepEqual(await owner.json(), { householdId: household, shopperId: shopper });
+  }
+  const other = await request('/v1/me', 'B');
+  assert.equal(other.status, 200);
+  assert.deepEqual(await other.json(), { householdId: anotherHousehold, shopperId: anotherShopper });
+  for (const letter of ['D', 'E', 'Z']) assert.equal((await request('/v1/me', letter)).status, 401);
+  assert.equal((await api(new Request('http://localhost/v1/me'))).status, 401);
+  assert.equal((await request('/v1/me', 'C')).status, 403);
+  assert.equal((await request(`/v1/me?householdId=${anotherHousehold}`, 'A')).status, 400);
+  const mutation = await request('/v1/me', 'A', 'POST', { shopperId: anotherShopper });
+  assert.equal(mutation.status, 405);
+  assert.equal(mutation.headers.get('Allow'), 'GET');
+});
 
 test('runtime denies invalid credentials and limits a valid shop operation to its household', async () => {
   for (const letter of ['D', 'E', 'Z']) assert.equal((await request(first, letter, 'DELETE')).status, 401);
