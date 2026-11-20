@@ -13,7 +13,7 @@ import { applyShoppingImport } from '../shopping-import.ts';
 
 const host = process.env.CHEAPO_TEST_PG_SOCKET;
 if (!host) throw new Error('Run with pnpm --filter @cheapo/api test:postgres.');
-const pool = new Pool({ host, port: 5432, user: 'cheapo_test', database: 'postgres', ssl: false });
+const pool = new Pool({ host, port: Number(process.env.CHEAPO_TEST_PG_PORT), user: 'cheapo_test', database: 'postgres', ssl: false });
 const householdId = '00000000-0000-4000-8000-000000000100';
 const shopperId = '00000000-0000-4000-8000-000000000200';
 const owner = { householdId, shopperId };
@@ -78,7 +78,7 @@ test('restores prices, catalog history, private shop state, and both photo refer
   const receipt = await applyShoppingImport(pool, owner, snapshot, ensurePhoto);
   const { stdout } = await promisify(execFile)(process.execPath,
     ['import-shopping-local.ts', directory, objects, householdId, shopperId], {
-      env: { ...process.env, PGHOST: host, PGPORT: '5432', PGDATABASE: 'postgres', PGUSER: 'cheapo_test' },
+      env: { ...process.env, PGHOST: host, PGPORT: process.env.CHEAPO_TEST_PG_PORT, PGDATABASE: 'postgres', PGUSER: 'cheapo_test' },
     });
   assert.deepEqual(JSON.parse(stdout), receipt);
   const prices = await pool.query(`SELECT id, product_id, shop_id, captured_at, price_amount, currency,
