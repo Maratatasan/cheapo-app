@@ -70,16 +70,26 @@ type SavedPriceHistoryListProps = {
 };
 
 export function SavedPriceHistoryPane({ detail, ...list }: SavedPriceHistoryListProps & { detail?: ReactElement }) {
-  return detail ?? <SavedPriceHistoryList {...list} />;
+  const covered = Boolean(detail);
+  return <View style={ui.page}>
+    {/* Keep the native scroll view laid out while its detail is open. */}
+    <View style={ui.page} pointerEvents={covered ? 'none' : 'auto'} aria-hidden={covered}
+      accessibilityElementsHidden={covered} importantForAccessibility={covered ? 'no-hide-descendants' : 'auto'}>
+      <SavedPriceHistoryList {...list} active={!covered} />
+    </View>
+    {detail ? <View style={[StyleSheet.absoluteFill, ui.page]}>{detail}</View> : null}
+  </View>;
 }
 
-export function SavedPriceHistoryList({ rows, changes, onOpen, loadSharedThumbnail, header, empty, footer }: SavedPriceHistoryListProps) {
+export function SavedPriceHistoryList({ rows, changes, onOpen, loadSharedThumbnail, header, empty, footer, active = true }:
+  SavedPriceHistoryListProps & { active?: boolean }) {
   const [visibleKeys, setVisibleKeys] = useState<ReadonlySet<string>>(new Set());
   const onViewableItemsChanged = useCallback(({ viewableItems }: { viewableItems: readonly { key: string }[] }) => {
     setVisibleKeys(new Set(viewableItems.map(item => item.key)));
   }, []);
 
   return <FlatList viewabilityConfig={cardViewability} onViewableItemsChanged={onViewableItemsChanged} extraData={visibleKeys}
+    scrollEnabled={active}
     style={ui.page} contentContainerStyle={ui.content} data={rows} keyExtractor={row => row.key}
     ListHeaderComponent={header} ListEmptyComponent={empty} ListFooterComponent={footer}
     renderItem={({ item }) => {
@@ -89,7 +99,7 @@ export function SavedPriceHistoryList({ rows, changes, onOpen, loadSharedThumbna
           <Pressable accessibilityRole="button" accessibilityLabel={`Open ${display.productName ?? 'shared price'}`}
             onPress={() => onOpen(item)} style={[ui.card, styles.card]}>
             {loadSharedThumbnail ? <SharedPriceThumbnail observation={item.observation} changes={changes}
-              visible={visibleKeys.has(item.key)} load={loadSharedThumbnail} /> : null}
+              visible={active && visibleKeys.has(item.key)} load={loadSharedThumbnail} /> : null}
             <View style={styles.details}>
               <Text style={styles.name}>{display.productName ?? 'Shared price'}</Text>
               {display.shopDisplayName ? <Text style={ui.body}>{display.shopDisplayName}</Text> : null}
