@@ -3,9 +3,10 @@ import { BarcodeScan } from '@/component/barcode-scan';
 import type { CameraComponent } from '@/component/camera';
 import { addLocalProduct, findLocalProductByBarcode, replaceLocalProductBarcode } from '@/data/local-products';
 import { emptyReview } from '@/data/photo-review';
-import { loadSavedPriceRecords, saveManualPrice, type LocalPhotoDraft } from '@/data/local-photo';
+import { loadSavedPriceRecords, saveManualPrice, type LocalPhotoDraft, type ManualPriceRecord } from '@/data/local-photo';
 
 const mockPush = jest.fn();
+const mockUseCheapoShopping = jest.fn();
 const mockCameraProps = jest.fn<unknown, [Parameters<typeof CameraComponent>[0]]>();
 jest.mock('expo-router', () => ({
   useRouter: () => ({ push: mockPush }),
@@ -20,6 +21,7 @@ jest.mock('expo-camera', () => ({
 }));
 jest.mock('@/data/local-products', () => ({ addLocalProduct: jest.fn(), findLocalProductByBarcode: jest.fn(), replaceLocalProductBarcode: jest.fn() }));
 jest.mock('@/data/local-photo', () => ({ loadSavedPriceRecords: jest.fn(), saveManualPrice: jest.fn() }));
+jest.mock('@/component/cheapo-shopping-provider', () => ({ useCheapoShopping: () => mockUseCheapoShopping() }));
 jest.mock('@/component/camera', () => ({ CameraComponent: (props: Parameters<typeof CameraComponent>[0]) => {
   const { Button } = require('react-native');
   mockCameraProps(props);
@@ -38,6 +40,7 @@ const row = (id: string, shop: string, variety: string, brand: string, price: st
 
 beforeEach(() => {
   jest.resetAllMocks();
+  mockUseCheapoShopping.mockReturnValue(null);
 });
 
 async function scan(data = '012345678905') {
@@ -211,6 +214,37 @@ test('keeps entered details after a failed manual save and retries the same reco
   await fireEvent.press(screen.getByRole('button', { name: 'Save Price' }));
   expect(screen.getByTestId('barcode-preview')).toBeOnTheScreen();
   expect(jest.mocked(saveManualPrice).mock.calls.map(([record]) => record.id)).toEqual(['manual-price-id', 'manual-price-id']);
+});
+
+test('saves one reviewed price durably for the enrolled shopper and reopens it before upload', async () => {
+  jest.mocked(findLocalProductByBarcode).mockResolvedValue(product);
+  let saved: ManualPriceRecord | undefined;
+  const saveManual = jest.fn<Promise<ManualPriceRecord>, [ManualPriceRecord]>()
+    .mockRejectedValueOnce(Error('Could not commit the local price'))
+    .mockImplementation(async record => { saved = record; return record; });
+  const retry = jest.fn(async () => { expect(saved).toBeDefined(); });
+  const loadAll = jest.fn(async () => saved ? [saved] : []);
+  mockUseCheapoShopping.mockReturnValue({ priceRecords: { saveManual, loadAll }, retry });
+  await render(<BarcodeScan currentShop={currentShop} onScanLabel={jest.fn()} />);
+  await scan();
+  await fireEvent.press(screen.getByRole('button', { name: 'Add price' }));
+  await fireEvent.changeText(screen.getByLabelText('Pack price'), '1.95');
+  await fireEvent.press(screen.getByRole('button', { name: 'Save Price' }));
+  expect(await screen.findByRole('alert')).toHaveTextContent(/Could not save this price/);
+  expect(screen.getByLabelText('Pack price')).toHaveDisplayValue('1.95');
+  expect(retry).not.toHaveBeenCalled();
+
+  await fireEvent.press(screen.getByRole('button', { name: 'Save Price' }));
+  expect(saveManual.mock.calls[1][0]).toEqual(saveManual.mock.calls[0][0]);
+  expect(saved).toMatchObject({ id: 'manual-price-id', productId: product.id, shop: currentShop, review: { price: '1.95' } });
+  expect(retry).toHaveBeenCalledTimes(1);
+  expect(saveManualPrice).not.toHaveBeenCalled();
+  expect(screen.getByText('Saved on this phone · Waiting to sync')).toBeOnTheScreen();
+
+  await scan();
+  expect(screen.getByText('£1.95 pack')).toBeOnTheScreen();
+  expect(screen.queryByText('Saved on this phone · Waiting to sync')).not.toBeOnTheScreen();
+  expect(loadSavedPriceRecords).not.toHaveBeenCalled();
 });
 
 test('returns to scanning after save and finds the same product on rescan', async () => {
