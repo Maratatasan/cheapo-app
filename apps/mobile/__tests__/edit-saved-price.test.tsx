@@ -21,6 +21,8 @@ const mockSavePhoto = jest.fn();
 const mockSaveManual = jest.fn();
 const mockSubscribeClear = jest.fn();
 const mockDecodePhoto = jest.fn();
+const mockPresentationPhotos = jest.fn();
+const mockChooseProductPhoto = jest.fn();
 const mockRuntime = {
   owner: { origin: 'https://api.example.test', householdId: 'test-household', shopperId: 'test-shopper' },
   assertOwner: mockAssertOwner, commitMutation: mockEnqueue,
@@ -44,6 +46,8 @@ jest.mock('../data/cheapo-shopping-read-device', () => ({ openCheapoSavedPriceRe
   loadPriceObservation: mockObservation, assertCurrent: mockReadCurrent, loadSelectedPhoto: mockSelectedPhoto, loadPriceHistory: mockHistory,
 }) }));
 jest.mock('../data/cheapo-shopping-read-cache', () => ({ cheapoShoppingReadCache: { subscribeClear: (...args: unknown[]) => mockSubscribeClear(...args) } }));
+jest.mock('../data/product-presentation-photos-device', () => ({ openProductPresentationPhotos: (...args: unknown[]) => mockPresentationPhotos(...args) }));
+jest.mock('../lib/choose-product-photo', () => ({ chooseProductPhoto: (...args: unknown[]) => mockChooseProductPhoto(...args) }));
 jest.mock('expo-camera', () => ({ useCameraPermissions: () => [null, jest.fn()] }));
 jest.mock('../data/photo-barcode', () => ({ decodePhotoBarcodes: (...args: unknown[]) => mockDecodePhoto(...args) }));
 jest.mock('../data/local-products', () => ({ findLocalProductByBarcode: jest.fn(), findLocalProductById: jest.fn() }));
@@ -67,6 +71,7 @@ beforeEach(() => {
   mockSavePhoto.mockImplementation(async record => ({ record, pending: 'waiting' }));
   mockSaveManual.mockResolvedValue(undefined);
   mockSubscribeClear.mockReturnValue(() => {});
+  mockPresentationPhotos.mockReturnValue({ read: jest.fn().mockResolvedValue({ status: 'missing' }), prepare: jest.fn(), replace: jest.fn() });
   mockDecodePhoto.mockResolvedValue({ status: 'found', codes: ['036000291452', '4006381333931'] });
   jest.mocked(findLocalProductById).mockResolvedValue(undefined);
   mockRoute = { id: 'capture-1' };
@@ -96,6 +101,8 @@ test('durably corrects the exact household record and disregards a matching loca
   mockEnqueue.mockReturnValue(new Promise<void>(resolve => { commit = resolve; }));
   await render(<EditSavedPrice />);
   expect(await screen.findByLabelText('Product name')).toHaveDisplayValue('Peer rice');
+  expect(screen.getByText('Link an exact product before adding its shared photo.')).toBeOnTheScreen();
+  expect(mockPresentationPhotos).not.toHaveBeenCalled();
   expect(screen.getByLabelText('Pack price')).toHaveDisplayValue('1.69');
   await fireEvent.changeText(screen.getByLabelText('Pack price'), '2.10');
   await fireEvent.press(screen.getByRole('button', { name: 'Save changes' }));
@@ -107,6 +114,32 @@ test('durably corrects the exact household record and disregards a matching loca
   await act(async () => { commit(); });
   expect(mockBack).toHaveBeenCalledTimes(1);
   expect(mockRetry).toHaveBeenCalledTimes(1);
+  expect(saveLocalPhotoReview).not.toHaveBeenCalled();
+});
+
+test('changes the linked product photo without saving the typed price or changing its evidence', async () => {
+  mockShopping = mockRuntime;
+  const linked = { ...product, productId: 'exact-catalog-rice' };
+  mockQueued.mockResolvedValue({ entries: [{ record: linked }], recovery: [] });
+  mockLoad.mockResolvedValue(linked);
+  mockCatalog.mockReturnValue({ findById: jest.fn().mockResolvedValue({ id: linked.productId, name: review.productName,
+    catalogBase: { kind: 'version', version: 3 } }) });
+  const chosen = { ...photo, uri: 'file:///separate-display-photo.jpg' };
+  const plan = { productId: linked.productId, operationId: 'product-photo-operation' };
+  const photoAdapter = { read: jest.fn().mockResolvedValue({ status: 'missing' }), prepare: jest.fn().mockResolvedValue(plan),
+    replace: jest.fn().mockResolvedValue({ status: 'available', version: 1 }) };
+  mockPresentationPhotos.mockReturnValue(photoAdapter);
+  mockChooseProductPhoto.mockResolvedValue(chosen);
+  await render(<EditSavedPrice />);
+  await fireEvent.changeText(await screen.findByLabelText('Pack price'), '2.40');
+  await fireEvent.press(await screen.findByRole('button', { name: 'Change product photo', disabled: false }));
+  await fireEvent.press(screen.getByRole('button', { name: 'Choose from phone' }));
+  await fireEvent.press(await screen.findByRole('button', { name: 'Save product photo' }));
+  expect(await screen.findByText('Product photo saved.')).toBeOnTheScreen();
+  expect(photoAdapter.prepare).toHaveBeenCalledWith(linked.productId, 0, chosen, expect.any(AbortSignal));
+  expect(screen.getByLabelText('Price photo preview')).toHaveProp('source', { uri: photo.uri });
+  expect(screen.getByLabelText('Pack price')).toHaveDisplayValue('2.40');
+  expect(mockEnqueue).not.toHaveBeenCalled();
   expect(saveLocalPhotoReview).not.toHaveBeenCalled();
 });
 
