@@ -30,7 +30,7 @@ async function sendAppend(post: Awaited<ReturnType<OpenSession>>['post'], body: 
 export function createPriceAppendSync(queue: PriceAppendQueue, openSession: OpenSession) {
   async function synchronize(): Promise<SyncResult> {
     const { entries, recovery } = await queue.read();
-    const pending = entries.filter(entry => !entry.receipt);
+    const pending = entries.flatMap(({ record, body, receipt }) => body && !receipt ? [{ sourceId: record.id, body }] : []);
     if (!pending.length) return recovery.length ? 'failed' : 'complete';
 
     const { owner, post } = await openSession();
@@ -46,7 +46,7 @@ export function createPriceAppendSync(queue: PriceAppendQueue, openSession: Open
           failed = true;
           continue;
         }
-        await queue.acknowledge(entry.record.id, receipt);
+        await queue.acknowledge(entry.sourceId, receipt);
       } catch (error) {
         if (error instanceof CheapoAccessError) return 'blocked';
         // A lost reply or interrupted acknowledgement leaves the original intent.
