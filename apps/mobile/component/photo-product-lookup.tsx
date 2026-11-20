@@ -8,6 +8,7 @@ import type { PhotoBarcodeResult } from '@/data/photo-barcode';
 import { canonicalProductBarcode } from '@/data/product-barcode';
 import { CameraActionButton } from './camera-actions';
 import { PhotoBarcodeMissing, PhotoBarcodeReview } from './photo-barcode-review';
+import { ProductCandidateLookup, type ProductCandidateLookupProps } from './product-candidate-lookup';
 import { color, spacing, ui } from './results/theme';
 
 type Check = { kind: 'entry' } | { kind: 'checking' } | { kind: 'invalid' } | { kind: 'unavailable' }
@@ -19,9 +20,10 @@ export type ProductPhotoLookupProps = {
   findProduct: (barcode: string, signal: AbortSignal) => Promise<Product | undefined>;
   onCompare: (barcode: string, product: Product) => void;
   onRetake: () => void;
+  candidateLookup?: ProductCandidateLookupProps;
 };
 
-export function PhotoProductLookup({ photo, decoded, findProduct, onCompare, onRetake }: ProductPhotoLookupProps) {
+export function PhotoProductLookup({ photo, decoded, findProduct, onCompare, onRetake, candidateLookup }: ProductPhotoLookupProps) {
   const [value, setValue] = useState('');
   const [check, setCheck] = useState<Check>({ kind: 'entry' });
   const interacted = useRef(false);
@@ -72,7 +74,7 @@ export function PhotoProductLookup({ photo, decoded, findProduct, onCompare, onR
     : check.kind === 'unavailable' ? 'Could not check this barcode. Try again.' : undefined;
 
   return <View style={ui.page}>
-    <ScrollView style={ui.page} contentContainerStyle={ui.content} keyboardShouldPersistTaps="handled">
+    <ScrollView style={ui.page} contentContainerStyle={ui.content} automaticallyAdjustKeyboardInsets keyboardShouldPersistTaps="handled">
       <Image accessibilityLabel="Product photo" source={{ uri: photo.uri }} resizeMode="contain" style={styles.photo} />
       <PhotoBarcodeReview result={decoded} value={value} confirmed={check.kind === 'known' || check.kind === 'missing'}
         busy={false} checking={check.kind === 'checking'} confirmLabel={check.kind === 'unavailable' ? 'Retry barcode lookup' : 'Find product'}
@@ -85,6 +87,9 @@ export function PhotoProductLookup({ photo, decoded, findProduct, onCompare, onR
           <CameraActionButton primary label="Compare saved prices" onPress={() => onCompare(check.barcode, check.product)} />
         </View> : null}
       </PhotoBarcodeReview>
+      {candidateLookup ? <View style={check.kind === 'known' || check.kind === 'checking' ? styles.hidden : undefined}>
+        <ProductCandidateLookup {...candidateLookup} />
+      </View> : null}
     </ScrollView>
     <SafeAreaView edges={['bottom']} style={styles.actions}>
       <CameraActionButton label="Retake photo" onPress={onRetake} />
@@ -96,4 +101,5 @@ const styles = StyleSheet.create({
   photo: { width: '100%', height: 220, backgroundColor: color.mint, borderRadius: 12 },
   result: { gap: spacing.sm },
   actions: { padding: spacing.md, borderTopWidth: 1, borderColor: color.line },
+  hidden: { display: 'none' },
 });

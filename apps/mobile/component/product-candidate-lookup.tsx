@@ -1,8 +1,9 @@
+import { reviewedPackParts } from '@cheapo/domain/package-measures';
 import { useEffect, useRef, useState } from 'react';
 import { Keyboard, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import type { ProductCandidate, ProductCandidateSearch } from '@/data/cheapo-shopping-reads';
-import { packSizeMaxLength, productPackFromText } from '@/data/photo-review';
+import { packSizeMaxLength } from '@/data/photo-review';
 import { productMetadataMaxLength } from '@/data/product-metadata';
 import { CameraActionButton } from './camera-actions';
 import { color, radius, spacing, typography, ui } from './results/theme';
@@ -46,7 +47,9 @@ export function ProductCandidateLookup({ findCandidates, onCompare }: ProductCan
       setState({ kind: 'error', message: 'Enter product details using letters or numbers.' });
       return;
     }
-    if (packSize.trim() && !productPackFromText(packSize)) {
+    const pack = reviewedPackParts(packSize);
+    const quantity = pack && pack.count * Number(pack.quantity);
+    if (packSize.trim() && (!quantity || !Number.isFinite(quantity))) {
       setState({ kind: 'error', message: 'Enter a pack quantity and unit, or clear the pack size.' });
       return;
     }
