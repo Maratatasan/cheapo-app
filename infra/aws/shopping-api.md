@@ -2,7 +2,9 @@
 
 The prepared stack serves the same shopping routes as the local PostgreSQL
 service. HTTP API forwards only `/v1/*` to an on-demand Node.js Lambda. The app
-validates the device bearer credential and household access. Lambda uses the
+validates the device bearer credential and household access. The gateway
+adapter caps request metadata at 256 KiB before app routing. Photo bytes use
+separate object transfer. Lambda uses the
 Aurora Data API and stays outside the private database network. The cluster
 and photo bucket retain their existing network and public access rules.
 
@@ -62,34 +64,5 @@ Migrations, deployed Data API behavior, restored records, and the Pixel
 connection each require their own verification. Local proxy tests and
 CloudFormation validation cannot verify a live request.
 
-## Planning estimate
-
-At 10,000 HTTP requests per month, an average half-second request on a 256 MB
-ARM function, six metered Aurora Data API units per request, one secret with
-up to six reads per request, and 10 MB of logs, the estimated incremental API
-cost is **US$0.76 per month** before credits and tax.
-
-| Usage | Monthly estimate |
-| --- | ---: |
-| HTTP API requests | $0.011 |
-| Lambda requests and compute | $0.019 |
-| Aurora Data API calls | $0.024 |
-| One secret and up to 60,000 reads | $0.700 |
-| Logs, including short retention | $0.005 |
-
-Data API metering counts 32 KB units. Results larger than a unit can cost
-more. This estimate excludes Aurora writer awake time, database and S3
-storage, photo requests and transfer, artifact storage, and shared charges
-from outside this workload. The pause setting stays at 15 minutes. Separate
-cold sessions can keep the writer awake after each shopper visit. As an
-example, 40 distinct 15-minute idle tails at 0.5 ACU and US$0.14 per ACU-hour
-cost about US$0.70, plus active database time. The full monthly bill depends
-on actual usage. Treat throttling and reserved concurrency as request
-limits and review the project spend controls before activation.
-
-Regional public price lists used in the estimate are
-[API Gateway](https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonApiGateway/current/eu-north-1/index.json),
-[Lambda](https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AWSLambda/current/eu-north-1/index.json),
-[Aurora](https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonRDS/current/eu-north-1/index.json),
-[Secrets Manager](https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AWSSecretsManager/current/eu-north-1/index.json),
-and [CloudWatch](https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonCloudWatch/current/eu-north-1/index.json).
+Keep pricing assumptions, activation approval, and the cost review in the
+[hosting decision log](https://docs.google.com/document/d/1RiVeT6NU-aVZa9y-uvB5qSQ1OYPbxUB8tzFhrNS7Z84/edit).

@@ -1,5 +1,7 @@
 import { json } from './api-http.ts';
 
+const maxMetadataBytes = 256 * 1024;
+
 type GatewayEvent = {
   version: string;
   rawPath: string;
@@ -19,7 +21,7 @@ async function gatewayResponse(response: Response) {
   };
 }
 
-function gatewayRequest(event: GatewayEvent): Request {
+function gatewayRequest(event: GatewayEvent): Request | Response {
   if (event.version !== '2.0' || !event.rawPath.startsWith('/v1/')
       || event.rawPath.includes('?') || event.rawPath.includes('#')) {
     throw new Error('Invalid API Gateway request.');
@@ -33,20 +35,26 @@ function gatewayRequest(event: GatewayEvent): Request {
   for (const [key, value] of Object.entries(event.headers ?? {})) {
     if (value !== undefined) headers.set(key, value);
   }
-  const body = method === 'GET' || method === 'HEAD' || event.body === undefined
-    ? undefined
-    : event.isBase64Encoded ? new Uint8Array(Buffer.from(event.body, 'base64')) : event.body;
+  let body: string | Uint8Array<ArrayBuffer> | undefined;
+  if (method !== 'GET' && method !== 'HEAD' && event.body !== undefined) {
+    const { body: encoded, isBase64Encoded } = event;
+    const maxEncodedBytes = isBase64Encoded ? Math.ceil(maxMetadataBytes / 3) * 4 : maxMetadataBytes;
+    if (Buffer.byteLength(encoded) > maxEncodedBytes) return json({ error: 'body_too_large' }, 413);
+    body = isBase64Encoded ? new Uint8Array(Buffer.from(encoded, 'base64')) : encoded;
+    if (body instanceof Uint8Array && body.byteLength > maxMetadataBytes) return json({ error: 'body_too_large' }, 413);
+  }
   return new Request(url, { method, headers, body });
 }
 
 export function createGatewayHandler(handle: (request: Request) => Promise<Response>) {
   return async (event: GatewayEvent) => {
-    let request: Request;
+    let request: Request | Response;
     try {
       request = gatewayRequest(event);
     } catch {
       return gatewayResponse(json({ error: 'invalid_request' }, 400));
     }
+    if (request instanceof Response) return gatewayResponse(request);
     try {
       return await gatewayResponse(await handle(request));
     } catch {

@@ -57,3 +57,16 @@ test('rejects invalid gateway input before routing and suppresses internal error
   assert.equal(failure.headers['cache-control'], 'no-store');
   assert.equal(failure.body.includes('sensitive fixture'), false);
 });
+
+test('rejects oversized text and base64 metadata before reaching the app', async () => {
+  const oversized = 'a'.repeat(256 * 1024 + 1);
+  const handle = createGatewayHandler(async () => {
+    throw new Error('Oversized requests must never reach app routes.');
+  });
+  const open = await handle({ ...envelope, body: oversized });
+  const encoded = await handle({
+    ...envelope, body: Buffer.from(oversized).toString('base64'), isBase64Encoded: true,
+  });
+  assert.equal(open.statusCode, 413);
+  assert.equal(encoded.statusCode, 413);
+});
