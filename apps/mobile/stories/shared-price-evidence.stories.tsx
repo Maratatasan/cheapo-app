@@ -3,10 +3,10 @@ import type { Meta, StoryObj } from '@storybook/react-native-web-vite';
 import { useState } from 'react';
 import { Text, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { expect } from 'storybook/test';
+import { expect, waitFor } from 'storybook/test';
 
 import { SharedPriceEvidence, type EvidenceView } from '../component/shared-price-evidence';
-import { SavedPriceHistoryList } from '../component/saved-price-history-list';
+import { SavedPriceHistoryList, SavedPriceHistoryPane } from '../component/saved-price-history-list';
 import { ui } from '../component/results/theme';
 import type { PriceEvidenceRole } from '../data/cheapo-price-photo-read';
 import { keptSharedPrice, projectSharedPrice, savedPriceHistoryRows, type PendingHistoryChange } from '../data/saved-price-history';
@@ -117,6 +117,58 @@ export const OpenPendingHistory: Story = {
     await expect(canvas.getByText('Saved on this phone · Waiting to sync')).toBeVisible();
     await expect(canvas.getByText('£3.05')).toBeVisible();
     await expect(canvas.getByLabelText('Cropped price photo')).toBeVisible();
+  },
+};
+
+const browseRows = Array.from({ length: 18 }, (_, index): PriceObservationDetail => ({
+  ...observation,
+  id: `aa91641f-d265-4a3b-9695-4ff553ab${String(index + 1).padStart(4, '0')}`,
+  productName: index % 3 === 0 ? `Whole rolled oats, large family breakfast pack ${index + 1}` : `Saved oats ${index + 1}`,
+  capturedAt: new Date(Date.UTC(2026, 0, 25 - index, 9)).toISOString(),
+  ...(index % 2 === 0 ? { photos: [], selectedPhotoRole: null } : {}),
+}));
+const browseHistory = savedPriceHistoryRows({ legacy: [], queued: [], shared: browseRows });
+const noChanges: PendingHistoryChange[] = [];
+const loadBrowseThumbnail = async () => images.crop;
+
+function ScrolledHistoryPreview() {
+  const [opened, setOpened] = useState<PriceObservationDetail>();
+  return <View style={{ width: '100%', maxWidth: frame.width, height: 580 }}>
+    <SafeAreaProvider initialMetrics={{ frame, insets }}>
+      <SavedPriceHistoryPane rows={browseHistory} changes={noChanges} loadSharedThumbnail={loadBrowseThumbnail}
+        header={<Text accessibilityRole="header" style={ui.title}>Saved products and photos</Text>}
+        onOpen={row => { if (row.source === 'shared') setOpened(browseRows.find(price => price.id === row.observation.id)); }}
+        detail={opened ? <SharedPriceEvidence observation={opened} cached={false} activeRole={opened.selectedPhotoRole}
+          photo={opened.selectedPhotoRole ? { role: opened.selectedPhotoRole, status: 'fresh', uri: images.crop } : undefined}
+          onPhotoRole={() => {}} onRetryPhoto={() => {}} onBack={() => setOpened(undefined)} /> : undefined} />
+    </SafeAreaProvider>
+  </View>;
+}
+
+export const ScrolledHistory: Story = { render: () => <ScrolledHistoryPreview /> };
+
+export const ReturnToScrolledHistory: Story = {
+  render: () => <ScrolledHistoryPreview />,
+  play: async ({ canvas, userEvent }) => {
+    const target = await canvas.findByRole('button', { name: 'Open Saved oats 8' });
+    let viewport = target.parentElement;
+    while (viewport && getComputedStyle(viewport).overflowY !== 'auto') viewport = viewport.parentElement;
+    if (!viewport) throw Error('Could not find the saved history scroll view.');
+    const scrollView = viewport;
+    target.scrollIntoView({ block: 'start' });
+    await waitFor(() => expect(scrollView.scrollTop).toBeGreaterThan(0));
+    const offset = scrollView.scrollTop;
+    const position = target.getBoundingClientRect().top - scrollView.getBoundingClientRect().top;
+
+    await userEvent.click(target);
+    await expect(canvas.getByRole('button', { name: 'Back to saved products' })).toBeVisible();
+    await expect(canvas.queryByRole('button', { name: 'Open Saved oats 8' })).not.toBeInTheDocument();
+    await userEvent.click(canvas.getByRole('button', { name: 'Back to saved products' }));
+
+    const returned = await canvas.findByRole('button', { name: 'Open Saved oats 8' });
+    await expect(returned).toBe(target);
+    await expect(scrollView.scrollTop).toBe(offset);
+    await expect(returned.getBoundingClientRect().top - scrollView.getBoundingClientRect().top).toBeCloseTo(position, 0);
   },
 };
 
