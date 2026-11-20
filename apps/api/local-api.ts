@@ -4,11 +4,13 @@ import { createCatalogHandler, isCatalogPath } from './catalog.ts';
 import { postgresCatalog } from './postgres-catalog.ts';
 import { postgresPriceAppend } from './postgres-price-append.ts';
 import { postgresPriceHistory } from './postgres-price-history.ts';
+import { postgresPricePhoto } from './postgres-price-photo.ts';
 import { postgresSavedShops } from './postgres-saved-shops.ts';
 import type { ShoppingQuery, ShoppingTransaction } from './postgres-shopping.ts';
 import { postgresPreferences } from './postgres.ts';
 import { createPreferencesHandler } from './preferences.ts';
 import { createPriceHistoryHandler, isPriceHistoryPath } from './price-history.ts';
+import { createPricePhotoHandler, isPricePhotoPath, type SignPricePhoto } from './price-photo.ts';
 import { createSavedShopHandler, isSavedShopPath } from './saved-shops.ts';
 import { createShoppingIdentityHandler } from './shopping-identity.ts';
 
@@ -31,25 +33,27 @@ function localTransaction(pool: Pool): ShoppingTransaction {
 
 export function createShoppingApi({ query, transaction }: {
   query: ShoppingQuery; transaction: ShoppingTransaction;
-}) {
+}, signPhoto?: SignPricePhoto) {
   const preferences = createPreferencesHandler(postgresPreferences({ query }));
   const shops = createSavedShopHandler(postgresSavedShops(transaction));
   const catalog = createCatalogHandler(postgresCatalog(transaction));
   const prices = createPriceHistoryHandler(postgresPriceHistory(transaction), postgresPriceAppend(transaction));
   const identity = createShoppingIdentityHandler(query);
+  const photos = createPricePhotoHandler(postgresPricePhoto(transaction), signPhoto);
   return (request: Request) => {
     const path = new URL(request.url).pathname;
     if (path === '/v1/me') return identity(request);
     if (isSavedShopPath(path)) return shops(request);
     if (isCatalogPath(path)) return catalog(request);
     if (isPriceHistoryPath(path)) return prices(request);
+    if (isPricePhotoPath(path)) return photos(request);
     return preferences(request);
   };
 }
 
-export function createLocalApi(pool: Pool) {
+export function createLocalApi(pool: Pool, signPhoto?: SignPricePhoto) {
   return createShoppingApi({
     query: (text, params) => pool.query(text, params),
     transaction: localTransaction(pool),
-  });
+  }, signPhoto);
 }

@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { GetObjectCommand, PutObjectCommand, S3ServiceException, type S3Client } from '@aws-sdk/client-s3';
 
+import { importedEvidenceKey } from './evidence-key.ts';
 import type { planShoppingImport } from './shopping-import-plan.ts';
 
 type Photo = Awaited<ReturnType<typeof planShoppingImport>>['photos'][number];
@@ -12,10 +13,9 @@ type Target = { bucket: string; expectedBucketOwner: string; householdId: string
 
 export async function s3ImportPhotos(client: Pick<S3Client, 'send'>, backupDirectory: string, target: Target) {
   const backup = await realpath(backupDirectory);
-  const prefix = `shopping-import/${target.householdId}/${target.shopperId}`;
 
   return async (photo: Photo): Promise<string> => {
-    const key = `${prefix}/${photo.sha256}.jpg`;
+    const key = importedEvidenceKey(target.householdId, target.shopperId, photo.sha256);
     const object = { Bucket: target.bucket, Key: key, ExpectedBucketOwner: target.expectedBucketOwner };
     const source = join(backup, photo.path);
     if (await realpath(source) !== source) throw new Error('A source photo moved after the backup was checked.');
