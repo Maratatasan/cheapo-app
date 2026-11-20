@@ -1,20 +1,20 @@
-import { CryptoDigestAlgorithm, digest } from 'expo-crypto';
 import { fetch } from 'expo/fetch';
 
 import { CheapoAccessError, type CheapoReadSession } from '../lib/cheapo-access/client';
+import { verifiedJpeg } from '../lib/cheapo-access/photo-objects';
 import { requestInterrupted, withCheapoDeadline } from '../lib/cheapo-access/request-deadline';
 import { isSignedS3ObjectUrl } from '../lib/cheapo-access/s3-object-url';
 import { historyObservationPath } from './cheapo-price-history';
 import type { ShoppingRead } from './cheapo-shopping-reads';
 
 export type PriceEvidenceRole = 'original' | 'crop';
-export type PricePhotoMetadata = { sha256: string; byteCount: number; width: number; height: number; lastSyncedAt: string };
+export type PricePhotoMetadata = { sha256: string; byteCount: number; width: number; height: number; lastSyncedAt: string; version?: number };
 export type CachedPricePhoto = PricePhotoMetadata & { uri: string };
 export type PricePhotoCache = {
   revision(): number;
   read(key: string, revision: number): Promise<CachedPricePhoto | null>;
   write(key: string, revision: number, metadata: PricePhotoMetadata, bytes: Uint8Array<ArrayBuffer>): Promise<CachedPricePhoto | null>;
-  remove(key: string, revision: number): Promise<void>;
+  remove(key: string, revision: number, maxVersion?: number): Promise<void>;
 };
 type ObjectFetch = (url: string, init: RequestInit) => Promise<Response>;
 
@@ -22,13 +22,14 @@ const maxPhotoBytes = 32 * 1024 * 1024;
 
 export function readPricePhotoMetadata(value: unknown): PricePhotoMetadata | null {
   if (!value || typeof value !== 'object') return null;
-  const { sha256, byteCount, width, height, lastSyncedAt } = value as Partial<PricePhotoMetadata>;
+  const { sha256, byteCount, width, height, lastSyncedAt, version } = value as Partial<PricePhotoMetadata>;
   if (typeof sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(sha256)
     || typeof byteCount !== 'number' || !Number.isSafeInteger(byteCount) || byteCount < 1 || byteCount > maxPhotoBytes
     || typeof width !== 'number' || !Number.isSafeInteger(width) || width < 1
     || typeof height !== 'number' || !Number.isSafeInteger(height) || height < 1
-    || typeof lastSyncedAt !== 'string' || !Number.isFinite(Date.parse(lastSyncedAt))) return null;
-  return { sha256, byteCount, width, height, lastSyncedAt };
+    || typeof lastSyncedAt !== 'string' || !Number.isFinite(Date.parse(lastSyncedAt))
+    || (version !== undefined && (!Number.isSafeInteger(version) || version < 1 || version > 2_147_483_647))) return null;
+  return { sha256, byteCount, width, height, lastSyncedAt, ...(version === undefined ? {} : { version }) };
 }
 
 function readGrant(value: unknown, role: PriceEvidenceRole) {
@@ -42,37 +43,6 @@ function readGrant(value: unknown, role: PriceEvidenceRole) {
     || typeof grant.expiresInSeconds !== 'number' || !Number.isInteger(grant.expiresInSeconds)
     || grant.expiresInSeconds < 1 || grant.expiresInSeconds > 60) throw Error('Unreadable Cheapo photo grant.');
   return { url: grant.url, expiresInSeconds: grant.expiresInSeconds, metadata };
-}
-
-async function verifiedJpeg(response: Response, metadata: PricePhotoMetadata, signal: AbortSignal) {
-  if (!response.ok || response.headers.get('Content-Type')?.split(';')[0].trim().toLowerCase() !== 'image/jpeg'
-    || response.headers.get('Content-Length') !== String(metadata.byteCount) || !response.body) {
-    void response.body?.cancel().catch(() => {});
-    throw Error('Cheapo photo could not be read.');
-  }
-  const bytes = new Uint8Array(metadata.byteCount);
-  const reader = response.body.getReader();
-  let received = 0;
-  let finished = false;
-  try {
-    while (true) {
-      const next = await reader.read();
-      if (signal.aborted) throw requestInterrupted();
-      if (next.done) { finished = true; break; }
-      if (received + next.value.byteLength > bytes.byteLength) throw Error('Cheapo photo length did not match.');
-      bytes.set(next.value, received);
-      received += next.value.byteLength;
-    }
-  } finally {
-    if (!finished) void reader.cancel().catch(() => {});
-    reader.releaseLock();
-  }
-  if (received !== bytes.byteLength) throw Error('Cheapo photo length did not match.');
-  const hash = new Uint8Array(await digest(CryptoDigestAlgorithm.SHA256, bytes));
-  if (Array.from(hash, byte => byte.toString(16).padStart(2, '0')).join('') !== metadata.sha256) {
-    throw Error('Cheapo photo checksum did not match.');
-  }
-  return bytes;
 }
 
 export function createCheapoPricePhotoRead(

@@ -121,6 +121,10 @@ export const cheapoPricePhotoCache: PricePhotoCache = {
       const files = await photoFiles(directory, key);
       const previous = await savedMetadata(files.metadata);
       if (revision !== expectedRevision) return null;
+      if (previous?.version !== undefined && metadata.version !== undefined
+        && (previous.version > metadata.version || previous.version === metadata.version
+          && (previous.sha256 !== metadata.sha256 || previous.byteCount !== metadata.byteCount
+            || previous.width !== metadata.width || previous.height !== metadata.height))) return null;
       const image = files.image(metadata.sha256);
       await replaceFile(directory, image, bytes);
       await replaceFile(directory, files.metadata, JSON.stringify(metadata));
@@ -131,12 +135,12 @@ export const cheapoPricePhotoCache: PricePhotoCache = {
       return revision === expectedRevision ? { ...metadata, uri: image.uri } : null;
     });
   },
-  remove(key, expectedRevision) {
+  remove(key, expectedRevision, maxVersion) {
     return serialize(async () => {
       if (revision !== expectedRevision) return;
       const files = await photoFiles(cacheDirectory(), key);
       const metadata = await savedMetadata(files.metadata);
-      if (!files.metadata.exists) return;
+      if (!files.metadata.exists || (maxVersion !== undefined && (metadata?.version ?? 0) > maxVersion)) return;
       files.metadata.delete();
       if (metadata) {
         const image = files.image(metadata.sha256);

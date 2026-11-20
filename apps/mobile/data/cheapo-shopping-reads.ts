@@ -113,7 +113,7 @@ function decodeComparisonPreference(value: unknown, etag?: string | null): Compa
   return { basis, version };
 }
 
-function productPath(id: string) {
+export function productPath(id: string) {
   if (!productSchema.shape.id.safeParse(id).success || id === '.' || id === '..' || id.includes('\0')) throw Error('Invalid product ID.');
   return `/v1/products/${encodeURIComponent(id)}`;
 }
