@@ -144,3 +144,32 @@ test('a restricted runtime can append and replay a price but cannot rewrite its 
   await assert.rejects(runtime.query('UPDATE cheapo.price_append_receipt SET accepted_version = 2'), { code: '42501' });
   await assert.rejects(runtime.query('DELETE FROM cheapo.price_append_receipt'), { code: '42501' });
 });
+
+test('a restricted login can only change versioned price fields and append its audit event', async () => {
+  const shopId = 'runtime-audit-branch';
+  assert.equal((await request(`/v1/me/saved-shops/${shopId}`, 'A', 'PUT', { name: 'Audit market' })).status, 200);
+  const path = '/v1/me/price-observations';
+  const input = {
+    sourceId: 'runtime-audited-price', capturedAt: '2026-11-01T03:04:05Z', shopId,
+    shopDisplayName: 'Audit market', review: { productName: 'Oats', price: '2.50', currency: 'GBP' },
+  };
+  const created = await request(path, 'A', 'POST', input);
+  assert.equal(created.status, 201);
+  const identity = await created.json() as { id: string; version: number };
+  const edit = {
+    operationId: 'runtime-audit-edit', expectedVersion: identity.version, action: 'correct',
+    review: { ...input.review, price: '3.15' },
+  };
+  const changed = await request(`${path}/${identity.id}`, 'A', 'PATCH', edit);
+  assert.equal(changed.status, 200);
+  const result = await changed.json() as { observation: { id: string; version: number; priceAmount: string } };
+  assert.equal(result.observation.id, identity.id);
+  assert.equal(result.observation.version, 2);
+  assert.equal(result.observation.priceAmount, '3.15');
+  assert.equal((await request(`${path}/${identity.id}`, 'B', 'PATCH', edit)).status, 404);
+
+  await assert.rejects(runtime.query('UPDATE cheapo.price_observation SET id = id'), { code: '42501' });
+  await assert.rejects(runtime.query('SELECT before_state FROM cheapo.price_observation_revision'), { code: '42501' });
+  await assert.rejects(runtime.query('UPDATE cheapo.price_observation_revision SET version = version'), { code: '42501' });
+  await assert.rejects(runtime.query('DELETE FROM cheapo.price_observation_revision'), { code: '42501' });
+});

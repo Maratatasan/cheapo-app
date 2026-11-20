@@ -31,6 +31,7 @@ psql -X -v ON_ERROR_STOP=1 -h "$root" -p "$port" -U cheapo_test -d postgres \
   -f migrations/005-price-observation-resource-id.sql \
   -f migrations/006-price-append-receipts.sql \
   -f migrations/007-shopping-membership-function.sql \
+  -f migrations/008-price-observation-audit.sql \
   -f migrations/009-price-photo-uploads.sql \
   -f operator/runtime-role.sql \
   -f test/shopping-history.postgres.sql >/dev/null

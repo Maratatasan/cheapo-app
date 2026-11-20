@@ -257,3 +257,93 @@ test('bounds exact product history and combines a canonical group with legacy re
   assert.deepEqual(await read('?comparableGroupId=porridge-group&productType=oats&currency=SEK'), []);
   assert.equal((await request('H', '?productId=append-oats&comparableGroupId=porridge-group')).status, 400);
 });
+
+test('keeps both versions and evidence when a second shopper corrects a price', async () => {
+  const history = await (await request('H')).json() as HistoryBody;
+  const original = history.observations.find(observation => observation.priceAmount === '2.0900');
+  assert(original);
+  const route = `/${original.id}`;
+  const edit = {
+    operationId: 'other-shopper-price-edit', expectedVersion: original.version, action: 'correct',
+    review: { productName: 'Revised oats', price: '2.39', currency: 'GBP', productType: 'Oats', packSize: '500 g' },
+    unitPrice: { amount: 0.478, unit: '100g' },
+  };
+  assert.equal((await request('J', route, 'PATCH', edit)).status, 404);
+  assert.equal((await request('K', route, 'PATCH', edit)).status, 403);
+
+  const edits = await Promise.all([request('I', route, 'PATCH', edit), request('I', route, 'PATCH', edit)]);
+  assert.deepEqual(edits.map(response => response.status), [200, 200]);
+  const [applied, duplicate] = await Promise.all(edits.map(response => response.json() as Promise<{ observation: PriceObservation }>));
+  assert.deepEqual(duplicate, applied);
+  assert.equal(applied.observation.id, original.id);
+  assert.equal(applied.observation.sourceId, original.sourceId);
+  assert.equal(applied.observation.sourceProductId, original.sourceProductId);
+  assert.equal(applied.observation.version, 2);
+  assert.equal(applied.observation.priceAmount, '2.39');
+  assert.equal(applied.observation.productName, 'Revised oats');
+  assert.deepEqual(applied.observation.photos, original.photos);
+
+  const stale = await request('H', route, 'PATCH', { ...edit, operationId: 'stale-price-edit' });
+  assert.equal(stale.status, 409);
+  assert.deepEqual(await stale.json(), { error: 'version_conflict', currentVersion: 2, current: applied.observation });
+  const reuse = await request('I', route, 'PATCH', { ...edit, review: { ...edit.review, price: '2.66' } });
+  assert.equal(reuse.status, 409);
+  assert.deepEqual(await reuse.json(), { error: 'operation_conflict' });
+
+  const { rows } = await pool.query(`SELECT actor_shopper_id, version,
+    before_state->>'priceAmount' AS before_price, after_state->>'priceAmount' AS after_price
+    FROM cheapo.price_observation_revision WHERE resource_id = $1::uuid`, [original.id]);
+  assert.deepEqual(rows, [{ actor_shopper_id: otherShopper, version: 2, before_price: '2.0900', after_price: '2.39' }]);
+
+  const competing = history.observations.find(observation => observation.priceAmount === '3.37');
+  assert(competing);
+  const contested = `/${competing.id}`;
+  const revision = { ...edit, expectedVersion: competing.version };
+  const rivals = await Promise.all([
+    request('H', contested, 'PATCH', { ...revision, operationId: 'competing-edit-one' }),
+    request('I', contested, 'PATCH', { ...revision, operationId: 'competing-edit-two', review: { ...revision.review, price: '2.18' } }),
+  ]);
+  assert.deepEqual(rivals.map(response => response.status).sort(), [200, 409]);
+  const rejected = await rivals.find(response => response.status === 409)?.json() as { currentVersion: number };
+  assert.equal(rejected.currentVersion, 2);
+});
+
+test('records an error with a reason, preserves direct evidence, and allows a versioned undo', async () => {
+  const history = await (await request('H')).json() as HistoryBody;
+  const source = history.observations.find(observation => observation.priceAmount === '2.39');
+  assert(source);
+  const route = `/${source.id}`;
+  const mark = { operationId: 'mark-slip', action: 'record_in_error', expectedVersion: source.version, reason: 'Wrong shelf label' };
+  assert.equal((await request('H', route, 'PATCH', { ...mark, reason: '  ' })).status, 400);
+
+  const marked = await request('H', route, 'PATCH', mark);
+  assert.equal(marked.status, 200);
+  const markedBody = await marked.json() as { observation: PriceObservation };
+  assert.equal(markedBody.observation.version, 3);
+  assert.equal(markedBody.observation.recordedInErrorReason, mark.reason);
+  assert.deepEqual(markedBody.observation.photos, source.photos);
+
+  const comparison = await (await request('I', '?productType=oats')).json() as HistoryBody;
+  assert(!comparison.observations.some(observation => observation.id === source.id));
+  const ordinary = await (await request('I')).json() as HistoryBody;
+  assert(!ordinary.observations.some(observation => observation.id === source.id));
+  const recovery = await (await request('I', '?includeRecordedInError=true')).json() as HistoryBody;
+  assert.equal(recovery.observations.find(observation => observation.id === source.id)?.recordedInErrorReason, mark.reason);
+  assert.equal((await request('I', '?productType=oats&includeRecordedInError=true')).status, 400);
+  assert.deepEqual(await (await request('I', route)).json(), markedBody);
+
+  const undo = { operationId: 'undo-corrected-label', action: 'undo_recorded_in_error', expectedVersion: 3 };
+  assert.equal((await request('I', route, 'PATCH', { ...undo, expectedVersion: 2 })).status, 409);
+  const restored = await request('I', route, 'PATCH', undo);
+  assert.equal(restored.status, 200);
+  const restoredBody = await restored.json() as { observation: PriceObservation };
+  assert.equal(restoredBody.observation.version, 4);
+  assert.equal(restoredBody.observation.recordedInErrorReason, undefined);
+  assert.deepEqual(restoredBody.observation.photos, source.photos);
+  assert.deepEqual(await (await request('H', route, 'PATCH', mark)).json(), markedBody);
+  assert.deepEqual(await (await request('H', route)).json(), restoredBody);
+
+  await pool.query('UPDATE cheapo.shopper_credential SET revoked_at = statement_timestamp() WHERE token_digest = $1',
+    [createHash('sha256').update(token('I')).digest('hex')]);
+  assert.equal((await request('I', route, 'PATCH', undo)).status, 401);
+});
