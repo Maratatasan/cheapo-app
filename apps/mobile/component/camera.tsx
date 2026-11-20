@@ -41,6 +41,7 @@ import { correctionFromReview, saveEnrolledPriceEdit, type PriceEditTarget } fro
 import type { PhotoSavePending } from "@/data/price-records";
 import { usePriceSaveNotice } from "@/hooks/use-price-save-notice";
 import { useEnrolledCatalog } from "@/hooks/use-enrolled-catalog";
+import { useSelectedPhotoText } from "./use-selected-photo-text";
 
 type LinkedPriceCapture = {
   productId: string;
@@ -98,6 +99,7 @@ export const CameraComponent = ({ currentShop, currentShopCountry, onScanBarcode
   const editedFields = useRef(new Set<keyof ManualReview>());
   const [draft, setDraft] = useState<LocalPhotoDraft | null>(null);
   const [cropping, setCropping] = useState(false);
+  const pricePhotoText = useSelectedPhotoText(!lookingUp && !cropping ? draft?.selected : undefined);
   const [visitShop, setVisitShop] = useState("");
   const [saved, setSaved] = useState(false);
   const [pendingSaveStatus, setPendingSaveStatus] = useState<PhotoSavePending>();
@@ -541,7 +543,7 @@ export const CameraComponent = ({ currentShop, currentShopCountry, onScanBarcode
 
     return <View key="review" collapsable={false} style={styles.container}>
       {fieldPhotoAnalysisEnabled ? (
-        <DirectPhotoAnalysis key={draft.selected.uri} photo={draft.selected}
+        <DirectPhotoAnalysis key={draft.selected.uri} photo={draft.selected} photoText={pricePhotoText}
           shopCountry={draft.shop && draft.shop.id === currentShop?.id ? currentShopCountry : undefined}
           busy={busy} onApply={(suggestion) => {
           const review = draft.review ?? emptyReview(draft.shop?.displayName);

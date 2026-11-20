@@ -23,6 +23,8 @@ jest.mock('../data/cheapo-shopping-read-device', () => ({ openCheapoSavedPriceRe
 const mockAddLocalProduct = jest.fn();
 const mockFindLocalProduct = jest.fn();
 const mockScanFromURLAsync = jest.fn();
+const mockReadPhotoText = jest.fn();
+jest.mock('../data/photo-text', () => ({ readPhotoText: (...args: unknown[]) => mockReadPhotoText(...args) }));
 jest.mock('../data/local-products', () => ({
   addLocalProduct: (...args: unknown[]) => mockAddLocalProduct(...args),
   findLocalProductByBarcode: (...args: unknown[]) => mockFindLocalProduct(...args),
@@ -93,6 +95,7 @@ describe("CameraComponent", () => {
     mockAddLocalProduct.mockReset();
     mockFindLocalProduct.mockReset().mockResolvedValue(undefined);
     mockScanFromURLAsync.mockReset().mockResolvedValue([]);
+    mockReadPhotoText.mockReset().mockResolvedValue({ status: 'unavailable' });
     mockChoosePhoto.mockReset();
     mockLoadLocalPhotos.mockResolvedValue([]);
     mockUseCheapoShopping.mockReset().mockReturnValue(null);
@@ -812,6 +815,25 @@ describe("CameraComponent", () => {
     await fireEvent.press(screen.getByRole('button', { name: 'Analyse photo' }));
     await waitFor(() => expect(mockRequestPhotoDraft).toHaveBeenCalledWith(expect.objectContaining({
       shopCountry: savedShopId === 'active-shop' ? shopCountry : undefined,
+    })));
+  });
+
+  it('keeps selected-photo OCR local until the shopper asks for analysis', async () => {
+    mockFieldPhotoAnalysisEnabled = true;
+    mockPermission = { granted: false };
+    const photo = { uri: 'file:///label.jpg', width: 1200, height: 800, mimeType: 'image/jpeg' };
+    const ocr = { status: 'found', evidence: { width: 1200, height: 800, blocks: [{ lines: [{ text: '£1.49', elements: [] }] }] } };
+    mockReadPhotoText.mockResolvedValue(ocr);
+    mockLoadLocalPhotos.mockResolvedValue([{ id: 'saved', capturedAt: '2026-11-18T15:00:00Z', original: photo, selected: photo }]);
+    mockRequestPhotoDraft.mockResolvedValue({ product: 'Tomatoes', price: 1.49, currency: 'GBP', unit_price: null, uncertainty: '' });
+    await render(<CameraComponent />);
+    await fireEvent.press(await screen.findByRole('button', { name: /^Review / }));
+    expect(mockReadPhotoText).toHaveBeenCalledWith(photo.uri);
+    expect(mockRequestPhotoDraft).not.toHaveBeenCalled();
+
+    await fireEvent.press(screen.getByRole('button', { name: 'Analyse photo' }));
+    await waitFor(() => expect(mockRequestPhotoDraft).toHaveBeenCalledWith(expect.objectContaining({
+      sourcePhoto: photo, photoText: { photo, result: ocr },
     })));
   });
 

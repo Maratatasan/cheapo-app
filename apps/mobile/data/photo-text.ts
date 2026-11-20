@@ -1,5 +1,6 @@
 import { requireOptionalNativeModule } from 'expo';
 import { Platform } from 'react-native';
+import type { PhotoAsset } from './local-photo';
 
 /** Top-left origin, normalized to the upright image dimensions. */
 export type PhotoTextBox = readonly [left: number, top: number, right: number, bottom: number];
@@ -10,6 +11,7 @@ export type PhotoTextEvidence = { width: number; height: number; blocks: readonl
 export type PhotoTextResult =
   | { status: 'found'; evidence: PhotoTextEvidence }
   | { status: 'empty' | 'unavailable' | 'error' | 'aborted' };
+export type SelectedPhotoText = { photo: PhotoAsset; result: PhotoTextResult };
 
 type NativePhotoText = { read(uri: string): Promise<PhotoTextEvidence> };
 

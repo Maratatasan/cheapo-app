@@ -5,11 +5,13 @@ import { File } from 'expo-file-system';
 
 import type { AiPriceDraft, ProductIdentityDraft } from '@/data/ai-observation';
 import type { PhotoAsset } from '@/data/local-photo';
+import type { SelectedPhotoText } from '@/data/photo-text';
 import { requestPhotoDraft, requestProductIdentityDraft } from '@/lib/direct-auth/photo-analysis';
 import { phoneAuth } from '@/lib/direct-auth/phone-session';
 import type { PhotoShopCountry } from '@/lib/direct-auth/shop-country';
 import { PhotoAnalysisControls, ProductIdentitySuggestion } from './photo-analysis-review';
 import type { ReviewSuggestion } from './photo-review';
+import { useSelectedPhotoText } from './use-selected-photo-text';
 
 async function photoDataUrl(photo: PhotoAsset, packaging: boolean): Promise<string> {
   if (!photo.uri.startsWith('file:')) throw new Error('Choose or take a photo on this phone first.');
@@ -26,7 +28,7 @@ async function photoDataUrl(photo: PhotoAsset, packaging: boolean): Promise<stri
 
 type PhotoRequest = Parameters<typeof requestProductIdentityDraft>[0];
 
-function useDirectPhotoAnalysis<Draft>(photo: PhotoAsset, busy: boolean, packaging: boolean,
+function useDirectPhotoAnalysis<Draft>(photo: PhotoAsset, photoText: SelectedPhotoText | undefined, busy: boolean, packaging: boolean,
   requestDraft: (request: PhotoRequest) => Promise<Draft>) {
   const router = useRouter();
   const [authState, setAuthState] = useState(phoneAuth?.getState);
@@ -59,7 +61,9 @@ function useDirectPhotoAnalysis<Draft>(photo: PhotoAsset, busy: boolean, packagi
       if (controller.signal.aborted) return;
       const suggestion = await phoneAuth.withPlanAccess((accessToken) => {
         if (controller.signal.aborted) throw new Error('Photo analysis was cancelled.');
-        return requestDraft({ accessToken, image, signal: controller.signal });
+        const ocr = photoText?.photo === photo && photoText.result.status === 'found'
+          ? { sourcePhoto: photo, photoText } : undefined;
+        return requestDraft({ accessToken, image, signal: controller.signal, ...ocr });
       });
       if (!controller.signal.aborted) {
         setDraft(() => suggestion);
@@ -99,14 +103,15 @@ function useDirectPhotoAnalysis<Draft>(photo: PhotoAsset, busy: boolean, packagi
   return { controls, draft, applied, working };
 }
 
-export function DirectPhotoAnalysis({ photo, shopCountry, busy, onApply, children }: {
+export function DirectPhotoAnalysis({ photo, photoText, shopCountry, busy, onApply, children }: {
   photo: PhotoAsset;
+  photoText?: SelectedPhotoText;
   shopCountry?: PhotoShopCountry;
   busy: boolean;
   onApply: (draft: AiPriceDraft) => void;
   children: (controls: ReactNode, suggestion?: ReviewSuggestion) => ReactNode;
 }) {
-  const { controls, draft, applied } = useDirectPhotoAnalysis(photo, busy, false,
+  const { controls, draft, applied } = useDirectPhotoAnalysis(photo, photoText, busy, false,
     request => requestPhotoDraft({ ...request, shopCountry }));
   return children(controls, draft ? {
     draft,
@@ -122,7 +127,8 @@ export function DirectProductIdentityAnalysis({ photo, busy, onApply }: {
   busy: boolean;
   onApply: (draft: ProductIdentityDraft) => void;
 }) {
-  const { controls, draft, applied, working } = useDirectPhotoAnalysis(photo, busy, true, requestProductIdentityDraft);
+  const photoText = useSelectedPhotoText(photo);
+  const { controls, draft, applied, working } = useDirectPhotoAnalysis(photo, photoText, busy, true, requestProductIdentityDraft);
   return <>{controls}{draft ? <ProductIdentitySuggestion draft={draft} disabled={busy || working} onApply={selected => {
     onApply(selected);
     applied('Suggestions added. Check the details before searching.');
