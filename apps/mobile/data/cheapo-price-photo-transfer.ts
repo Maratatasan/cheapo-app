@@ -5,7 +5,7 @@ import { fetch } from 'expo/fetch';
 import { CheapoAccessError } from '../lib/cheapo-access/client';
 import { withCheapoDeadline } from '../lib/cheapo-access/request-deadline';
 import { isSignedS3ObjectUrl } from '../lib/cheapo-access/s3-object-url';
-import { savedPhotoDirectory, type PhotoAsset, type SavedPriceRecord } from './local-photo';
+import { savedPhotoDirectory, type LocalPhotoDraft, type PhotoAsset, type SavedPriceRecord } from './local-photo';
 import type { PriceAppendReceipt } from './price-append-queue';
 
 const maxPhotoBytes = 32 * 1024 * 1024;
@@ -50,8 +50,12 @@ async function readPhoto(source: PhotoSource) {
   return { bytes, sha256: Array.from(hash, byte => byte.toString(16).padStart(2, '0')).join('') };
 }
 
+export function plannedPriceEvidenceRoles(record: LocalPhotoDraft, receipt: Pick<PriceAppendReceipt, 'deriveCropFromOriginal'>): PhotoRole[] {
+  return !receipt.deriveCropFromOriginal && record.original.uri !== record.selected.uri ? ['original', 'crop'] : ['original'];
+}
+
 export async function describePriceEvidence(
-  record: SavedPriceRecord, receipt: Pick<PriceAppendReceipt, 'id' | 'sourceId'>, signal?: AbortSignal,
+  record: SavedPriceRecord, receipt: Pick<PriceAppendReceipt, 'id' | 'sourceId' | 'deriveCropFromOriginal'>, signal?: AbortSignal,
 ): Promise<PricePhotoIntent[]> {
   const { id: observationId, sourceId } = receipt;
   if (record.id !== sourceId || !localId.test(sourceId) || !uuid.test(observationId)) {
@@ -64,8 +68,8 @@ export async function describePriceEvidence(
     return { sourceId, role, uri: photo.uri, width: photo.width, height: photo.height };
   }
 
-  const sources = [captureSource(record.original, 'original')];
-  if (record.original.uri !== record.selected.uri) sources.push(captureSource(record.selected, 'crop'));
+  const sources = plannedPriceEvidenceRoles(record, receipt)
+    .map(role => captureSource(role === 'original' ? record.original : record.selected, role));
   const intents: PricePhotoIntent[] = [];
   for (const source of sources) {
     const content = await withCheapoDeadline(signal, fileDeadlineMs, () => readPhoto(source))

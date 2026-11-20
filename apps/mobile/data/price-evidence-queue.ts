@@ -1,6 +1,6 @@
 import { Directory, File } from 'expo-file-system';
 
-import type { PricePhotoIntent } from './cheapo-price-photo-transfer';
+import { plannedPriceEvidenceRoles, type PricePhotoIntent } from './cheapo-price-photo-transfer';
 import type { LocalPhotoDraft } from './local-photo';
 import type { PriceAppendReceipt } from './price-append-queue';
 
@@ -16,8 +16,7 @@ function positiveInteger(value: unknown, limit: number): value is number {
 }
 
 function validatePlan({ record, receipt }: EvidenceSource, value: unknown): PricePhotoIntent[] {
-  const roles = ['original'] as ('original' | 'crop')[];
-  if (record.original.uri !== record.selected.uri) roles.push('crop');
+  const roles = plannedPriceEvidenceRoles(record, receipt);
   if (!Array.isArray(value) || value.length !== roles.length) throw Error('Unreadable price evidence plan.');
   return roles.map((role, index) => {
     const item = value[index] as Partial<PricePhotoIntent> | null;

@@ -9,7 +9,7 @@ import { reviewComplete, reviewUnitPrice } from './photo-review';
 import { createPriceEvidenceStore } from './price-evidence-queue';
 
 export type PriceQueueOwner = { origin: string; householdId: string; shopperId: string };
-export type PriceAppendReceipt = { id: string; sourceId: string; version: number };
+export type PriceAppendReceipt = { id: string; sourceId: string; version: number; deriveCropFromOriginal?: true };
 type PriceQueueEntry = { record: SavedPriceRecord; body?: string; receipt?: PriceAppendReceipt; needsShop?: true };
 type RecoveryEntry = { sourceId: string; reason: 'unfinished' | 'unreadable' };
 type FailurePhase = 'price' | 'photo';
@@ -28,9 +28,10 @@ export function sameShoppingOwner(first: PriceQueueOwner | null, second: PriceQu
 
 function validReceipt(value: unknown, sourceId: string): value is PriceAppendReceipt {
   if (!value || typeof value !== 'object') return false;
-  const { id, sourceId: confirmedSourceId, version } = value as Partial<PriceAppendReceipt>;
+  const { id, sourceId: confirmedSourceId, version, deriveCropFromOriginal } = value as Partial<PriceAppendReceipt>;
   return typeof id === 'string' && uuid.test(id) && confirmedSourceId === sourceId
-    && typeof version === 'number' && Number.isSafeInteger(version) && version > 0;
+    && typeof version === 'number' && Number.isSafeInteger(version) && version > 0
+    && (deriveCropFromOriginal === undefined || deriveCropFromOriginal === true);
 }
 
 function requirePriceRecord(value: unknown, needsShop = false): SavedPriceRecord {
@@ -280,7 +281,8 @@ export async function openPriceAppendQueue(input: PriceQueueOwner) {
     },
     acknowledge(sourceId: string, receipt: unknown) {
       if (!localId.test(sourceId) || !validReceipt(receipt, sourceId)) throw Error('Invalid price acknowledgement.');
-      const text = JSON.stringify({ id: receipt.id, sourceId, version: receipt.version });
+      const text = JSON.stringify({ id: receipt.id, sourceId, version: receipt.version,
+        ...(receipt.deriveCropFromOriginal ? { deriveCropFromOriginal: true } : {}) });
       return serializePublication(async () => {
         const pending = await readPrice(priceFile(sourceId), sourceId);
         if (!pending.body) throw Error('The saved price needs sync recovery.');

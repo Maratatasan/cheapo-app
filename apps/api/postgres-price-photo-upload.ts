@@ -1,4 +1,4 @@
-import { newEvidenceKey } from './evidence-key.ts';
+import { importedEvidenceKey, newEvidenceKey } from './evidence-key.ts';
 import { readShoppingMember, type ShoppingTransaction } from './postgres-shopping.ts';
 import type { CompletePhotoUpload, PhotoUploadDetails, PreparePhotoUpload, VerifyPhotoObject } from './price-photo-upload.ts';
 
@@ -23,7 +23,9 @@ export function postgresPhotoUpload(transaction: ShoppingTransaction): PreparePh
     `, [resourceId, member.household_id, member.shopper_id, role, photo.sha256, photo.byteCount, photo.width, photo.height]);
     if (!observation) return { status: 'not_found' };
     if (observation.attachedKey) {
-      return { status: observation.attachedKey === key && observation.matches ? 'available' : 'conflict' };
+      const imported = importedEvidenceKey(member.household_id, member.shopper_id, photo.sha256);
+      const matches = observation.matches && (observation.attachedKey === key || observation.attachedKey === imported);
+      return { status: matches ? 'available' : 'conflict' };
     }
 
     const scope = [member.household_id, member.shopper_id, observation.id, role];

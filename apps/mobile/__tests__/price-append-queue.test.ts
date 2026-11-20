@@ -347,6 +347,24 @@ it('persists only acknowledged prices’ upload plans and retries only the unver
   expect(mockFiles.get(photo.selected.uri)).toBe('synthetic crop');
 });
 
+it('persists a promoted draft’s original-only evidence plan across reopen', async () => {
+  const { photo, intents } = await photoEvidence();
+  const queue = await openPriceAppendQueue(owner);
+  await queue.save(photo);
+  const promoted = { ...receipt, version: 2, deriveCropFromOriginal: true as const };
+  await queue.acknowledge(record.id, promoted);
+  const reopened = await openPriceAppendQueue(owner);
+  expect((await reopened.read()).entries[0].receipt).toEqual(promoted);
+
+  const transfer = jest.fn(async () => 'available' as const);
+  await expect(createPriceEvidenceSync(reopened, async () => fixtureSession(jest.fn()), async () => [intents[0]], transfer)())
+    .resolves.toBe('complete');
+  expect(transfer).toHaveBeenCalledTimes(1);
+  expect(transfer).toHaveBeenCalledWith(intents[0], expect.any(Object), undefined);
+  expect(mockFiles.get(photo.original.uri)).toBe('synthetic original');
+  expect(mockFiles.get(photo.selected.uri)).toBe('synthetic crop');
+});
+
 it('keeps the evidence plan on another enrollment and retries an interrupted role acknowledgement', async () => {
   const { photo, intents } = await photoEvidence();
   const queue = await openPriceAppendQueue(owner);

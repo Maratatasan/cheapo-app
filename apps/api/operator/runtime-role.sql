@@ -33,7 +33,7 @@ GRANT SELECT (household_id, shopper_id, observation_id, resource_id, accepted_ve
   ON cheapo.price_append_receipt TO cheapo_api_runtime;
 
 GRANT UPDATE (product_id, shop_id, shop_display_name, price_amount, currency, review, unit_price, record_version,
-  recorded_in_error_reason, photo_selection_overridden, selected_crop_box) ON cheapo.price_observation TO cheapo_api_runtime;
+  recorded_in_error_reason, status, photo_selection_overridden, selected_crop_box) ON cheapo.price_observation TO cheapo_api_runtime;
 GRANT SELECT (resource_id, household_id, actor_shopper_id, operation_id, operation_request, after_state),
   INSERT (resource_id, version, household_id, actor_shopper_id, operation_id, operation_request, before_state, after_state)
   ON cheapo.price_observation_revision TO cheapo_api_runtime;
