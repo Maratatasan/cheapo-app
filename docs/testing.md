@@ -4,12 +4,12 @@
 | --- | --- |
 | Smoke | The installed build is usable enough to continue. Launch it, reopen the saved sign-in, and confirm the app can read an existing product or price and retrieve its available evidence photo. |
 | Integration | Real implementations work together. Exercise Cheapo’s API handlers and SQL against disposable PostgreSQL with controlled records. Where a scenario includes offline sync, exercise the real queue and retry logic. |
-| Acceptance | An agreed requirement works in an observable scenario. Automate cases where practical and record what needs a hands-on check. The owner makes the final Pixel acceptance decision in [#270](https://github.com/Maratatasan/cheapo-app/issues/270). |
+| Acceptance | An agreed requirement works in an observable scenario. Automate cases where practical and record what needs a hands-on check. |
 | Field | The app is usable during real shopping. Observe how capture, review, comparison, and saving work with actual labels, lighting, and connectivity. |
 
-For the current Pixel rollout, run automated integration, then smoke-test the
-installed build, then complete the owner’s shopping acceptance. Field use
-follows the rollout and can reveal improvements for later releases.
+A typical rollout runs automated integration first, then smoke-tests the
+installed build, then checks acceptance scenarios. Field use follows and can
+reveal improvements for later releases.
 
 ## Mocks, fixtures and evidence
 
@@ -36,11 +36,9 @@ physical-device results separately. [CI standard](ci.md) · [UI verification](ui
   controlled fixtures.
 - Keep synthetic data in UI previews, disposable local PostgreSQL and CI. Use
   ordinary live routes and read-only checks for smoke. A genuine shopping save
-  or correction chosen by the owner provides live write evidence during
-  [Pixel acceptance](https://github.com/Maratatasan/cheapo-app/issues/270).
+  or correction explicitly chosen and authorized for acceptance provides live
+  write evidence.
   Record hosted write-failure scenarios as unverified unless rehearsed in separate staging.
-- Explore Samples removal follows Pixel acceptance as part of cleanup before the
-  iPhone rollout. [Release sequence](https://github.com/Maratatasan/cheapo-app/issues/184)
 
 Record the tested revision, target, observed result, and unverified boundaries
 in the issue or PR. Keep private photos, credentials, and private record details
