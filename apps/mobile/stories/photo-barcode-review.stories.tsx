@@ -6,7 +6,7 @@ import { expect, within } from 'storybook/test';
 
 import { AddBarcodeProduct } from '../component/add-barcode-product';
 import { CameraActionButton } from '../component/camera-actions';
-import { PhotoBarcodeReview } from '../component/photo-barcode-review';
+import { PhotoBarcodeCatalogMatch, PhotoBarcodeMissing, PhotoBarcodeReview } from '../component/photo-barcode-review';
 import { PhotoReview } from '../component/photo-review';
 import type { AiPriceDraft } from '../data/ai-observation';
 import type { PhotoBarcodeResult } from '../data/photo-barcode';
@@ -16,6 +16,7 @@ import { canonicalProductBarcode } from '../data/product-barcode';
 const meta = { title: 'Screens/Photo barcode review' } satisfies Meta;
 export default meta;
 type Story = StoryObj<typeof meta>;
+const reviewMetrics = { frame: { x: 0, y: 0, width: 428, height: 740 }, insets: { top: 0, bottom: 0, left: 0, right: 0 } };
 
 const candidates: PhotoBarcodeResult = { status: 'found', codes: ['0036000291452', '4006381333931'] };
 const suggestion: AiPriceDraft = {
@@ -35,7 +36,7 @@ function ReviewExample({ result, conflict = false, savedBarcode, carriedBarcode,
   const [error, setError] = useState<string>();
   return (
     <View style={{ height: 740, width: '100%', maxWidth: 428 }}>
-      <SafeAreaProvider initialMetrics={{ frame: { x: 0, y: 0, width: 428, height: 740 }, insets: { top: 0, bottom: 0, left: 0, right: 0 } }}>
+      <SafeAreaProvider initialMetrics={reviewMetrics}>
         <PhotoReview review={review} selectedShopName="Example shop" saved={saved} busy={false}
           savedBarcode={savedBarcode} recordingPrice={Boolean(savedBarcode)}
           onReviewChange={setReview} onSave={() => { if (!conflict || !confirmed) setSaved(true); }}
@@ -66,6 +67,49 @@ function ReviewExample({ result, conflict = false, savedBarcode, carriedBarcode,
 }
 
 export const MultipleCandidates: Story = { render: () => <ReviewExample result={candidates} /> };
+
+function CatalogReviewExample({ initial = 'ready' }: { initial?: 'ready' | 'matching' | 'unavailable' | 'missing' }) {
+  const [state, setState] = useState(initial);
+  const [value, setValue] = useState('0036000291452');
+  const [selected, setSelected] = useState(false);
+  const [review, setReview] = useState(() => ({ ...emptyReview('Example shop'), price: '2.50' }));
+  const checked = state === 'matching' || state === 'missing';
+  const blocked = state === 'matching' && !selected ? 'Choose whether to use the saved product before saving.'
+    : state === 'unavailable' ? 'Retry the barcode lookup, or remove the entry to save without it.' : undefined;
+  return <View style={{ height: 740, width: '100%', maxWidth: 428 }}>
+    <SafeAreaProvider initialMetrics={reviewMetrics}>
+      <PhotoReview review={review} selectedShopName="Example shop" saved={false} busy={false} recordingPrice={selected}
+        onReviewChange={setReview} onSave={() => {}} saveBlocked={blocked}
+        barcodeReview={<PhotoBarcodeReview result={{ status: 'empty' }} value={value} confirmed={checked} busy={false}
+          confirmLabel={state === 'unavailable' ? 'Retry barcode lookup' : undefined}
+          error={state === 'unavailable' ? 'Could not check this barcode. Try again.' : undefined}
+          onChange={next => { setValue(next); setState('ready'); }} onConfirm={() => setState('matching')}
+          onClear={() => { setValue(''); setState('ready'); setSelected(false); }}>
+          {state === 'matching' ? <PhotoBarcodeCatalogMatch name="Example Rice" details="Dry rice · 500 g" selected={selected} busy={false}
+            onUse={() => { setSelected(true); setReview(current => ({ ...current, productName: 'Example Rice' })); }}
+            onCompare={() => {}} /> : state === 'missing' ? <PhotoBarcodeMissing /> : null}
+        </PhotoBarcodeReview>} />
+    </SafeAreaProvider>
+  </View>;
+}
+
+export const FindAndUseExistingProduct: Story = {
+  render: () => <CatalogReviewExample />,
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole('button', { name: 'Confirm barcode' }));
+    await expect(canvas.getByText('Matching saved product')).toBeVisible();
+    await expect(canvas.getByRole('button', { name: 'Compare saved prices' })).toBeVisible();
+    await expect(canvas.getByRole('button', { name: 'Save on this phone' })).toBeDisabled();
+    await userEvent.click(canvas.getByRole('button', { name: 'Use this product' }));
+    await expect(canvas.getByText('Using saved product')).toBeVisible();
+    await expect(canvas.getByLabelText('Pack price')).toHaveValue('2.50');
+    await expect(canvas.getByRole('button', { name: 'Save Price' })).toBeEnabled();
+  },
+};
+
+export const ExistingProductMatch: Story = { render: () => <CatalogReviewExample initial="matching" /> };
+export const CatalogUnavailable: Story = { render: () => <CatalogReviewExample initial="unavailable" /> };
+export const CatalogMiss: Story = { render: () => <CatalogReviewExample initial="missing" /> };
 
 export const ConfirmAndSave: Story = {
   render: () => <ReviewExample result={candidates} />,

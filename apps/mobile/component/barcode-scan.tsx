@@ -21,7 +21,8 @@ import { loadSavedPriceRecords, saveManualPrice, type DraftShop, type ManualPric
 import { loadSharedBarcodePhoto, loadSharedBarcodePrices, type BarcodeSharedPriceHistory } from '@/data/barcode-shared-prices';
 import { cheapoShoppingReadCache } from '@/data/cheapo-shopping-read-cache';
 import { comparisonPreferenceGroup } from '@/data/enrolled-comparison-preferences';
-import { addLocalProduct, findLocalProductByBarcode, replaceLocalProductBarcode } from '@/data/local-products';
+import { addLocalProduct, replaceLocalProductBarcode } from '@/data/local-products';
+import { findCatalogProductByBarcode } from '@/data/exact-barcode';
 import { canonicalProductBarcode } from '@/data/product-barcode';
 import { comparisonRowFromDraft } from '@/data/saved-comparison';
 import { calculatePackUnitPrice, emptyReview, reviewComplete, type ManualReview } from '@/data/photo-review';
@@ -68,14 +69,16 @@ async function loadComparison(
     reference: linked?.row, currentPrice: current?.row, photo: linked?.draft.selected?.uri };
 }
 
-export function BarcodeScan({ currentShop, onScanLabel }: { currentShop?: DraftShop; onScanLabel: () => void }) {
+export function BarcodeScan({ currentShop, onScanLabel, initialBarcode }: {
+  currentShop?: DraftShop; onScanLabel: () => void; initialBarcode?: string;
+}) {
   const router = useRouter();
   const shopping = useCheapoShopping();
   const catalog = useEnrolledCatalog();
   const shopId = currentShop?.id;
   const [permission, requestPermission] = useCameraPermissions();
   const [focused, setFocused] = useState(false);
-  const [result, setResult] = useState<ScanResult>();
+  const [result, setResult] = useState<ScanResult | undefined>(() => initialBarcode ? { kind: 'loading' } : undefined);
   const [entry, setEntry] = useState<ScanEntry>();
   const [barcodeEdit, setBarcodeEdit] = useState<BarcodeEdit>();
   const [capture, setCapture] = useState(false);
@@ -90,8 +93,32 @@ export function BarcodeScan({ currentShop, onScanLabel }: { currentShop?: DraftS
   const reads = useRef<AbortController | null>(null);
   const readingPhoto = useRef<AbortController | null>(null);
   const reading = useRef(false);
+  const initialLookup = useRef(initialBarcode);
   const selected = useRef<{ product: Product; barcode: string } | undefined>(undefined);
   const pendingSave = useRef(false);
+  const lookup = useCallback(async (barcode: string) => {
+    const signal = reads.current?.signal;
+    if (!signal || reading.current) return;
+    reading.current = true;
+    setSaved(undefined);
+    setResult({ kind: 'loading' });
+    try {
+      const product = await findCatalogProductByBarcode(catalog, barcode, signal);
+      if (signal.aborted) return;
+      if (!product) {
+        setResult({ kind: 'unknown', barcode });
+        return;
+      }
+      const comparison = await loadComparison(product, shopId, barcode, signal, shopping);
+      if (signal.aborted) return;
+      selected.current = { product, barcode };
+      setResult(comparison);
+    } catch (error) {
+      if (!signal.aborted) setResult({ kind: 'error', detail: catalog && error instanceof Error ? error.message : undefined });
+    } finally {
+      if (!signal.aborted && initialLookup.current === barcode) initialLookup.current = undefined;
+    }
+  }, [catalog, shopId, shopping]);
   const referencePhoto = result?.kind === 'known' && !entry && !barcodeEdit ? result.history?.referencePhoto : undefined;
   const selectedGroup = shopping && result?.kind === 'known' && !entry && !barcodeEdit
     ? comparisonPreferenceGroup(result.product.comparableGroupId, result.product.productType) : undefined;
@@ -121,6 +148,8 @@ export function BarcodeScan({ currentShop, onScanLabel }: { currentShop?: DraftS
       }).catch(() => {
         if (!read.signal.aborted) setResult({ kind: 'error' });
       });
+    } else if (initialLookup.current) {
+      void lookup(initialLookup.current);
     }
     return () => {
       controller.abort();
@@ -133,7 +162,7 @@ export function BarcodeScan({ currentShop, onScanLabel }: { currentShop?: DraftS
         setResult(current => current?.kind === 'loading' ? undefined : current);
       }
     };
-  }, [shopping, shopId]));
+  }, [lookup, shopping, shopId]));
 
   useEffect(() => {
     if (!shopping) return;
@@ -159,28 +188,6 @@ export function BarcodeScan({ currentShop, onScanLabel }: { currentShop?: DraftS
       }).catch(() => {});
     });
   }, [shopping, shopId]);
-
-  async function lookup(barcode: string) {
-    const signal = reads.current?.signal;
-    if (!signal || reading.current) return;
-    reading.current = true;
-    setSaved(undefined);
-    setResult({ kind: 'loading' });
-    try {
-      const product = catalog ? await catalog.findByBarcode(barcode, signal) : await findLocalProductByBarcode(barcode);
-      if (signal.aborted) return;
-      if (!product) {
-        setResult({ kind: 'unknown', barcode });
-        return;
-      }
-      const comparison = await loadComparison(product, shopId, barcode, signal, shopping);
-      if (signal.aborted) return;
-      selected.current = { product, barcode };
-      setResult(comparison);
-    } catch (error) {
-      if (!signal.aborted) setResult({ kind: 'error', detail: catalog && error instanceof Error ? error.message : undefined });
-    }
-  }
 
   function onBarcodeScanned(barcode: string) {
     if (barcodeEdit?.mode === 'scan') {
@@ -329,7 +336,8 @@ export function BarcodeScan({ currentShop, onScanLabel }: { currentShop?: DraftS
             shop: currentShop, review: { ...emptyReview(currentShop.displayName), ...details },
           }) : undefined} />
       </View>
-      {productPhoto ? <CameraComponent currentShop={productPhoto.shop} barcodeCapture={{ barcode: entry.barcode,
+      {productPhoto ? <CameraComponent currentShop={productPhoto.shop}
+        onCompareBarcode={barcode => router.push({ pathname: '/find-product', params: { barcode } })} barcodeCapture={{ barcode: entry.barcode,
         initialReview: productPhoto.review, onCancel: () => setProductPhoto(undefined), onSaved: photoSaved }} /> : null}
     </View>
   );

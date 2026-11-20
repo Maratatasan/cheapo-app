@@ -162,6 +162,23 @@ test.each([undefined, currentShop])('opens sorted saved-price comparisons for a 
   expect(screen.getByText('£3.00 / kg')).toBeOnTheScreen();
 });
 
+test('compares the lookup code passed from photo review and offers the first price at this shop', async () => {
+  const barcode = '00012345678905';
+  jest.mocked(findLocalProductByBarcode).mockResolvedValue({ ...product, barcode });
+  jest.mocked(loadSavedPriceRecords).mockResolvedValue([
+    { ...row('other-shop', 'Other shop', 'Basmati', 'Example', '2.50', product.name), productId: product.id },
+  ]);
+
+  await render(<BarcodeScan currentShop={currentShop} initialBarcode={barcode} onScanLabel={jest.fn()} />);
+
+  expect(await screen.findByRole('header', { name: product.name })).toBeOnTheScreen();
+  expect(screen.getByText('Other shop')).toBeOnTheScreen();
+  await fireEvent.press(screen.getByRole('button', { name: 'Add price' }));
+  expect(screen.getByLabelText('Pack price')).toHaveDisplayValue('');
+  expect(findLocalProductByBarcode).toHaveBeenCalledWith(barcode);
+  expect(addLocalProduct).not.toHaveBeenCalled();
+});
+
 test('uses the completed observation with the explicit product ID as the reference', async () => {
   const linked = row('linked', 'Linked shop', 'Basmati', 'Example', '2.50');
   jest.mocked(findLocalProductByBarcode).mockResolvedValue(product);

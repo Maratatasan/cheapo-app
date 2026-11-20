@@ -221,6 +221,25 @@ test('replays only identical product creation and reports exact ID or barcode co
   assert.deepEqual(await catalogRequest('B', `/${id}`), exact);
 });
 
+test('returns the winner when different phones concurrently claim the same canonical barcode', async () => {
+  const barcode = '05449000152473';
+  assert.deepEqual(await catalogRequest('A', `?gtin=${barcode}`), { status: 200, body: { product: null } });
+  const results = await Promise.all([
+    catalogRequest('A', '/catalog-race-first', 'PUT', {
+      operationId: 'catalog-race-first', product: { name: 'First reviewed product', productType: 'Soft drinks', barcode },
+    }),
+    catalogRequest('B', '/catalog-race-second', 'PUT', {
+      operationId: 'catalog-race-second', product: { name: 'Second reviewed product', productType: 'Soft drinks', barcode: '5449000152473' },
+    }),
+  ]);
+  assert.deepEqual(results.map(result => result.status).sort(), [200, 409]);
+  const winner = results.find(result => result.status === 200)?.body as { product: { id: string; barcode: string }; version: number };
+  assert.equal(winner.product.barcode, barcode);
+  assert.equal(winner.version, 1);
+  assert.deepEqual(results.find(result => result.status === 409)?.body, { error: 'product_conflict', product: winner.product });
+  assert.deepEqual(await catalogRequest('B', '?gtin=5449000152473'), { status: 200, body: { product: winner.product } });
+});
+
 test('rejects invalid barcodes and omits private import fields from canonical product reads', async () => {
   assert.equal((await catalogRequest('A', '?gtin=012345678906')).status, 400);
   assert.equal((await catalogRequest('A', '/bad', 'PUT', { name: 'Oats', barcode: '012345678906', productType: 'Cereal' })).status, 400);
