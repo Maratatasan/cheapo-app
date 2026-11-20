@@ -9,6 +9,7 @@ import { openPriceAppendQueue, sameShoppingOwner, type PriceAppendQueue } from '
 import { createPriceAppendSync } from './price-append-sync';
 import { createPriceEvidenceSync } from './price-evidence-sync';
 import { createPriceRecords } from './price-records';
+import { createProductPricePromotion } from './product-price-promotion';
 import { openShoppingMutationQueue, rejectedBarcodeProductIds, type ShoppingMutationQueue } from './shopping-mutation-queue';
 import { decodeMutationAcknowledgement, existingBarcodeProduct, matchesCompetingBarcode, mutationVersion, type MutationRequest, type ShoppingMutation, type ShoppingMutationInput } from './shopping-mutations';
 import { readPriceChangeOverlay } from './shopping-pending-price-changes';
@@ -158,6 +159,7 @@ export function createShoppingSync(access: SyncAccess, priceQueue: PriceAppendQu
   async function assertOwner() {
     if (!sameShoppingOwner(await access.lastVerifiedOwner(), owner)) throw new CheapoAccessError('Cheapo access changed. Reopen shopping.');
   }
+  const productPrices = createProductPricePromotion(priceQueue, mutationQueue, assertOwner);
 
   async function readPending() {
     await assertOwner();
@@ -194,6 +196,7 @@ export function createShoppingSync(access: SyncAccess, priceQueue: PriceAppendQu
 
   async function synchronize(onApplied: (kind: ShoppingMutation['action']['kind']) => void): Promise<SyncSnapshot> {
     await assertOwner();
+    await productPrices.recover();
     let capturedSession: ReturnType<OpenSession> | undefined;
     const openSession: OpenSession = () => capturedSession ??= access.openShoppingWriteSession().then(session => {
       if (!sameShoppingOwner(session.owner, owner)) throw new CheapoAccessError('Cheapo access changed. Reopen shopping.');
@@ -216,6 +219,7 @@ export function createShoppingSync(access: SyncAccess, priceQueue: PriceAppendQu
   const listeners = new Set<(snapshot: SyncSnapshot | undefined, updated: ReadonlySet<ShoppingMutation['action']['kind']>) => void>();
   return {
     assertOwner,
+    productPrices: { stage: productPrices.stage, pendingDrafts: productPrices.pendingDrafts, confirm: productPrices.confirm },
     async commitMutation(intent: ShoppingMutationInput) {
       await assertOwner();
       await mutationQueue.enqueue(intent);

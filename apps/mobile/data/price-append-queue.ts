@@ -1,4 +1,5 @@
 import { priceAppendSchema } from '@cheapo/domain/price-append';
+import { productSchema } from '@cheapo/domain';
 import { canonicalProductBarcode } from '@cheapo/domain/product-barcode';
 import { CryptoDigestAlgorithm, digestStringAsync, randomUUID } from 'expo-crypto';
 import { Directory, File, Paths } from 'expo-file-system';
@@ -21,8 +22,10 @@ export type ProductPriceDraft = {
   createdAt: string;
   barcode?: string;
 };
-const backupFileName = /^[A-Za-z0-9_-]{1,128}\.(?:(?:price|receipt|needs-shop|product-price-draft|evidence|(?:original|crop)\.evidence-available)\.json|(?:price|photo)\.sync-failed)(?:\.[\w-]+\.pending)?$/;
+export type ProductPriceChoice = { kind: 'add' } | { kind: 'reuse'; productId: string };
+const backupFileName = /^[A-Za-z0-9_-]{1,128}\.(?:(?:price|receipt|needs-shop|product-price-draft|product-price-choice|evidence|(?:original|crop)\.evidence-available)\.json|(?:price|photo)\.sync-failed)(?:\.[\w-]+\.pending)?$/;
 const productPriceDraftName = /^([A-Za-z0-9_-]{1,128})\.product-price-draft\.json$/;
+const productPriceChoiceName = /^([A-Za-z0-9_-]{1,128})\.product-price-choice\.json$/;
 const localId = /^[A-Za-z0-9_-]{1,128}$/;
 const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 
@@ -111,6 +114,17 @@ function requireProductPriceDraft(value: unknown): ProductPriceDraft {
   return { record, catalogOperationId: operation.data, createdAt, ...(barcode ? { barcode } : {}) };
 }
 
+function requireProductChoice(value: unknown): ProductPriceChoice {
+  if (value && typeof value === 'object' && 'kind' in value) {
+    if (value.kind === 'add') return { kind: 'add' };
+    if (value.kind === 'reuse' && 'productId' in value) {
+      const id = productSchema.shape.id.safeParse(value.productId);
+      if (id.success && id.data !== '.' && id.data !== '..' && !id.data.includes('\0')) return { kind: 'reuse', productId: id.data };
+    }
+  }
+  throw Error('Choose the exact product before saving this price.');
+}
+
 async function readFile(file: File): Promise<unknown> {
   return JSON.parse(await file.text());
 }
@@ -145,6 +159,11 @@ export async function openPriceAppendQueue(input: PriceQueueOwner) {
   function productPriceDraftFile(id: string) {
     if (!localId.test(id)) throw Error('Invalid product draft ID.');
     return new File(directory, `${id}.product-price-draft.json`);
+  }
+
+  function productPriceChoiceFile(id: string) {
+    if (!localId.test(id)) throw Error('Invalid product draft ID.');
+    return new File(directory, `${id}.product-price-choice.json`);
   }
 
   function hasProductPriceDraft(id: string) {
@@ -198,6 +217,34 @@ export async function openPriceAppendQueue(input: PriceQueueOwner) {
     return draft;
   }
 
+  async function readChoiceFile(file: File, sourceId: string) {
+    const value = await readFile(file);
+    if (!value || typeof value !== 'object' || !('owner' in value) || JSON.stringify(value.owner) !== JSON.stringify(owner)
+      || !('format' in value) || value.format !== 1 || !('sourceId' in value) || value.sourceId !== sourceId
+      || !('choice' in value)) throw Error('The product choice could not be restored.');
+    return requireProductChoice(value.choice);
+  }
+
+  function writeChoice(file: File, sourceId: string, choice: ProductPriceChoice) {
+    return publish(file, JSON.stringify({ format: 1, owner, sourceId, choice }));
+  }
+
+  async function restoreProductPriceChoice(sourceId: string) {
+    const file = productPriceChoiceFile(sourceId);
+    if (file.exists) return readChoiceFile(file, sourceId);
+    if (!directory.exists) return;
+    let restored: ProductPriceChoice | undefined;
+    for (const entry of directory.list()) {
+      if (!entry.name.startsWith(`${file.name}.`) || !entry.name.endsWith('.pending')) continue;
+      if (!(entry instanceof File)) throw Error('The product choice could not be restored.');
+      const choice = await readChoiceFile(entry, sourceId);
+      if (restored && JSON.stringify(restored) !== JSON.stringify(choice)) throw Error('The saved product choices conflict.');
+      restored = choice;
+    }
+    if (restored) await writeChoice(file, sourceId, restored);
+    return restored;
+  }
+
   function publishPrice(record: SavedPriceRecord) {
     return publish(priceFile(record.id), JSON.stringify({ format: 1, owner, record, body: encodePriceAppend(record) }));
   }
@@ -213,7 +260,8 @@ export async function openPriceAppendQueue(input: PriceQueueOwner) {
       const receipt = /^([A-Za-z0-9_-]{1,128})\.receipt\.json$/.exec(file.name);
       const needsShop = /^([A-Za-z0-9_-]{1,128})\.needs-shop\.json$/.exec(file.name);
       const productDraft = productPriceDraftName.exec(file.name);
-      const staged = /^(([A-Za-z0-9_-]{1,128})\.(?:price|receipt|needs-shop|product-price-draft)\.json)\.[\w-]+\.pending$/.exec(file.name);
+      const productChoice = productPriceChoiceName.exec(file.name);
+      const staged = /^(([A-Za-z0-9_-]{1,128})\.(?:price|receipt|needs-shop|product-price-draft|product-price-choice)\.json)\.[\w-]+\.pending$/.exec(file.name);
       if (staged) {
         try {
           const committed = new File(directory, staged[1]);
@@ -251,6 +299,15 @@ export async function openPriceAppendQueue(input: PriceQueueOwner) {
         try {
           if (!(file instanceof File)) throw Error('The product draft is not a file.');
           productPriceDrafts.push(await readProductPriceDraft(file, sourceId));
+        } catch {
+          recovery.push({ sourceId, reason: 'unreadable' });
+        }
+      } else if (productChoice) {
+        const sourceId = productChoice[1];
+        try {
+          if (!(file instanceof File) || !productPriceDraftFile(sourceId).exists) throw Error('The product choice is missing its draft.');
+          await readChoiceFile(file, sourceId);
+          if (!priceFile(sourceId).exists) recovery.push({ sourceId, reason: 'unfinished' });
         } catch {
           recovery.push({ sourceId, reason: 'unreadable' });
         }
@@ -402,7 +459,48 @@ export async function openPriceAppendQueue(input: PriceQueueOwner) {
           await publish(productPriceDraftFile(id), JSON.stringify({ format: 1, owner, draft }));
           productPriceDrafts.push(draft);
         }
-        return productPriceDrafts;
+        return productPriceDrafts.filter(draft => !priceFile(draft.record.id).exists);
+      });
+    },
+    confirmProductPriceChoice(sourceId: string, input: ProductPriceChoice) {
+      const choice = requireProductChoice(input);
+      return serializePublication(async () => {
+        const draft = await readProductPriceDraft(productPriceDraftFile(sourceId), sourceId);
+        const stored = await restoreProductPriceChoice(sourceId);
+        if (stored && JSON.stringify(stored) !== JSON.stringify(choice)) throw Error('This draft already has a different confirmed product.');
+        if (!stored) await writeChoice(productPriceChoiceFile(sourceId), sourceId, choice);
+        return { draft, choice: stored ?? choice };
+      });
+    },
+    readConfirmedProductPrices() {
+      return serializePublication(async () => {
+        const { productPriceDrafts } = await readEntries();
+        const confirmed: { draft: ProductPriceDraft; choice: ProductPriceChoice }[] = [];
+        for (const draft of productPriceDrafts) {
+          if (priceFile(draft.record.id).exists) continue;
+          const choice = await restoreProductPriceChoice(draft.record.id).catch(() => undefined);
+          if (choice) confirmed.push({ draft, choice });
+        }
+        return confirmed;
+      });
+    },
+    promoteProductPrice(sourceId: string) {
+      return serializePublication(async () => {
+        const draft = await readProductPriceDraft(productPriceDraftFile(sourceId), sourceId);
+        const choice = await restoreProductPriceChoice(sourceId);
+        if (!choice) throw Error('Review the product draft before saving this price.');
+        const record = requirePriceRecord({ ...draft.record,
+          productId: choice.kind === 'reuse' ? choice.productId : draft.record.productId });
+        const file = priceFile(sourceId);
+        if (file.exists) {
+          const queued = await readPrice(file, sourceId);
+          if (!queued.body || JSON.stringify(queued.record) !== JSON.stringify(record)) {
+            throw Error('A different price is already queued with this ID.');
+          }
+          return queued.record;
+        }
+        await publishPrice(record);
+        return record;
       });
     },
     backup() {

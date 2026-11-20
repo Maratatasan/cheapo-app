@@ -927,3 +927,94 @@ test('stops before deleting the catalogue or shops when enrollment changes after
   expect(mockFiles.has(catalogFile)).toBe(true);
   expect(mockFiles.has(shopFile)).toBe(true);
 });
+
+it('recovers an explicitly confirmed Add product with the same operation and price after an interrupted append', async () => {
+  const request = jest.fn(async (path: string, init: RequestInit) => {
+    if (path === `/v1/products/${record.productId}`) {
+      expect(init.method).toBe('PUT');
+      return Response.json({ product: queuedProduct, version: 1 }, { status: 201 });
+    }
+    if (path === '/v1/me/price-observations') {
+      expect(init.method).toBe('POST');
+      return Response.json(receipt, { status: 201 });
+    }
+    throw Error('Unexpected remote write.');
+  });
+  const access = { lastVerifiedOwner: async () => owner,
+    openShoppingWriteSession: async () => ({ owner, assertCurrent() {}, request }) };
+  const phone = (await openCheapoShopping(access))!;
+  const draft = { record, catalogOperationId: 'new-product-and-price', createdAt: operationTime };
+  await phone.productPrices.stage(draft);
+  await phone.retry();
+  expect(request).not.toHaveBeenCalled();
+  await expect(phone.priceQueue.promoteProductPrice(record.id)).rejects.toThrow('Review the product draft');
+
+  mockFailedPublication = /\.price\.json$/;
+  await expect(phone.productPrices.confirm(record.id, { kind: 'add' })).rejects.toThrow('Publication interrupted');
+  expect((await phone.mutationQueue.read()).entries).toMatchObject([{ intent: {
+    operationId: draft.catalogOperationId, action: { kind: 'create-product', product: { id: record.productId } },
+  } }]);
+  expect(await phone.priceQueue.readConfirmedProductPrices()).toEqual([{ draft, choice: { kind: 'add' } }]);
+  expect(request).not.toHaveBeenCalled();
+
+  mockFailedPublication = /$a/;
+  const reopened = (await openCheapoShopping(access))!;
+  await expect(reopened.productPrices.confirm(record.id, { kind: 'reuse', productId: 'different' })).rejects.toThrow('different confirmed product');
+  await expect(reopened.retry()).resolves.toEqual({ state: 'complete', items: [] });
+  expect(request.mock.calls.map(([path]) => path)).toEqual([`/v1/products/${record.productId}`, '/v1/me/price-observations']);
+  expect(request.mock.calls[1][1].body).toBe(body);
+  expect(await reopened.productPrices.pendingDrafts()).toEqual([]);
+  expect(await reopened.productPrices.confirm(record.id, { kind: 'add' })).toEqual(record);
+  await reopened.retry();
+  expect(request).toHaveBeenCalledTimes(2);
+});
+
+it('replays only an explicitly saved reuse choice after an interrupted move and rejects a different enrollment', async () => {
+  let selected = owner;
+  const request = jest.fn(async (_path: string, _init: RequestInit) => Response.json(receipt, { status: 201 }));
+  const access = { lastVerifiedOwner: async () => selected,
+    openShoppingWriteSession: async () => ({ owner: selected, assertCurrent() {}, request }) };
+  const phone = (await openCheapoShopping(access))!;
+  const draft = { record, catalogOperationId: 'reuse-product-and-price', createdAt: operationTime };
+  await phone.productPrices.stage(draft);
+  mockFailedPublication = /\.product-price-choice\.json$/;
+  await expect(phone.productPrices.confirm(record.id, { kind: 'reuse', productId: 'checked-product' }))
+    .rejects.toThrow('Publication interrupted');
+  selected = other;
+  await expect(phone.productPrices.pendingDrafts()).rejects.toThrow('Cheapo access changed');
+  const different = (await openCheapoShopping(access))!;
+  expect(await different.productPrices.pendingDrafts()).toEqual([]);
+  expect(await different.retry()).toEqual({ state: 'complete', items: [] });
+  expect(request).not.toHaveBeenCalled();
+
+  selected = owner;
+  mockFailedPublication = /$a/;
+  const reopened = (await openCheapoShopping(access))!;
+  expect(await reopened.retry()).toEqual({ state: 'complete', items: [] });
+  expect(request).toHaveBeenCalledTimes(1);
+  expect(request.mock.calls[0][0]).toBe('/v1/me/price-observations');
+  expect(JSON.parse(String(request.mock.calls[0][1].body))).toMatchObject({ sourceId: record.id, productId: 'checked-product' });
+  expect((await reopened.mutationQueue.read()).entries).toHaveLength(0);
+  expect((await reopened.priceQueue.backup()).files.map(({ name }) => name)).toContain(`${record.id}.product-price-choice.json`);
+});
+
+it('promotes the exact protected original and crop from a camera draft without copying them again', async () => {
+  const original = { uri: 'file:///cache/one-original.jpg', width: 120, height: 100, mimeType: 'image/jpeg' as const };
+  const selected = { uri: 'file:///cache/one-crop.jpg', width: 80, height: 60, mimeType: 'image/jpeg' as const };
+  mockFiles.set(original.uri, 'camera original');
+  mockFiles.set(selected.uri, 'camera crop');
+  const request = jest.fn();
+  const phone = (await openCheapoShopping({ lastVerifiedOwner: async () => owner, openShoppingWriteSession: request }))!;
+  await phone.productPrices.stage({ record: { ...record, original, selected },
+    catalogOperationId: 'reuse-camera-product', createdAt: operationTime });
+  const [draft] = await phone.productPrices.pendingDrafts();
+  expect(draft.record.original?.uri).toBe(`file:///documents/price-photos/${record.id}-original.jpg`);
+  expect(draft.record.selected?.uri).toMatch(/\/documents\/price-photos\/.*-selected-\d+\.jpg$/);
+  expect(await phone.priceQueue.read()).toEqual({ entries: [], recovery: [] });
+  const saved = await phone.productPrices.confirm(record.id, { kind: 'reuse', productId: 'checked-product' });
+  expect(saved).toEqual({ ...draft.record, productId: 'checked-product' });
+  expect(await phone.productPrices.pendingDrafts()).toEqual([]);
+  expect(mockFiles.get(saved.original!.uri)).toBe('camera original');
+  expect(mockFiles.get(saved.selected!.uri)).toBe('camera crop');
+  expect(request).not.toHaveBeenCalled();
+});
