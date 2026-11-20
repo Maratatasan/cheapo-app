@@ -773,6 +773,48 @@ it('backs up only the enrolled price and evidence phases and retains interrupted
   expect(JSON.parse(contents[`${record.id}.price.json`]).body).toBe(body);
 });
 
+it('retains a reviewed product and price draft with its protected photo across relaunch without submitting it', async () => {
+  const { photo } = await photoEvidence();
+  const queue = await openPriceAppendQueue(owner);
+  const input = { record: photo, barcode: '036000291452', catalogOperationId: 'product-catalog-attempt',
+    createdAt: '2026-11-20T12:02:00.000Z' };
+  const kept = await queue.stageProductPrice(input);
+  expect(kept).toEqual({ ...input, barcode: '00036000291452' });
+  const reopened = await openPriceAppendQueue(owner);
+  expect(await reopened.readProductPriceDrafts()).toEqual([kept]);
+  expect(await reopened.stageProductPrice(input)).toEqual(kept);
+  await expect(reopened.stageProductPrice({ ...input, catalogOperationId: 'other-attempt' })).rejects.toThrow('different product draft');
+  expect(() => reopened.stageProductPrice({ ...input, barcode: 36000291452 as unknown as string })).toThrow('draft is unreadable');
+  await expect(reopened.save(photo)).rejects.toThrow('Review the product draft');
+  expect(await reopened.read()).toEqual({ entries: [], recovery: [] });
+  expect(await (await openPriceAppendQueue(other)).readProductPriceDrafts()).toEqual([]);
+  const session = jest.fn();
+  expect(await createPriceAppendSync(reopened, session)()).toBe('complete');
+  expect(session).not.toHaveBeenCalled();
+
+  const backup = await reopened.backup();
+  expect(backup.productPriceDrafts).toEqual([kept]);
+  expect(backup.files.map(file => file.name)).toEqual([`${record.id}.product-price-draft.json`]);
+  await reopened.withProtectedPriceSources(async ids => { expect(ids.has(record.id)).toBe(true); });
+});
+
+it('keeps an interrupted product-price draft recoverable and allows an identical retry', async () => {
+  const queue = await openPriceAppendQueue(owner);
+  const { photo } = await photoEvidence();
+  const input = { record: photo, catalogOperationId: 'catalog-attempt', createdAt: '2026-11-20T12:02:00.000Z' };
+  mockFailedPublication = /\.product-price-draft\.json$/;
+  await expect(queue.stageProductPrice(input)).rejects.toThrow('Publication interrupted');
+  expect((await queue.read()).recovery).toEqual([{ sourceId: record.id, reason: 'unfinished' }]);
+  expect((await queue.backup()).productPriceDrafts).toEqual([input]);
+  await expect(queue.save(photo)).rejects.toThrow('Review the product draft');
+  await expect(queue.stageProductPrice({ ...input, catalogOperationId: 'other-attempt' })).rejects.toThrow('different product draft');
+  mockFailedPublication = /$a/;
+  const reopened = await openPriceAppendQueue(owner);
+  expect(await reopened.readProductPriceDrafts()).toEqual([input]);
+  expect(await reopened.stageProductPrice(input)).toEqual(input);
+  expect(await reopened.read()).toEqual({ entries: [], recovery: [] });
+});
+
 function seedLegacyPrice(id: string, reviewed = true) {
   const folder = 'file:///documents/price-photos';
   const original = { uri: `${folder}/${id}-original.jpg`, width: 100, height: 90, mimeType: 'image/jpeg' as const };

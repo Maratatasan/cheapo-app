@@ -1,4 +1,5 @@
 import { priceAppendSchema } from '@cheapo/domain/price-append';
+import { canonicalProductBarcode } from '@cheapo/domain/product-barcode';
 import { CryptoDigestAlgorithm, digestStringAsync, randomUUID } from 'expo-crypto';
 import { Directory, File, Paths } from 'expo-file-system';
 
@@ -7,13 +8,21 @@ import { type DraftShop, type LocalPhotoDraft, type PhotoAsset, type SavedPriceR
 import { readQueueBackupFiles } from './queue-backup-files';
 import { reviewComplete, reviewUnitPrice } from './photo-review';
 import { createPriceEvidenceStore } from './price-evidence-queue';
+import { mutationOperationId } from './shopping-mutations';
 
 export type PriceQueueOwner = { origin: string; householdId: string; shopperId: string };
 export type PriceAppendReceipt = { id: string; sourceId: string; version: number; deriveCropFromOriginal?: true };
 type PriceQueueEntry = { record: SavedPriceRecord; body?: string; receipt?: PriceAppendReceipt; needsShop?: true };
 type RecoveryEntry = { sourceId: string; reason: 'unfinished' | 'unreadable' };
 type FailurePhase = 'price' | 'photo';
-const backupFileName = /^[A-Za-z0-9_-]{1,128}\.(?:(?:price|receipt|needs-shop|evidence|(?:original|crop)\.evidence-available)\.json|(?:price|photo)\.sync-failed)(?:\.[\w-]+\.pending)?$/;
+export type ProductPriceDraft = {
+  record: SavedPriceRecord;
+  catalogOperationId: string;
+  createdAt: string;
+  barcode?: string;
+};
+const backupFileName = /^[A-Za-z0-9_-]{1,128}\.(?:(?:price|receipt|needs-shop|product-price-draft|evidence|(?:original|crop)\.evidence-available)\.json|(?:price|photo)\.sync-failed)(?:\.[\w-]+\.pending)?$/;
+const productPriceDraftName = /^([A-Za-z0-9_-]{1,128})\.product-price-draft\.json$/;
 const localId = /^[A-Za-z0-9_-]{1,128}$/;
 const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 
@@ -86,6 +95,22 @@ function encodePriceAppend({ id, capturedAt, productId, shop, review, cropBox }:
   return JSON.stringify(payload.data);
 }
 
+function requireProductPriceDraft(value: unknown): ProductPriceDraft {
+  if (!value || typeof value !== 'object' || !('record' in value) || !('catalogOperationId' in value)
+    || !('createdAt' in value)) throw Error('This product draft is unreadable.');
+  const { createdAt } = value;
+  const parsedDate = typeof createdAt === 'string' ? Date.parse(createdAt) : NaN;
+  const operation = mutationOperationId.safeParse(value.catalogOperationId);
+  const barcode = 'barcode' in value && typeof value.barcode === 'string' ? canonicalProductBarcode(value.barcode) : undefined;
+  const record = requirePriceRecord(value.record);
+  if (!record.productId || !operation.success || typeof createdAt !== 'string' || !Number.isFinite(parsedDate)
+    || new Date(parsedDate).toISOString() !== createdAt || ('barcode' in value && value.barcode !== undefined && !barcode)) {
+    throw Error('This product draft is unreadable.');
+  }
+  encodePriceAppend(record);
+  return { record, catalogOperationId: operation.data, createdAt, ...(barcode ? { barcode } : {}) };
+}
+
 async function readFile(file: File): Promise<unknown> {
   return JSON.parse(await file.text());
 }
@@ -115,6 +140,17 @@ export async function openPriceAppendQueue(input: PriceQueueOwner) {
   function needsShopFile(id: string) {
     if (!localId.test(id)) throw Error('Invalid pending price ID.');
     return new File(directory, `${id}.needs-shop.json`);
+  }
+
+  function productPriceDraftFile(id: string) {
+    if (!localId.test(id)) throw Error('Invalid product draft ID.');
+    return new File(directory, `${id}.product-price-draft.json`);
+  }
+
+  function hasProductPriceDraft(id: string) {
+    const file = productPriceDraftFile(id);
+    return file.exists || (directory.exists && directory.list().some(entry =>
+      entry.name.startsWith(`${file.name}.`) && entry.name.endsWith('.pending')));
   }
 
   async function publish(file: File, text: string) {
@@ -153,6 +189,15 @@ export async function openPriceAppendQueue(input: PriceQueueOwner) {
     return { record };
   }
 
+  async function readProductPriceDraft(file: File, sourceId: string) {
+    const value = await readFile(file);
+    if (!value || typeof value !== 'object' || !('owner' in value) || JSON.stringify(value.owner) !== JSON.stringify(owner)
+      || !('format' in value) || value.format !== 1 || !('draft' in value)) throw Error('The product draft owner or format is invalid.');
+    const draft = requireProductPriceDraft(value.draft);
+    if (draft.record.id !== sourceId) throw Error('The product draft ID does not match.');
+    return draft;
+  }
+
   function publishPrice(record: SavedPriceRecord) {
     return publish(priceFile(record.id), JSON.stringify({ format: 1, owner, record, body: encodePriceAppend(record) }));
   }
@@ -160,16 +205,32 @@ export async function openPriceAppendQueue(input: PriceQueueOwner) {
   async function readEntries() {
     const entries: PriceQueueEntry[] = [];
     const recovery: RecoveryEntry[] = [];
-    if (!directory.exists) return { entries, recovery };
+    const productPriceDrafts: ProductPriceDraft[] = [];
+    const interruptedProductDrafts = new Map<string, ProductPriceDraft | null>();
+    if (!directory.exists) return { entries, recovery, productPriceDrafts, interruptedProductDrafts };
     for (const file of directory.list()) {
       const price = /^([A-Za-z0-9_-]{1,128})\.price\.json$/.exec(file.name);
       const receipt = /^([A-Za-z0-9_-]{1,128})\.receipt\.json$/.exec(file.name);
       const needsShop = /^([A-Za-z0-9_-]{1,128})\.needs-shop\.json$/.exec(file.name);
-      const staged = /^(([A-Za-z0-9_-]{1,128})\.(?:price|receipt|needs-shop)\.json)\.[\w-]+\.pending$/.exec(file.name);
+      const productDraft = productPriceDraftName.exec(file.name);
+      const staged = /^(([A-Za-z0-9_-]{1,128})\.(?:price|receipt|needs-shop|product-price-draft)\.json)\.[\w-]+\.pending$/.exec(file.name);
       if (staged) {
         try {
           const committed = new File(directory, staged[1]);
           if (file instanceof File && committed.exists && await file.text() === await committed.text()) continue;
+          if (!committed.exists && productPriceDraftName.test(staged[1])) {
+            const sourceId = staged[2];
+            try {
+              if (!(file instanceof File)) throw Error('The staged product draft is not a file.');
+              const draft = await readProductPriceDraft(file, sourceId);
+              const previous = interruptedProductDrafts.get(sourceId);
+              interruptedProductDrafts.set(sourceId,
+                previous !== undefined && JSON.stringify(previous) !== JSON.stringify(draft) ? null : draft);
+            } catch {
+              interruptedProductDrafts.set(sourceId, null);
+            }
+            continue;
+          }
         } catch {
           // Report the unfinished file and keep its contents available for recovery.
         }
@@ -182,6 +243,14 @@ export async function openPriceAppendQueue(input: PriceQueueOwner) {
           if (!(file instanceof File)) throw Error('The queued price is not a file.');
           const { record } = await readEnvelope(file, sourceId, true);
           entries.push({ record, needsShop: true });
+        } catch {
+          recovery.push({ sourceId, reason: 'unreadable' });
+        }
+      } else if (productDraft) {
+        const sourceId = productDraft[1];
+        try {
+          if (!(file instanceof File)) throw Error('The product draft is not a file.');
+          productPriceDrafts.push(await readProductPriceDraft(file, sourceId));
         } catch {
           recovery.push({ sourceId, reason: 'unreadable' });
         }
@@ -206,7 +275,10 @@ export async function openPriceAppendQueue(input: PriceQueueOwner) {
         }
       }
     }
-    return { entries, recovery };
+    for (const [sourceId, draft] of interruptedProductDrafts) {
+      recovery.push({ sourceId, reason: draft ? 'unfinished' : 'unreadable' });
+    }
+    return { entries, recovery, productPriceDrafts, interruptedProductDrafts };
   }
 
   return {
@@ -241,6 +313,9 @@ export async function openPriceAppendQueue(input: PriceQueueOwner) {
             ids.add(sourceId);
             const envelope = /\.(price|needs-shop)\.json(?:\.[\w-]+\.pending)?$/.exec(file.name);
             if (envelope) await readEnvelope(file, sourceId, envelope[1] === 'needs-shop');
+            if (/\.product-price-draft\.json(?:\.[\w-]+\.pending)?$/.test(file.name)) {
+              await readProductPriceDraft(file, sourceId);
+            }
           }
         }
         return clear(ids);
@@ -260,6 +335,7 @@ export async function openPriceAppendQueue(input: PriceQueueOwner) {
           if (!previous.body) throw Error('The saved price needs sync recovery.');
           return;
         }
+        if (hasProductPriceDraft(record.id)) throw Error('Review the product draft before saving this price.');
         await publishPrice(record);
       });
     },
@@ -267,6 +343,7 @@ export async function openPriceAppendQueue(input: PriceQueueOwner) {
       const record = requirePriceRecord(value, true);
       return serializePublication(async () => {
         if (priceFile(record.id).exists) throw Error('This price already has a confirmed shop.');
+        if (hasProductPriceDraft(record.id)) throw Error('Review the product draft before saving this price.');
         const file = needsShopFile(record.id);
         if (file.exists) {
           const previous = await readEnvelope(file, record.id, true);
@@ -293,13 +370,48 @@ export async function openPriceAppendQueue(input: PriceQueueOwner) {
     },
     async read() {
       await pendingPublication;
-      return readEntries();
+      const { entries, recovery } = await readEntries();
+      return { entries, recovery };
+    },
+    stageProductPrice(input: ProductPriceDraft) {
+      const draft = requireProductPriceDraft(input);
+      return serializePublication(async () => {
+        const target = productPriceDraftFile(draft.record.id);
+        if (target.exists) {
+          const previous = await readProductPriceDraft(target, draft.record.id);
+          if (JSON.stringify(previous) !== JSON.stringify(draft)) throw Error('A different product draft already uses this price ID.');
+          return previous;
+        }
+        const { id } = draft.record;
+        if (priceFile(id).exists || receiptFile(id).exists || needsShopFile(id).exists) {
+          throw Error('A price with this ID is already saved.');
+        }
+        const interrupted = (await readEntries()).interruptedProductDrafts.get(id);
+        if (interrupted !== undefined && JSON.stringify(interrupted) !== JSON.stringify(draft)) {
+          throw Error('A different product draft already uses this price ID.');
+        }
+        await publish(target, JSON.stringify({ format: 1, owner, draft }));
+        return draft;
+      });
+    },
+    readProductPriceDrafts() {
+      return serializePublication(async () => {
+        const { productPriceDrafts, interruptedProductDrafts } = await readEntries();
+        for (const [id, draft] of interruptedProductDrafts) {
+          if (!draft || priceFile(id).exists || receiptFile(id).exists || needsShopFile(id).exists) continue;
+          await publish(productPriceDraftFile(id), JSON.stringify({ format: 1, owner, draft }));
+          productPriceDrafts.push(draft);
+        }
+        return productPriceDrafts;
+      });
     },
     backup() {
-      return serializePublication(async () => ({
-        ...await readEntries(),
-        files: await readQueueBackupFiles(directory, backupFileName),
-      }));
+      return serializePublication(async () => {
+        const { interruptedProductDrafts, ...saved } = await readEntries();
+        const recovered = [...interruptedProductDrafts.values()].flatMap(draft => draft ? [draft] : []);
+        return { ...saved, productPriceDrafts: [...saved.productPriceDrafts, ...recovered],
+          files: await readQueueBackupFiles(directory, backupFileName) };
+      });
     },
     acknowledge(sourceId: string, receipt: unknown) {
       if (!localId.test(sourceId) || !validReceipt(receipt, sourceId)) throw Error('Invalid price acknowledgement.');

@@ -42,14 +42,16 @@ export async function loadEnrolledShoppingBackup(expectedOwner?: PriceQueueOwner
   // its append receipt. Both snapshots describe the same from-device state.
   const { priceBackup, mutationFiles, mutationRecovery, records } = await mutations.backup(async mutationBackup => {
     const priceBackup = await prices.backup();
-    const records = priceBackup.entries.map(entry => entry.record);
+    const queued = priceBackup.entries.map(entry => entry.record);
+    const records = [...new Map([...priceBackup.productPriceDrafts.map(draft => draft.record), ...queued]
+      .map(record => [record.id, record])).values()];
     const readableIds = new Set(records.map(record => record.id));
     if (priceBackup.recovery.some(entry => entry.reason === 'unreadable' && !readableIds.has(entry.sourceId))) {
       throw new EnrolledBackupError('An enrolled price or its evidence could not be read. The complete backup could not be prepared.');
     }
     const operationIds = new Set(mutationBackup.files.filter(file => file.name.endsWith('.intent.json'))
       .map(file => file.name.slice(0, -'.intent.json'.length)));
-    validateQueueReferences(mutationBackup.entries, operationIds, readableIds);
+    validateQueueReferences(mutationBackup.entries, operationIds, new Set(queued.map(record => record.id)));
     return { priceBackup, mutationFiles: mutationBackup.files, mutationRecovery: mutationBackup.recovery, records };
   });
 
