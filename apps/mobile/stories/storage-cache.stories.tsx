@@ -5,7 +5,7 @@ import { View } from "react-native";
 
 import { StorageCache } from "../component/storage-cache";
 
-type Fixture = "downloaded" | "empty" | "unavailable" | "clear-failure";
+type Fixture = "downloaded" | "empty" | "unavailable" | "clear-failure" | "legacy";
 
 function Preview({ fixture }: { fixture: Fixture }) {
   const cache = useMemo(() => {
@@ -21,9 +21,10 @@ function Preview({ fixture }: { fixture: Fixture }) {
       },
     };
   }, [fixture]);
+  const legacyCleanup = fixture === "legacy" ? async () => ({ removedPrices: 8, keptPrices: 2, failedParts: 0, barcodeCatalog: "kept" as const, savedShopsCleared: true }) : undefined;
   return (
     <View style={{ width: "100%", maxWidth: 420, height: 600, alignSelf: "center" }}>
-      <StorageCache cache={cache} onBack={() => {}} />
+      <StorageCache cache={cache} legacyCleanup={legacyCleanup} onBack={() => {}} />
     </View>
   );
 }
@@ -86,5 +87,16 @@ export const ConfirmOrCancel: Story = {
     await userEvent.click(canvas.getByRole("button", { name: "Clear cache" }));
     await userEvent.click(canvas.getByRole("button", { name: "Clear downloaded copies" }));
     await expect(await canvas.findByText("0 B")).toBeVisible();
+  },
+};
+
+
+export const ConfirmLegacyRemoval: Story = {
+  args: { fixture: "legacy" },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(await canvas.findByRole("button", { name: "Remove old phone data" }));
+    await expect(canvas.getByRole("heading", { name: "Remove old phone data?" })).toBeVisible();
+    await expect(canvas.getByText(/Shared history, unfinished drafts, pending work, sign-ins, exports/)).toBeVisible();
+    await expect(canvas.getByRole("button", { name: "Cancel removal" })).toBeVisible();
   },
 };

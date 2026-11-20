@@ -57,3 +57,23 @@ test("reports failed clearing and remeasures before allowing a retry", async () 
   expect(await screen.findByText("0 B")).toBeOnTheScreen();
   expect(screen.queryByRole("alert")).not.toBeOnTheScreen();
 });
+
+
+test("separates legacy removal from cache clearing and requires its own confirmation", async () => {
+  const user = userEvent.setup();
+  const cache = { measureBytes: async () => 1024, clear: jest.fn(async () => {}) };
+  const legacyCleanup = jest.fn(async () => ({ removedPrices: 3, keptPrices: 2, failedParts: 0, barcodeCatalog: "kept" as const, savedShopsCleared: true }));
+  await render(<StorageCache cache={cache} legacyCleanup={legacyCleanup} onBack={() => {}} />);
+  await user.press(screen.getByRole("button", { name: "Remove old phone data" }));
+  expect(screen.getByText(/Shared history, unfinished drafts, pending work, sign-ins, exports/)).toBeOnTheScreen();
+  await user.press(screen.getByRole("button", { name: "Cancel removal" }));
+  expect(legacyCleanup).not.toHaveBeenCalled();
+  await user.press(screen.getByRole("button", { name: "Remove old phone data" }));
+  await user.press(screen.getByRole("button", { name: "Remove old records" }));
+  expect(await screen.findByText("Removed 3 old price records. Kept 2 protected prices or drafts.")).toBeOnTheScreen();
+  expect(screen.getByText("Old barcode matches were kept for retained prices.")).toBeOnTheScreen();
+  expect(screen.queryByText("Old barcode matches were cleared.")).not.toBeOnTheScreen();
+  expect(legacyCleanup).toHaveBeenCalledTimes(1);
+  expect(cache.clear).not.toHaveBeenCalled();
+  expect(screen.getByText("1 KB")).toBeOnTheScreen();
+});

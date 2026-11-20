@@ -3,8 +3,10 @@ import { randomUUID } from 'expo-crypto';
 import { Directory, File, Paths } from 'expo-file-system';
 import { canonicalProductBarcode } from './product-barcode';
 
+const legacyProductsFile = () => new File(Paths.document, 'saved-products.json');
+
 async function readLegacyProducts() {
-  const file = new File(Paths.document, 'saved-products.json');
+  const file = legacyProductsFile();
   const products: Product[] = [];
   const barcodes = new Map<string, Product>();
   if (!file.exists) return { products, barcodes };
@@ -90,6 +92,21 @@ function serialize<T>(operation: () => Promise<T>): Promise<T> {
   const result = pendingMutation.then(operation);
   pendingMutation = result.catch(() => {});
   return result;
+}
+
+export function clearLegacyProductCatalog(assertOwner: () => Promise<void>) {
+  return serialize(async () => {
+    await assertOwner();
+    let failures = 0;
+    for (const path of [legacyProductsFile(), productsDirectory(), correctionsDirectory()]) {
+      try {
+        if (path.exists) path.delete();
+      } catch {
+        failures++;
+      }
+    }
+    return failures;
+  });
 }
 
 export function loadLocalCatalogBackup() {

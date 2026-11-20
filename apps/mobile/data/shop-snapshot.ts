@@ -47,3 +47,8 @@ export async function writeShopSnapshot(contents: string): Promise<void> {
     // The new snapshot is already committed. An older file can be left in place.
   }
 }
+
+export async function clearShopSnapshot(): Promise<void> {
+  const directory = shopDirectory();
+  if (directory.exists) directory.delete();
+}

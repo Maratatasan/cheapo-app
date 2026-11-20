@@ -1,7 +1,9 @@
 import { Directory, File, Paths } from 'expo-file-system';
 
-import { emptyReview, type ManualPriceRecord } from '../data/local-photo';
+import { emptyReview, loadLocalShoppingBackup, type ManualPriceRecord } from '../data/local-photo';
 import { openPriceAppendQueue } from '../data/price-append-queue';
+import { openShoppingMutationQueue } from '../data/shopping-mutation-queue';
+import { clearLegacyShopping } from '../data/legacy-shopping-cleanup';
 import { createPriceAppendSync } from '../data/price-append-sync';
 import { createPriceEvidenceSync } from '../data/price-evidence-sync';
 import { createPriceRecords } from '../data/price-records';
@@ -12,6 +14,8 @@ import { priceChangeIsNewerThan } from '../data/shopping-pending-price-changes';
 
 const mockFiles = new Map<string, string>();
 let mockFailedPublication = /$a/;
+let mockFailedDeletion = /$a/;
+let mockFileRead: (uri: string) => void = () => {};
 let mockNextUUID = 0;
 jest.mock('expo-crypto', () => ({
   CryptoDigestAlgorithm: { SHA256: 'SHA-256' },
@@ -31,17 +35,31 @@ jest.mock('expo-file-system', () => {
       mockFiles.delete(this.uri);
       this.uri = target.uri;
     }
+    delete() {
+      if (mockFailedDeletion.test(this.uri)) throw Error('Could not remove file.');
+      mockFiles.delete(this.uri);
+    }
     async copy(target: File) { mockFiles.set(target.uri, mockFiles.get(this.uri)!); }
     async write(value: string) { mockFiles.set(this.uri, value); }
-    async text() { return mockFiles.get(this.uri); }
+    async text() { mockFileRead(this.uri); return mockFiles.get(this.uri); }
     async bytes() { return new TextEncoder().encode(mockFiles.get(this.uri) ?? ''); }
   }
   class Directory {
     uri: string;
     constructor(parent: string | { uri: string }, name: string) { this.uri = (typeof parent === 'string' ? parent : parent.uri) + '/' + name; }
-    get exists() { return true; }
+    get name() { return this.uri.split('/').pop()!; }
+    get exists() { return [...mockFiles.keys()].some(key => key.startsWith(this.uri + '/')); }
     create() {}
-    list() { return [...mockFiles.keys()].filter(key => key.startsWith(this.uri + '/')).map(key => new File(key)); }
+    delete() { for (const key of mockFiles.keys()) if (key.startsWith(this.uri + '/')) mockFiles.delete(key); }
+    list() {
+      const entries = new Map<string, File | Directory>();
+      for (const key of mockFiles.keys()) {
+        if (!key.startsWith(this.uri + '/')) continue;
+        const [name, child] = key.slice(this.uri.length + 1).split('/');
+        entries.set(name, child ? new Directory(this, name) : new File(this, name));
+      }
+      return [...entries.values()];
+    }
   }
   return { Directory, File, Paths: { document: 'file:///documents', cache: 'file:///cache' } };
 });
@@ -98,6 +116,7 @@ async function photoEvidence() {
 beforeEach(() => {
   mockFiles.clear();
   mockFailedPublication = /$a/;
+  mockFailedDeletion = /$a/;
 });
 
 it('reopens the immutable record and operation together and rejects ID reuse with changed input', async () => {
@@ -695,4 +714,117 @@ it('backs up only the enrolled price and evidence phases and retains interrupted
   expect(contents[`${record.id}.evidence.json`]).toBe(evidence);
   expect(contents[`${record.id}.crop.evidence-available.json.staging.pending`]).toBe(unfinished);
   expect(JSON.parse(contents[`${record.id}.price.json`]).body).toBe(body);
+});
+
+function seedLegacyPrice(id: string, reviewed = true) {
+  const folder = 'file:///documents/price-photos';
+  const original = { uri: `${folder}/${id}-original.jpg`, width: 100, height: 90, mimeType: 'image/jpeg' as const };
+  const selected = { ...original, uri: `${folder}/${id}-selected-123.jpg` };
+  mockFiles.set(original.uri, 'legacy original');
+  mockFiles.set(selected.uri, 'legacy crop');
+  const price = { ...record, id, original, selected, review: reviewed ? record.review : emptyReview() };
+  mockFiles.set(`${folder}/${id}.json`, JSON.stringify(price));
+  return price;
+}
+
+async function cleanupShopping() {
+  return { assertOwner: jest.fn(async () => {}), priceQueue: await openPriceAppendQueue(owner),
+    mutationQueue: await openShoppingMutationQueue(owner) };
+}
+
+test('clears reviewed legacy prices while protecting enrolled evidence that shares the legacy photo directory', async () => {
+  const shopping = await cleanupShopping();
+  const old = seedLegacyPrice('old-price');
+  const pending = seedLegacyPrice('pending-price');
+  const unfinished = seedLegacyPrice('draft-price', false);
+  await shopping.priceQueue.save(pending);
+  const catalogFile = 'file:///documents/products-by-barcode/00012345678905.json';
+  mockFiles.set(catalogFile, JSON.stringify({ id: record.productId, name: 'Test rice', barcode: '00012345678905', productType: 'Dry rice' }));
+  mockFiles.set('file:///documents/saved-shops/shops-1.json', 'old saved shop');
+  mockFiles.set('file:///cache/last-trip.zip', 'existing export');
+  mockFiles.set('file:///gallery/shelf.jpg', 'camera roll photo');
+  const preserved = [...mockFiles].filter(([uri]) => uri.includes('outbox') || uri.includes(pending.id)
+    || uri.includes(unfinished.id) || uri.includes('/cache/') || uri.includes('/gallery/'));
+
+  await expect(clearLegacyShopping(shopping)).resolves.toEqual({ removedPrices: 1, keptPrices: 2, failedParts: 0, barcodeCatalog: 'kept', savedShopsCleared: true });
+  expect([...mockFiles.keys()].some(uri => uri.includes(old.id))).toBe(false);
+  expect([...mockFiles.keys()].some(uri => uri.includes('/saved-shops/'))).toBe(false);
+  expect(mockFiles.has(catalogFile)).toBe(true);
+  const backup = await loadLocalShoppingBackup();
+  expect(backup.records.map(price => price.productId)).toEqual([record.productId, record.productId]);
+  expect(backup.catalog.originalProducts.map(product => product.id)).toEqual([record.productId]);
+  for (const [uri, bytes] of preserved) expect(mockFiles.get(uri)).toBe(bytes);
+  expect((await shopping.priceQueue.read()).entries[0].record.id).toBe(pending.id);
+});
+
+test('leaves a manifest for retry after a partial old-photo removal', async () => {
+  const shopping = await cleanupShopping();
+  const old = seedLegacyPrice('retry-old');
+  const catalogFile = 'file:///documents/saved-products.json';
+  mockFiles.set(catalogFile, 'local catalog');
+  mockFailedDeletion = /retry-old-selected/;
+  await expect(clearLegacyShopping(shopping)).resolves.toEqual({ removedPrices: 0, keptPrices: 0, failedParts: 1, barcodeCatalog: 'kept', savedShopsCleared: true });
+  expect(mockFiles.has(old.original.uri)).toBe(false);
+  expect(mockFiles.has(old.selected.uri)).toBe(true);
+  expect(mockFiles.has('file:///documents/price-photos/retry-old.json')).toBe(true);
+  expect(mockFiles.has(catalogFile)).toBe(true);
+  mockFailedDeletion = /$a/;
+  await expect(clearLegacyShopping(shopping)).resolves.toEqual({ removedPrices: 1, keptPrices: 0, failedParts: 0, barcodeCatalog: 'cleared', savedShopsCleared: true });
+  expect(mockFiles.has(catalogFile)).toBe(false);
+  await expect(clearLegacyShopping(shopping)).resolves.toEqual({ removedPrices: 0, keptPrices: 0, failedParts: 0, barcodeCatalog: 'cleared', savedShopsCleared: true });
+});
+
+test('keeps every old file when it cannot establish an enrolled queue boundary', async () => {
+  const shopping = await cleanupShopping();
+  const old = seedLegacyPrice('keep-old');
+  const foreignQueue = await openPriceAppendQueue(other);
+  await foreignQueue.save({ ...record, id: 'foreign-price' });
+  await expect(clearLegacyShopping(shopping)).rejects.toThrow('Another phone enrollment has protected work.');
+  expect(mockFiles.has(old.original.uri)).toBe(true);
+  expect(mockFiles.has(old.selected.uri)).toBe(true);
+});
+
+
+test('protects legacy prices mentioned by an unfinished owner correction', async () => {
+  const shopping = await cleanupShopping();
+  const corrected = seedLegacyPrice('price-being-corrected');
+  await shopping.mutationQueue.enqueue({ operationId: 'pending-correction', title: 'Review saved price',
+    createdAt: '2026-11-20T12:00:00.000Z', waitFor: [], action: { kind: 'price', priceKey: corrected.id,
+      base: { kind: 'version', id: receipt.id, version: 1 }, change: { action: 'record_in_error', reason: 'Wrong label' } } });
+  const existing = [...mockFiles.entries()];
+  await expect(clearLegacyShopping(shopping)).resolves.toEqual({ removedPrices: 0, keptPrices: 1, failedParts: 0, barcodeCatalog: 'kept', savedShopsCleared: true });
+  expect([...mockFiles.entries()]).toEqual(existing);
+});
+
+
+test('stops before deleting any legacy data when enrollment changes during manifest inspection', async () => {
+  const shopping = await cleanupShopping();
+  seedLegacyPrice('first-old');
+  seedLegacyPrice('owner-changed');
+  mockFiles.set('file:///documents/saved-products.json', 'local catalog');
+  mockFiles.set('file:///documents/saved-shops/shops-1.json', 'old saved shop');
+  const existing = [...mockFiles.entries()];
+  let isCurrent = true;
+  mockFileRead = uri => { if (uri.endsWith('/owner-changed.json')) isCurrent = false; };
+  shopping.assertOwner.mockImplementation(async () => { if (!isCurrent) throw Error('Cheapo access changed.'); });
+
+  await expect(clearLegacyShopping(shopping)).rejects.toThrow('Cheapo access changed.');
+  expect([...mockFiles.entries()]).toEqual(existing);
+});
+
+test('stops before deleting the catalogue or shops when enrollment changes after price removal', async () => {
+  const shopping = await cleanupShopping();
+  seedLegacyPrice('old-reviewed-price');
+  const catalogFile = 'file:///documents/saved-products.json';
+  const shopFile = 'file:///documents/saved-shops/shops-1.json';
+  mockFiles.set(catalogFile, 'local catalog');
+  mockFiles.set(shopFile, 'old saved shop');
+  shopping.assertOwner.mockResolvedValueOnce(undefined).mockResolvedValueOnce(undefined)
+    .mockRejectedValue(new Error('Cheapo access changed.'));
+
+  await expect(clearLegacyShopping(shopping)).resolves.toEqual({
+    removedPrices: 1, keptPrices: 0, failedParts: 2, barcodeCatalog: 'incomplete', savedShopsCleared: false,
+  });
+  expect(mockFiles.has(catalogFile)).toBe(true);
+  expect(mockFiles.has(shopFile)).toBe(true);
 });

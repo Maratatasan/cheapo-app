@@ -224,6 +224,28 @@ export async function openPriceAppendQueue(input: PriceQueueOwner) {
       if (!file.exists) await publish(file, text);
       else if (await file.text() !== text) throw Error('Different evidence has already been saved for this price.');
     })),
+    withProtectedPriceSources<T>(clear: (ids: ReadonlySet<string>) => Promise<T>) {
+      return serializePublication(async () => {
+        const root = priceQueueRoot();
+        const ids = new Set<string>();
+        for (const scopeDirectory of root.exists ? root.list() : []) {
+          if (!(scopeDirectory instanceof Directory)) throw Error('Could not check protected prices.');
+          const files = scopeDirectory.list();
+          if (scopeDirectory.name !== scope) {
+            if (files.length) throw Error('Another phone enrollment has protected work.');
+            continue;
+          }
+          for (const file of files) {
+            if (!(file instanceof File) || !backupFileName.test(file.name)) throw Error('Could not check protected prices.');
+            const sourceId = file.name.split('.')[0];
+            ids.add(sourceId);
+            const envelope = /\.(price|needs-shop)\.json(?:\.[\w-]+\.pending)?$/.exec(file.name);
+            if (envelope) await readEnvelope(file, sourceId, envelope[1] === 'needs-shop');
+          }
+        }
+        return clear(ids);
+      });
+    },
     async save(value: SavedPriceRecord) {
       // Freeze a data copy before awaiting anything so edits to a screen model
       // cannot change a retry's reviewed price.

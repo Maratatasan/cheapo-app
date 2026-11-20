@@ -91,12 +91,12 @@ export function isSavedPriceRecord(value: unknown): value is SavedPriceRecord {
   return true;
 }
 
-async function readSavedDraft(file: File): Promise<SavedPriceRecord | null> {
+async function readSavedDraft(file: File, requirePhotos = true): Promise<SavedPriceRecord | null> {
   try {
     if (!file.exists) return null;
     const value: unknown = JSON.parse(await file.text());
     if (!isSavedPriceRecord(value)) return null;
-    return !value.original || (new File(value.original.uri).exists && new File(value.selected.uri).exists) ? value : null;
+    return !requirePhotos || !value.original || (new File(value.original.uri).exists && new File(value.selected.uri).exists) ? value : null;
   } catch { return null; }
 }
 
@@ -107,6 +107,54 @@ export async function loadSavedPriceRecord(id: string): Promise<SavedPriceRecord
   if (primary?.id === id) return primary;
   const backup = await readSavedDraft(new File(directory, `${id}.json.bak`));
   return backup?.id === id ? backup : null;
+}
+
+type LegacyPriceCleanup = { removedPrices: number; keptPrices: number; failedParts: number };
+
+export function clearLegacyPriceRecords(withProtection: (
+  clear: (protectedIds: ReadonlySet<string>) => Promise<LegacyPriceCleanup>,
+) => Promise<LegacyPriceCleanup>, assertOwner: () => Promise<void>) {
+  // Acquire the local price lock before the outbox lock, as saving a photo does.
+  return serializePriceWrite(() => withProtection(async protectedIds => {
+    const summary: LegacyPriceCleanup = { removedPrices: 0, keptPrices: 0, failedParts: 0 };
+    const directory = savedPhotoDirectory();
+    if (!directory.exists) return summary;
+    const groups = new Map<string, File[]>();
+    for (const entry of directory.list()) {
+      const match = /^([A-Za-z0-9_-]{1,128})(?:\.json(?:\.bak)?|-(?:original|selected-\d+)\.jpg)$/.exec(entry.name);
+      if (!(entry instanceof File) || !match) continue;
+      const id = match[1];
+      const files = groups.get(id) ?? [];
+      files.push(entry);
+      groups.set(id, files);
+    }
+    const eligible: { photos: File[]; backup?: File; primary?: File }[] = [];
+    for (const [id, files] of groups) {
+      const primary = files.find(file => file.name === `${id}.json`);
+      const backup = files.find(file => file.name === `${id}.json.bak`);
+      const manifest = primary ?? backup;
+      const record = manifest && !protectedIds.has(id) ? await readSavedDraft(manifest, false) : null;
+      if (!record || record.id !== id || !reviewComplete(record.review, record.shop?.displayName)) {
+        summary.keptPrices++;
+        continue;
+      }
+      eligible.push({ photos: files.filter(file => file.name.endsWith('.jpg')), backup, primary });
+    }
+    await assertOwner();
+    for (const { photos, backup, primary } of eligible) {
+      try {
+        // Keep a readable manifest until all its photos are removed. This
+        // identifies the same eligible record after an interrupted cleanup.
+        for (const photo of photos) photo.delete();
+        backup?.delete();
+        primary?.delete();
+        summary.removedPrices++;
+      } catch {
+        summary.failedParts++;
+      }
+    }
+    return summary;
+  }));
 }
 
 type LinkTarget = { kind: 'existing'; productId: string } | { kind: 'new'; details: ReturnType<typeof savedProductDetails> };
