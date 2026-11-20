@@ -54,7 +54,7 @@ export default function Index() {
           <ShopHome
             currentShop={shops?.currentShop}
             onChooseShop={shops && !readError ? () => setChoosing(true) : undefined}
-            onScan={() => router.push("/scan")}
+            onScan={() => router.push(Platform.OS === "web" ? "/scan" : { pathname: "/scan", params: { mode: "lookup" } })}
             onFindBarcode={Platform.OS === "web" ? undefined : () => router.push("/find-product")}
             onOpenSaved={() => router.push("/saved-products")}
             onOpenPending={shopping ? () => router.push("/pending-sync") : undefined}

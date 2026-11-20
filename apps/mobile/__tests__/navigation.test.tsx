@@ -10,6 +10,7 @@ import type { ShopRepository } from "../data/shop-repository";
 
 const mockPush = jest.fn();
 const mockReplace = jest.fn();
+let mockScanParams: { mode?: string } = {};
 const mockExtra = { directAuthTest: false, fieldTest: false, cheapoApiOrigin: "" };
 const testShopRepository = {
   loadSavedShops: jest.fn<ReturnType<ShopRepository["loadSavedShops"]>, []>(),
@@ -30,7 +31,7 @@ function render(ui: Parameters<typeof renderScreen>[0]) {
 
 jest.mock("expo-router", () => ({
   useRouter: () => ({ push: mockPush, replace: mockReplace }),
-  useLocalSearchParams: () => ({}),
+  useLocalSearchParams: () => mockScanParams,
   useFocusEffect: (callback: () => void) => require("react").useEffect(callback, [callback]),
   Stack: { Screen: ({ options }: { options: { headerRight?: () => ReactNode } }) => options.headerRight?.() ?? null },
   Redirect: () => null,
@@ -46,15 +47,16 @@ jest.mock("../component/barcode-scan", () => ({
 
 jest.mock("expo-constants", () => ({ expoConfig: { get extra() { return mockExtra; } } }));
 jest.mock("../component/camera", () => ({
-  CameraComponent: ({ currentShop }: { currentShop?: { displayName: string } }) => {
+  CameraComponent: ({ currentShop, productLookup }: { currentShop?: { displayName: string }; productLookup?: object }) => {
     const { Text } = require("react-native");
-    return <Text>{`Camera for ${currentShop?.displayName ?? "no shop"}`}</Text>;
+    return <Text>{productLookup ? "Packaging lookup camera" : `Camera for ${currentShop?.displayName ?? "no shop"}`}</Text>;
   },
 }));
 
 beforeEach(() => {
   mockPush.mockReset();
   mockReplace.mockReset();
+  mockScanParams = {};
   mockExtra.directAuthTest = false;
   mockExtra.fieldTest = false;
   mockExtra.cheapoApiOrigin = "";
@@ -101,15 +103,19 @@ test("retries a failed shop read before allowing capture", async () => {
   expect(await screen.findByRole("button", { name: "Add a shop" })).toBeOnTheScreen();
 });
 
-test("opens Scan and sample prices from Home", async () => {
+test("opens a packaging lookup without needing a saved shop and keeps sample prices available", async () => {
   await render(<HomeScreen />);
 
   expect(screen.queryByRole("button", { name: "Developer tools" })).not.toBeOnTheScreen();
   await fireEvent.press(screen.getByRole("button", { name: "Scan item" }));
   await fireEvent.press(screen.getByRole("button", { name: "Explore sample prices" }));
 
-  expect(mockPush).toHaveBeenNthCalledWith(1, "/scan");
+  expect(mockPush).toHaveBeenNthCalledWith(1, { pathname: "/scan", params: { mode: "lookup" } });
   expect(mockPush).toHaveBeenNthCalledWith(2, "/results");
+  mockScanParams = { mode: "lookup" };
+  await screen.rerender(<ScanScreen />);
+  expect(screen.getByText("Packaging lookup camera")).toBeOnTheScreen();
+  expect(screen.queryByRole("button", { name: "Add a shop" })).not.toBeOnTheScreen();
 });
 
 test("Home opens barcode lookup with no selected shop and keeps label scan available", async () => {

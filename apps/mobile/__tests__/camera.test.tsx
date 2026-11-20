@@ -240,6 +240,59 @@ describe("CameraComponent", () => {
     expect(commitMutation).not.toHaveBeenCalled();
   });
 
+  it('finds a product from the original packaging photo without a price and keeps the photo ready after comparison', async () => {
+    jest.replaceProperty(Platform, 'OS', 'android');
+    mockPermission = { granted: false };
+    mockChoosePhoto.mockResolvedValue({ uri: 'file:///package.jpg', width: 1200, height: 800, mimeType: 'image/jpeg' });
+    mockScanFromURLAsync.mockResolvedValue([{ data: '036000291452' }]);
+    const product = { id: 'exact-rice', name: 'Saved rice', barcode: '00036000291452' };
+    mockFindLocalProduct.mockResolvedValue(product);
+    const onCompare = jest.fn();
+    await render(<CameraComponent productLookup={{ onCompare }} />);
+    await fireEvent.press(screen.getByRole('button', { name: 'Choose photo' }));
+
+    expect(await screen.findByLabelText('Product photo')).toHaveProp('source', { uri: 'file:///package.jpg' });
+    expect(await screen.findByText('Saved rice')).toBeOnTheScreen();
+    expect(onCompare).toHaveBeenCalledWith(product.barcode, product);
+    expect(mockScanFromURLAsync).toHaveBeenCalledWith('file:///package.jpg', expect.any(Array));
+    expect(mockRequestPhotoDraft).not.toHaveBeenCalled();
+    expect(mockSaveLocalPhoto).not.toHaveBeenCalled();
+    expect(screen.queryByLabelText('Pack price')).not.toBeOnTheScreen();
+    expect(screen.getByRole('button', { name: 'Compare saved prices' })).toBeOnTheScreen();
+    await fireEvent.press(screen.getByRole('button', { name: 'Retake photo' }));
+    expect(screen.getByRole('button', { name: 'Choose photo' })).toBeOnTheScreen();
+  });
+
+  it('keeps the packaging photo and newer code when an older lookup finishes or the service is unavailable', async () => {
+    jest.replaceProperty(Platform, 'OS', 'android');
+    mockPermission = { granted: false };
+    mockChoosePhoto.mockResolvedValue({ uri: 'file:///package.jpg', width: 1200, height: 800, mimeType: 'image/jpeg' });
+    mockScanFromURLAsync.mockResolvedValue([{ data: '036000291452' }, { data: '4006381333931' }]);
+    let completeOlder!: (product: { id: string; name: string }) => void;
+    const older = new Promise(resolve => { completeOlder = resolve; });
+    mockFindLocalProduct.mockReturnValueOnce(older).mockRejectedValueOnce(Error('Unavailable')).mockResolvedValueOnce(undefined);
+    const onCompare = jest.fn();
+    await render(<CameraComponent productLookup={{ onCompare }} />);
+    await fireEvent.press(screen.getByRole('button', { name: 'Choose photo' }));
+    await fireEvent.press(await screen.findByRole('button', { name: 'Barcode 036000291452' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Find product' }));
+    expect(screen.getByRole('button', { name: 'Checking barcode…' })).toBeDisabled();
+
+    await fireEvent.changeText(screen.getByLabelText('Product barcode'), '4006381333931');
+    await fireEvent.press(screen.getByRole('button', { name: 'Find product' }));
+    await act(() => completeOlder({ id: 'older', name: 'Old package' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not check this barcode. Try again.');
+    expect(screen.getByLabelText('Product photo')).toHaveProp('source', { uri: 'file:///package.jpg' });
+    expect(screen.getByLabelText('Product barcode')).toHaveDisplayValue('4006381333931');
+    expect(screen.queryByText('No saved product matches this barcode.')).not.toBeOnTheScreen();
+    expect(onCompare).not.toHaveBeenCalled();
+    await fireEvent.press(screen.getByRole('button', { name: 'Retry barcode lookup' }));
+    expect(await screen.findByText('No saved product matches this barcode.')).toBeOnTheScreen();
+    expect(mockFindLocalProduct).toHaveBeenLastCalledWith('04006381333931');
+    expect(onCompare).not.toHaveBeenCalled();
+  });
+
   it('shows a known exact barcode before saving and keeps the crop and price when the shopper uses the product', async () => {
     const shop = { id: 'selected-shop', displayName: 'Selected shop' };
     mockPermission = { granted: false };

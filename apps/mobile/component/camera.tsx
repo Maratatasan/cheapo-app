@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect, type ReactNode } from "react";
+import { useCallback, useRef, useState, useEffect, type ReactNode } from "react";
 import type { PricePhotoSelection } from "@cheapo/domain/price-history";
 import { randomUUID } from 'expo-crypto';
 import {
@@ -20,6 +20,7 @@ import { ui } from "./results/theme";
 import { GalleryCopy } from "./gallery-copy";
 import { PhotoReview, type ReviewSuggestion } from "./photo-review";
 import { PhotoCrop } from "./photo-crop";
+import { PhotoProductLookup, type ProductPhotoLookupProps } from "./photo-product-lookup";
 import { PhotoBarcodeCatalogMatch, PhotoBarcodeMissing, PhotoBarcodeReview } from "./photo-barcode-review";
 import { cameraPermissionMessage, PhotoBarcodeScan } from "./photo-barcode-scan";
 import { emptyReview, loadLocalPhotos, reviewComplete, saveLocalPhoto, type DraftShop, type LocalPhotoDraft, type ManualReview, type PhotoAsset } from "@/data/local-photo";
@@ -74,16 +75,20 @@ function reviewWithProduct(review: ManualReview, product?: EditableCatalogProduc
     packSize: review.packSize ?? (label && calculatePackUnitPrice('1', label) ? label : undefined) };
 }
 
-export const CameraComponent = ({ currentShop, currentShopCountry, onScanBarcode, onCompareBarcode, linkedPrice, barcodeCapture }: {
+export const CameraComponent = ({ currentShop, currentShopCountry, onScanBarcode, onCompareBarcode, linkedPrice, barcodeCapture, productLookup }: {
   currentShop?: DraftShop;
   currentShopCountry?: PhotoShopCountry;
   onScanBarcode?: () => void;
   onCompareBarcode?: (code: string) => void;
   linkedPrice?: LinkedPriceCapture;
   barcodeCapture?: BarcodeCapture;
+  productLookup?: Pick<ProductPhotoLookupProps, 'onCompare'>;
 }) => {
   const shopping = useCheapoShopping();
   const enrolledCatalog = useEnrolledCatalog();
+  const findLookupProduct = useCallback((code: string, signal: AbortSignal) =>
+    findCatalogProductByBarcode(enrolledCatalog, code, signal), [enrolledCatalog]);
+  const lookingUp = Boolean(productLookup);
   const loadPhotos = shopping?.priceRecords.loadPhotos ?? loadLocalPhotos;
   const [captureStage, setCaptureStage] = useState(() => Dimensions.get("window"));
   const captureFrame = fittedCameraFrame(captureStage);
@@ -123,7 +128,7 @@ export const CameraComponent = ({ currentShop, currentShopCountry, onScanBarcode
     return () => barcodeRequest.current?.abort();
   }, [photoCatalog]);
   useEffect(() => {
-    if (linkedPrice || barcodeCapture) return;
+    if (linkedPrice || barcodeCapture || lookingUp) return;
     let active = true;
     loadPhotos().then(photos => {
       if (!active) return;
@@ -133,7 +138,7 @@ export const CameraComponent = ({ currentShop, currentShopCountry, onScanBarcode
       if (active) Alert.alert('Saved photos unavailable', 'Your saved photos could not be read. Try reopening Scan.');
     });
     return () => { active = false; };
-  }, [linkedPrice, barcodeCapture, loadPhotos]);
+  }, [linkedPrice, barcodeCapture, loadPhotos, lookingUp]);
   const barcodePhoto = !linkedPrice && !draft?.productId ? draft?.original.uri : undefined;
   const barcodeDraftId = barcodePhoto ? draft?.id : undefined;
   useEffect(() => {
@@ -185,6 +190,7 @@ export const CameraComponent = ({ currentShop, currentShopCountry, onScanBarcode
   }
 
   function selectPhoto(photo: PhotoAsset, cropBox?: CropBox) {
+    const initialCrop = productLookup ? undefined : cropBox;
     editedFields.current.clear();
     if (barcodeCapture?.initialReview) {
       for (const field of ["productName", "productType", "variety", "brand", "packSize"] as const) {
@@ -198,10 +204,10 @@ export const CameraComponent = ({ currentShop, currentShopCountry, onScanBarcode
     setEditingSaved(undefined);
     setEditedSelection(undefined);
     pendingCatalog.current = undefined;
-    setCropping(cropBox !== undefined);
+    setCropping(initialCrop !== undefined);
     setDraft({ id: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`, capturedAt: new Date().toISOString(),
       original: photo, selected: photo, review: linkedPrice?.initialReview ?? barcodeCapture?.initialReview ?? emptyReview(currentShop?.displayName ?? visitShop),
-      cropBox, shop: currentShop, productId: linkedPrice?.productId });
+      cropBox: initialCrop, shop: currentShop, productId: linkedPrice?.productId });
     setSaved(false);
   }
   async function savePhoto() {
@@ -453,6 +459,10 @@ export const CameraComponent = ({ currentShop, currentShopCountry, onScanBarcode
     setDraft(null); setSaved(false); setCropping(false);
   };
 
+  if (draft && productLookup) return <PhotoProductLookup key={draft.id} photo={draft.original}
+    decoded={decodedBarcodes?.draftId === draft.id ? decodedBarcodes.result : undefined}
+    findProduct={findLookupProduct} onCompare={productLookup.onCompare} onRetake={retakePhoto} />;
+
   if (draft && cropping) {
     // Mount the crop modal before mounting the review and its native inputs.
     return <View key="crop" collapsable={false} style={styles.container}>
@@ -560,6 +570,7 @@ export const CameraComponent = ({ currentShop, currentShopCountry, onScanBarcode
         </View>
       </View>
       <CameraCaptureActions
+        mode={productLookup ? 'product' : 'price'}
         ready={cameraReady}
         capturing={photoAction === "capture"}
         choosing={photoAction === "choose"}
