@@ -45,6 +45,7 @@ test('converts only known price bases without crossing dimensions', () => {
   expect(normalizedUnitPrice({ amount: 0.25, unit: '100 ml' })).toEqual({ amount: 2.5, unit: 'litre' });
   expect(normalizedUnitPrice({ amount: 2.5, unit: 'L' })).toEqual({ amount: 2.5, unit: 'litre' });
   expect(normalizedUnitPrice({ amount: 1, unit: 'each' })).toEqual({ amount: 1, unit: 'item' });
+  expect(normalizedUnitPrice({ amount: 0.48, unit: '2 units' })).toEqual({ amount: 0.24, unit: 'item' });
   expect(normalizedUnitPrice({ amount: 0.35, unit: 'egg' })).toEqual({ amount: 0.35, unit: 'item' });
   expect(normalizedUnitPrice({ amount: 0.6, unit: 'per 2 eggs' })).toEqual({ amount: 0.3, unit: 'item' });
   expect(normalizedUnitPrice({ amount: 0.25, unit: 'per 100 mL' })).toEqual({ amount: 2.5, unit: 'litre' });
@@ -54,12 +55,14 @@ test('converts only known price bases without crossing dimensions', () => {
 });
 
 test('ranks eggs and each prices together and preserves other printed bases outside that ranking', () => {
-  const eggs = row('eggs', { productType: 'Eggs', unit_price: { amount: 0.35, unit: 'egg' } });
-  const each = { ...eggs, id: 'each', unit_price: { amount: 0.3, unit: 'each' } };
-  const dozen = { ...eggs, id: 'dozen', unit_price: { amount: 4.8, unit: '12 eggs' } };
+  const eggs = row('eggs', { productType: 'Free range eggs', unit_price: { amount: 0.35, unit: 'unit' } });
+  const each = { ...eggs, id: 'each', productType: 'free-range eggs', unit_price: { amount: 0.3, unit: 'each' } };
+  const dozen = { ...eggs, id: 'dozen', productType: 'fresh eggs', unit_price: { amount: 4.8, unit: '12 eggs' } };
+  const chocolate = { ...eggs, id: 'chocolate', productType: 'Chocolate eggs' };
+  const foreign = { ...eggs, id: 'foreign', currency: 'EUR' };
   const byWeight = { ...eggs, id: 'weight', unit_price: { amount: 0.1, unit: '100 g' } };
 
-  const result = comparePrices([dozen, byWeight, each], eggs);
+  const result = comparePrices([dozen, byWeight, each, chocolate, foreign], eggs);
   expect(result.groups.map(({ unit, entries }) => [unit, entries.map(({ row }) => row.id)])).toEqual([
     ['item', ['each', 'dozen']],
   ]);

@@ -407,3 +407,42 @@ test('records an error with a reason, preserves direct evidence, and allows a ve
     [createHash('sha256').update(token('I')).digest('hex')]);
   assert.equal((await request('I', route, 'PATCH', undo)).status, 401);
 });
+
+test('compares eight egg observations across reviewed type aliases while preserving exact products and groups', async () => {
+  await pool.query(`INSERT INTO cheapo.product (id, name, product_type) VALUES
+    ('fixture-egg-pack', 'Medium egg pack', 'free range eggs')`);
+  const earlierTypes = [...Array<string>(6).fill('fresh eggs'), 'free-range eggs'];
+  const fixture = [
+    { id: 'egg-new', type: 'free range eggs', currency: 'GBP', unit: 'unit', product: 'fixture-egg-pack' },
+    ...earlierTypes.map((type, index) => ({ id: `egg-earlier-${index}`, type, currency: 'GBP',
+      unit: index < 4 || index === 6 ? 'each' : 'egg', product: null })),
+    { id: 'chocolate-eggs', type: 'chocolate eggs', currency: 'GBP', unit: 'each', product: null },
+    { id: 'foreign-eggs', type: 'eggs', currency: 'EUR', unit: 'each', product: null },
+  ];
+  for (const {id, type, currency, unit, product} of fixture) {
+    await pool.query(`INSERT INTO cheapo.price_observation
+      (household_id, shopper_id, id, product_id, captured_at, status, price_amount, currency, review, unit_price)
+      VALUES ($1, $2, $3, $4, $5, 'complete', '2.40', $6, $7, $8)`, [household, shopper, id, product,
+      capturedAt, currency, { productType: type }, { amount: 0.24, unit }]);
+  }
+  const read = async (params: Record<string, string>) => {
+    const response = await request('H', `?${new URLSearchParams(params)}`);
+    assert.equal(response.status, 200);
+    return (await response.json() as HistoryBody).observations;
+  };
+  const allEggs = fixture.slice(0, 8).map(row => row.id).sort();
+  for (const productType of ['eggs', 'fresh eggs', 'free-range eggs', 'free range eggs']) {
+    const prices = await read({ productType, currency: 'GBP' });
+    assert.deepEqual(prices.map(row => row.sourceId).sort(), allEggs);
+    assert.equal(prices.find(row => row.sourceId === 'egg-earlier-6')?.review?.productType, 'free-range eggs');
+  }
+  assert.deepEqual((await read({productId: 'fixture-egg-pack'})).map(row => row.sourceId), ['egg-new']);
+
+  await pool.query(`INSERT INTO cheapo.product (id, name, product_type, comparable_group_id)
+    VALUES ('explicit-other-egg-group', 'Separate egg group fixture', 'eggs', 'group-other')`);
+  await pool.query(`UPDATE cheapo.price_observation SET product_id = 'explicit-other-egg-group'
+    WHERE household_id = $1 AND shopper_id = $2 AND id = 'egg-earlier-0'`, [household, shopper]);
+  await pool.query("UPDATE cheapo.product SET comparable_group_id = 'group-eggs' WHERE id = 'fixture-egg-pack'");
+  const grouped = await read({ comparableGroupId: 'group-eggs', productType: 'free-range eggs', currency: 'GBP' });
+  assert.deepEqual(grouped.map(row => row.sourceId).sort(), allEggs.filter(id => id !== 'egg-earlier-0'));
+});

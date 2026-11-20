@@ -271,7 +271,9 @@ Both the original and crop remain separate evidence references.
 Use `productId` for exact product history. For comparisons, filter with
 `comparableGroupId` and optionally include `productType` to match legacy
 observations without a canonical group. A `productType` filter on its own
-uses the reviewed category with the catalog category as a fallback.
+uses the reviewed category with the catalog category as a fallback. Fresh egg
+labels `eggs`, `fresh eggs`, `free-range eggs` and `free range eggs` share a
+comparison category. Stored labels and explicit groups retain their meaning.
 `currency` can narrow a page to one currency. Keep the same filters while
 following the returned cursor.
 

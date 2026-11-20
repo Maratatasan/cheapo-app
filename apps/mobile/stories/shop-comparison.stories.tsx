@@ -324,3 +324,30 @@ export const EditSaveError: Story = {
     await expect(canvas.getByLabelText("Unit price (optional)")).toHaveValue("0.124");
   },
 };
+
+const eggReference: ComparisonRow = {
+  id: 'egg-reference', product: 'Medium free-range eggs', productType: 'free range eggs',
+  brand: 'Example Farm', variety: 'Medium', pack: '15 items', shop: 'Example Market',
+  price: 3.45, currency: 'GBP', unit_price: { amount: 0.23, unit: 'unit' },
+};
+export const EggPackComparison: Story = {
+  args: {
+    product: { name: 'Medium free-range eggs', pack: '15 items' }, reference: eggReference,
+    comparisons: [
+      { ...eggReference, id: 'egg-12-pack', product: 'Free-range eggs, 12 pack', productType: 'free-range eggs',
+        pack: '12 items', shop: 'Example Grocer', price: 2.88, unit_price: { amount: 0.24, unit: 'each' } },
+      { ...eggReference, id: 'egg-6-pack', product: 'Fresh eggs, 6 pack', productType: 'fresh eggs',
+        brand: 'Other Farm', variety: 'Large', pack: '6 items', shop: 'Example Pantry', price: 1.26, unit_price: { amount: 0.21, unit: 'egg' } },
+      { ...eggReference, id: 'chocolate-eggs', product: 'Chocolate eggs', productType: 'chocolate eggs' },
+    ],
+  },
+  render: args => <View style={{ width: '100%', maxWidth: 428, backgroundColor: marketColor.background, padding: 20 }}>
+    <ShopComparison {...args} />
+  </View>,
+  play: async ({ canvas }) => {
+    await expect(canvas.getAllByLabelText(/£[\d.]+ \/ item/).map(item => item.getAttribute('aria-label'))).toEqual([
+      '£0.23 / item', '£0.21 / item', '£0.24 / item',
+    ]);
+    await expect(canvas.queryByText('Chocolate eggs')).not.toBeInTheDocument();
+  },
+};

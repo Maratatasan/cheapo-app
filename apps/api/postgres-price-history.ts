@@ -1,3 +1,5 @@
+import { comparisonProductTypeAliases } from '@cheapo/domain/comparison-product-types';
+
 import { readShoppingMember, type ShoppingMember, type ShoppingQuery, type ShoppingTransaction } from './postgres-shopping.ts';
 import type { ExecutePriceHistory, PriceObservation, PriceObservationDetail } from './price-history.ts';
 
@@ -79,15 +81,17 @@ export function postgresPriceHistory(transaction: ShoppingTransaction): ExecuteP
     }
 
     const { limit, cursor, filters, sourceId, includeRecordedInError } = read;
+    const types = filters.productType ? JSON.stringify(comparisonProductTypeAliases(filters.productType)) : null;
     const { rows } = await query<PriceRow>(`
       SELECT ${observationFields}, observation.shopper_id = $10::uuid AS "ownedByCurrentShopper"
       ${visibleObservations}
       AND ($2::timestamptz IS NULL OR (observation.captured_at, observation.resource_id) < ($2::timestamptz, $3::uuid))
       AND ($5::text IS NULL OR observation.product_id = $5)
       AND (
-        ($6::text IS NULL AND $7::text IS NULL) OR product.comparable_group_id = $6
+        ($6::text IS NULL AND $7::jsonb IS NULL) OR product.comparable_group_id = $6
         OR (($6::text IS NULL OR product.comparable_group_id IS NULL)
-          AND lower(btrim(coalesce(nullif(btrim(observation.review->>'productType'), ''), product.product_type))) = lower($7))
+          AND lower(btrim(coalesce(nullif(btrim(observation.review->>'productType'), ''), product.product_type)))
+            IN (SELECT lower(type) FROM jsonb_array_elements_text($7::jsonb) AS types(type)))
       )
       AND ($8::text IS NULL OR observation.currency = $8)
       AND ($9::boolean OR observation.recorded_in_error_reason IS NULL)
@@ -95,7 +99,7 @@ export function postgresPriceHistory(transaction: ShoppingTransaction): ExecuteP
       ORDER BY observation.captured_at DESC, observation.resource_id DESC
       LIMIT $4::int
     `, [member.household_id, cursor?.[0] ?? null, cursor?.[1] ?? null, limit + 1,
-      filters.productId, filters.comparableGroupId, filters.productType, filters.currency, includeRecordedInError, member.shopper_id, sourceId ?? null]);
+      filters.productId, filters.comparableGroupId, types, filters.currency, includeRecordedInError, member.shopper_id, sourceId ?? null]);
     return {
       status: 'ok',
       observations: rows.map(({ errorReason, ...observation }) => errorReason
