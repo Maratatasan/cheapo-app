@@ -26,7 +26,7 @@ GRANT SELECT ON cheapo.shop, cheapo.household_saved_shop, cheapo.shopper_current
 
 GRANT INSERT (
   household_id, shopper_id, id, captured_at, product_id, source_product_id, shop_id, source_shop_id,
-  shop_display_name, source_product_name, price_amount, currency, review, unit_price, status, source_test_shop
+  shop_display_name, source_product_name, price_amount, currency, review, unit_price, crop_box, status, source_test_shop
 ) ON cheapo.price_observation TO cheapo_api_runtime;
 GRANT SELECT (household_id, shopper_id, observation_id, resource_id, accepted_version, payload),
   INSERT (household_id, shopper_id, observation_id, resource_id, accepted_version, payload)

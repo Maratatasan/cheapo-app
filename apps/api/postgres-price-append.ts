@@ -7,6 +7,7 @@ const receiptPayload = `
     'shopId', $6::text, 'sourceShopId', $6::text, 'shopDisplayName', $7::text,
     'productName', $8::text, 'priceAmount', $9::numeric, 'currency', $10::text,
     'review', $11::jsonb, 'unitPrice', $12::jsonb)
+  || CASE WHEN $13::jsonb IS NULL THEN '{}'::jsonb ELSE jsonb_build_object('cropBox', $13::jsonb) END
 `;
 
 export function postgresPriceAppend(transaction: ShoppingTransaction): ExecutePriceAppend {
@@ -15,20 +16,20 @@ export function postgresPriceAppend(transaction: ShoppingTransaction): ExecutePr
     if (!member) return { status: 'unauthenticated' };
     if (!member.active) return { status: 'forbidden' };
 
-    const { sourceId, capturedAt, productId, shopId, shopDisplayName, review, unitPrice } = observation;
+    const { sourceId, capturedAt, productId, shopId, shopDisplayName, review, unitPrice, cropBox } = observation;
     const params = [
       member.household_id, member.shopper_id, sourceId, capturedAt, productId ?? null,
       shopId, shopDisplayName, review.productName, review.price, review.currency,
-      { ...review, shop: shopDisplayName }, unitPrice ?? null,
+      { ...review, shop: shopDisplayName }, unitPrice ?? null, cropBox ?? null,
     ];
     const { rows: [created] } = await query<PriceIdentity>(`
       WITH saved_observation AS (
         INSERT INTO cheapo.price_observation (
           household_id, shopper_id, id, captured_at, product_id, source_product_id, shop_id, source_shop_id,
-          shop_display_name, source_product_name, price_amount, currency, review, unit_price, status, source_test_shop
+          shop_display_name, source_product_name, price_amount, currency, review, unit_price, crop_box, status, source_test_shop
         )
         SELECT saved.household_id, $2::uuid, $3, $4::timestamptz, $5, $5, saved.shop_id, saved.shop_id,
-          $7, $8, $9::numeric, $10, $11::jsonb, $12::jsonb, 'complete', saved.source_test_shop
+          $7, $8, $9::numeric, $10, $11::jsonb, $12::jsonb, $13::jsonb, 'complete', saved.source_test_shop
         FROM cheapo.household_saved_shop AS saved
         WHERE saved.household_id = $1::uuid AND saved.shop_id = $6
           AND ($5::text IS NULL OR EXISTS (SELECT 1 FROM cheapo.product WHERE id = $5))

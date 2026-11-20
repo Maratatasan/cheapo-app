@@ -144,7 +144,7 @@ it('accepts only existing evidence from the protected price photo directory', as
   const cropBox = { left: 0.1, top: 0.1, right: 0.9, bottom: 0.9 };
   const photoRecord = { ...record, original, selected, cropBox };
   await expect(queue.save(photoRecord)).resolves.toBeUndefined();
-  expect((await queue.read()).entries).toEqual([{ record: photoRecord, body }]);
+  expect((await queue.read()).entries).toEqual([{ record: photoRecord, body: JSON.stringify({ ...JSON.parse(body), cropBox }) }]);
   expect(mockFiles.get(original.uri)).toBe('saved JPEG');
   expect(mockFiles.get(selected.uri)).toBe('selected JPEG');
 });

@@ -205,6 +205,10 @@ Optional review fields are `packSize`, `productType`, `brand`, `variety`,
 and the raw `unitPrice` and `unit` pair. Use a top-level `unitPrice` object
 with `amount` and `unit` when the reviewed observation has a unit price.
 The reviewed unit-price pair must match this object when supplied.
+Include `cropBox` when the saved review has one, with normalized `left`, `top`,
+`right`, and `bottom` coordinates from 0 to 1. It is part of the exact append
+replay and is available when reopening the observation. Original and crop
+image bytes transfer separately.
 
 The first save returns `201` with `id`, `sourceId`, and `version`. An
 identical replay returns the original receipt with `200`, including when a later
