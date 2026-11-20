@@ -16,6 +16,33 @@ const meta = { title: 'Screens/Field review', component: PhotoReview } satisfies
 export default meta;
 type Story = StoryObj<Pick<Meta<typeof PhotoReview>, 'title'>>;
 
+function ImportedObservedDateExample() {
+  const [day, setDay] = useState('2026-11-18');
+  const [saved, setSaved] = useState(false);
+  const shop = 'Example Market';
+  return <View style={{ height: 750, width: 390, maxWidth: '100%' }}>
+    <SafeAreaProvider initialMetrics={{ frame: { x: 0, y: 0, width: 390, height: 750 }, insets: { top: 0, bottom: 0, left: 0, right: 0 } }}>
+      <PhotoReview photo={{ uri: cropLabel, width: 600, height: 400, mimeType: 'image/jpeg' }}
+        review={{ ...emptyReview(shop), productName: 'Whole rolled oats', packSize: '500 g', price: '3.19' }}
+        selectedShopName={shop} observedDate={{ value: day, onChange: setDay }} recordingPrice currentPriceConfirmation
+        saved={saved} busy={false} onReviewChange={() => {}} onSave={() => setSaved(true)} />
+    </SafeAreaProvider>
+  </View>;
+}
+
+export const ImportedObservedDate: Story = {
+  render: () => <ImportedObservedDateExample />,
+  play: async ({ canvas }) => {
+    const date = canvas.getByRole('textbox', { name: 'Price observed date' });
+    const confirm = canvas.getByRole('button', { name: 'Confirm current price' });
+    await expect(date).toHaveValue('2026-11-18');
+    await fireEvent.change(date, { target: { value: '2026-11-31' } });
+    await expect(confirm).toBeDisabled();
+    await fireEvent.change(date, { target: { value: '2026-11-17' } });
+    await expect(confirm).toBeEnabled();
+  },
+};
+
 function ShelfPhotoReviewExample({ noPrice = false }: { noPrice?: boolean }) {
   const shop = 'Example Market';
   const [open, setOpen] = useState(false);

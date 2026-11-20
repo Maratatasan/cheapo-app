@@ -1,6 +1,8 @@
 import type { ReactNode } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { dateLabel } from "@/data/observation";
+import { observedDay } from "@/data/price-observed-date";
 import { marketColor, spacing } from "./results/theme";
 
 type ActionProps = {
@@ -43,7 +45,7 @@ export function CameraSavedDraftActions<Draft extends { id: string; capturedAt: 
       {drafts.map(draft => (
         <CameraActionButton
           key={draft.id}
-          label={`Review ${new Date(draft.capturedAt).toLocaleString()}`}
+          label={`Review ${dateLabel(observedDay(draft.capturedAt))}`}
           disabled={disabled}
           onPress={() => onReview(draft)}
         />

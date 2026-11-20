@@ -121,6 +121,25 @@ test('reuse confirms the canonical product and selected shop without proposing a
   expect(mockFindCandidates).not.toHaveBeenCalled();
 });
 
+test('replaces an imported date suggestion and stages the newly confirmed observation day', async () => {
+  const asset = { uri: 'file:///first.jpg', width: 800, height: 600, mimeType: 'image/jpeg', takenOn: '2020-11-18' };
+  const second = { ...asset, uri: 'file:///second.jpg', takenOn: '2020-11-16' };
+  mockChoosePhoto.mockResolvedValueOnce(asset).mockResolvedValueOnce(second);
+  await render(<AddProductScreen />);
+  await enterPrice();
+  await fireEvent.press(screen.getByRole('button', { name: 'Choose photo' }));
+  expect(screen.getByLabelText('Price observed date')).toHaveDisplayValue('2020-11-18');
+  await fireEvent.changeText(screen.getByLabelText('Price observed date'), '2020-11-17');
+  await fireEvent.press(screen.getByRole('button', { name: 'Replace photo' }));
+  expect(screen.getByLabelText('Price observed date')).toHaveDisplayValue('2020-11-16');
+  await fireEvent.press(screen.getByRole('button', { name: 'Check product' }));
+  await fireEvent.press(await screen.findByRole('button', { name: 'Add as new product' }));
+  await fireEvent.press(screen.getByRole('button', { name: 'Confirm current price' }));
+  expect(mockStage).toHaveBeenCalledWith(expect.objectContaining({ record: expect.objectContaining({
+    capturedAt: '2020-11-16T12:00:00.000Z', original: second, selected: second,
+  }) }));
+});
+
 test('feeds a dedicated live scan into the same Add lookup without replacing other fields', async () => {
   await render(<AddProductScreen />);
   await enterPrice();

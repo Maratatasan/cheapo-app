@@ -9,7 +9,7 @@ import { emptyReview, reviewComplete, savedProductDetails, type ManualReview } f
 
 export { emptyReview, reviewComplete, type ManualReview } from './photo-review';
 
-export type PhotoAsset = { uri: string; width: number; height: number; mimeType: 'image/jpeg'; size?: number };
+export type PhotoAsset = { uri: string; width: number; height: number; mimeType: 'image/jpeg'; size?: number; takenOn?: string; takenAt?: string };
 export type DraftShop = { id: string; displayName: string };
 type PriceRecord = { id: string; capturedAt: string; review?: ManualReview; shop?: DraftShop; productId?: string };
 export type LocalPhotoDraft = PriceRecord & { original: PhotoAsset; selected: PhotoAsset; cropBox?: CropBox };

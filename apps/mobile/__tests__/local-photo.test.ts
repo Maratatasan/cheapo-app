@@ -77,11 +77,13 @@ it('does not publish a failed manual price and accepts a retry', async () => {
   await expect(saveManualPrice(manual)).resolves.toEqual(manual);
 });
 it('restores both original and selected photos after temporary camera files disappear', async () => {
-  await saveLocalPhoto(draft);
+  const dates = { takenOn: '2026-11-09', takenAt: '2026-11-09T14:00:00.000Z' };
+  await saveLocalPhoto({ ...draft, original: { ...draft.original, ...dates } });
   mockFiles.delete('file:///camera.jpg'); mockFiles.delete('file:///crop.jpg');
   const restored = await loadLocalPhotos();
   expect(restored).toHaveLength(1);
-  expect(restored[0].original).toMatchObject({ width: 1000, height: 500, size: 13 });
+  expect(restored[0].capturedAt).toBe(draft.capturedAt);
+  expect(restored[0].original).toMatchObject({ width: 1000, height: 500, size: 13, ...dates });
   expect(restored[0].selected).toMatchObject({ width: 500, height: 250, size: 12 });
   expect(restored[0].selected.uri).toMatch(/^file:\/\/\/documents\/price-photos\//);
 });
