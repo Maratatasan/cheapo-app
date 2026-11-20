@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "start": "node start.ts",
-    "test": "node --test test/preferences.test.ts test/shopping-import.test.ts test/s3-import-photos.test.ts",
+    "test": "node --test test/preferences.test.ts test/shopping-import.test.ts test/s3-import-photos.test.ts test/rds-data.test.ts",
     "test:postgres": "sh test/run-postgres.sh",
     "typecheck": "tsc --noEmit",
     "import:plan": "node shopping-import-plan.ts",
@@ -12,6 +12,7 @@
     "import:hosted": "node import-shopping-hosted.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-rds-data": "3.1173.0",
     "@aws-sdk/client-s3": "3.1173.0",
     "@cheapo/domain": "workspace:*",
     "pg": "8.23.1",
