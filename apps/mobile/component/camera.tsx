@@ -29,20 +29,21 @@ import { decodePhotoBarcodes, type PhotoBarcodeResult } from "@/data/photo-barco
 import { canonicalProductBarcode } from "@/data/product-barcode";
 import { choosePhoto } from "@/lib/choose-photo";
 import type { PhotoSavePending } from "@/data/price-records";
+import { usePriceSaveNotice } from "@/hooks/use-price-save-notice";
 
 type LinkedPriceCapture = {
   productId: string;
   barcode?: string;
   initialReview: ManualReview;
   onCancel: () => void;
-  onSaved: (pending?: PhotoSavePending) => void;
+  onSaved: (pending?: PhotoSavePending, sourceId?: string) => void;
 };
 
 type BarcodeCapture = {
   barcode: string;
   initialReview?: ManualReview;
   onCancel: () => void;
-  onSaved: (pending?: PhotoSavePending) => void;
+  onSaved: (pending?: PhotoSavePending, sourceId?: string) => void;
 };
 
 export const CameraComponent = ({ currentShop, currentShopCountry, onScanBarcode, linkedPrice, barcodeCapture }: {
@@ -65,6 +66,7 @@ export const CameraComponent = ({ currentShop, currentShopCountry, onScanBarcode
   const [visitShop, setVisitShop] = useState("");
   const [saved, setSaved] = useState(false);
   const [pendingSaveStatus, setPendingSaveStatus] = useState<PhotoSavePending>();
+  const saveNotice = usePriceSaveNotice(shopping, saved ? draft?.id : undefined, pendingSaveStatus);
   const [saving, setSaving] = useState(false);
   const [barcode, setBarcode] = useState<{ value: string; confirmed?: string; error?: string }>(() => {
     const value = barcodeCapture?.barcode.trim() ?? "";
@@ -156,6 +158,7 @@ export const CameraComponent = ({ currentShop, currentShopCountry, onScanBarcode
     setSaveError(undefined);
     let pendingDraft = draft;
     try {
+      await shopping?.assertOwner();
       if (barcode.confirmed && !draft.productId) {
         const review = draft.review;
         if (!review || !complete || !review.productType?.trim()) {
@@ -184,12 +187,13 @@ export const CameraComponent = ({ currentShop, currentShopCountry, onScanBarcode
       const alreadyReviewed = !!previous && reviewComplete(previous.review, previous.shop?.displayName);
       const result = shopping && !alreadyReviewed ? await shopping.priceRecords.saveNewPhoto(pendingDraft)
         : { record: await saveLocalPhoto(pendingDraft), pending: undefined };
+      await shopping?.assertOwner();
       setDraft(result.record);
       setSaved(true);
       setPendingSaveStatus(result.pending);
       setSavedPhotos(current => [result.record, ...current.filter(item => item.id !== result.record.id)]);
       if (result.pending === 'waiting') void shopping?.retry().catch(() => { /* The reviewed photo remains pending. */ });
-      (linkedPrice ?? barcodeCapture)?.onSaved(result.pending);
+      (linkedPrice ?? barcodeCapture)?.onSaved(result.pending, result.pending ? result.record.id : undefined);
     } catch {
       if (barcode.confirmed && pendingDraft.productId) {
         setSaveError('Product saved. Your photo is kept here. Try saving the price again.');
@@ -326,8 +330,7 @@ export const CameraComponent = ({ currentShop, currentShopCountry, onScanBarcode
         review={draft.review ?? emptyReview()}
         selectedShopName={draft.shop?.displayName}
         saved={saved}
-        savedStatus={saved && pendingSaveStatus ? pendingSaveStatus === 'waiting'
-          ? 'Saved on this phone · Waiting to sync' : 'Saved on this phone · Needs shop' : undefined}
+        savedStatus={saveNotice}
         busy={busy}
         onReviewChange={(review, field) => {
           editedFields.current.add(field);

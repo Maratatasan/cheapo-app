@@ -4,7 +4,7 @@ import { z } from 'zod';
 
 import { CheapoAccessError, type CheapoAccess } from '../lib/cheapo-access/client';
 import type { DraftShop } from './local-photo';
-import { readPendingPrices, type PendingPriceItem } from './pending-price-sync';
+import { readPendingPrices, readPriceSaveStatus, type PendingPriceItem } from './pending-price-sync';
 import { openPriceAppendQueue, sameShoppingOwner, type PriceAppendQueue } from './price-append-queue';
 import { createPriceAppendSync } from './price-append-sync';
 import { createPriceEvidenceSync } from './price-evidence-sync';
@@ -192,6 +192,12 @@ export function createShoppingSync(access: SyncAccess, priceQueue: PriceAppendQu
     },
     readPending,
     loadPriceChanges,
+    async readPriceSaveStatus(sourceId: string) {
+      await assertOwner();
+      const status = await readPriceSaveStatus(priceQueue, sourceId);
+      await assertOwner();
+      return status;
+    },
     subscribeSync(listener: (snapshot: SyncSnapshot) => void) {
       listeners.add(listener);
       return () => { listeners.delete(listener); };

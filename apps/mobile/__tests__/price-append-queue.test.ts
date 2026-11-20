@@ -5,7 +5,7 @@ import { openPriceAppendQueue } from '../data/price-append-queue';
 import { createPriceAppendSync } from '../data/price-append-sync';
 import { createPriceEvidenceSync } from '../data/price-evidence-sync';
 import { createPriceRecords } from '../data/price-records';
-import { readPendingPrices } from '../data/pending-price-sync';
+import { readPendingPrices, readPriceSaveStatus } from '../data/pending-price-sync';
 import type { PricePhotoIntent } from '../data/cheapo-price-photo-transfer';
 import { openCheapoShopping } from '../data/shopping-sync-runtime';
 import { priceChangeIsNewerThan } from '../data/shopping-pending-price-changes';
@@ -314,6 +314,8 @@ it('persists only acknowledged prices’ upload plans and retries only the unver
   const { photo, intents } = await photoEvidence();
   const queue = await openPriceAppendQueue(owner);
   await queue.save(photo);
+  expect(await readPriceSaveStatus(queue, record.id)).toBe('waiting');
+  expect(await readPriceSaveStatus(queue, 'another-price')).toBeUndefined();
   const open = jest.fn(async () => fixtureSession(jest.fn()));
   const describe = jest.fn(async () => intents);
   const transfer = jest.fn<Promise<'available' | 'retry'>, [PricePhotoIntent]>()
@@ -323,6 +325,7 @@ it('persists only acknowledged prices’ upload plans and retries only the unver
   expect(describe).not.toHaveBeenCalled();
   expect(open).not.toHaveBeenCalled();
   await queue.acknowledge(record.id, receipt);
+  expect(await readPriceSaveStatus(queue, record.id)).toBe('photo-pending');
   expect((await readPendingPrices(queue)).map(({ state }) => state)).toEqual(['photo-pending']);
 
   expect(await sync()).toBe('failed');
@@ -338,6 +341,7 @@ it('persists only acknowledged prices’ upload plans and retries only the unver
   expect(retry).toHaveBeenCalledWith(intents[1], expect.any(Object), undefined);
   expect(await reopened.evidence.load({ record: photo, receipt })).toEqual([]);
   expect(await readPendingPrices(reopened)).toEqual([]);
+  expect(await readPriceSaveStatus(reopened, record.id)).toBe('synced');
   expect(await (await openPriceAppendQueue(owner)).evidence.load({ record: photo, receipt })).toEqual([]);
   expect(mockFiles.get(photo.original.uri)).toBe('synthetic original');
   expect(mockFiles.get(photo.selected.uri)).toBe('synthetic crop');
