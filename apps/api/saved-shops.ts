@@ -4,19 +4,23 @@ import { z } from 'zod';
 import { json, readJson, unauthorized } from './api-http.ts';
 import { readCredentialDigest } from './credential.ts';
 
+export type ShopCandidate = Pick<Shop, 'id' | 'name' | 'address' | 'location'>;
 type SavedShop = Shop & { testShop?: boolean };
 export type SavedShopState = { shops: SavedShop[]; currentShop?: SavedShop };
 export type ShopAction =
   | { kind: 'read' }
+  | { kind: 'candidates'; query: string }
   | { kind: 'save'; shop: Shop; select: boolean }
   | { kind: 'edit'; shopId: string; details: z.infer<typeof editInput> }
   | { kind: 'select' | 'unlink'; shopId: string };
 export type SavedShopResult =
   | { status: 'ok'; state: SavedShopState }
+  | { status: 'candidates'; shops: ShopCandidate[] }
   | { status: 'unauthenticated' | 'forbidden' | 'shop_not_saved' | 'invalid_shop' };
 export type ExecuteSavedShop = (digest: string, action: ShopAction) => Promise<SavedShopResult>;
 
 const collection = '/v1/me/saved-shops';
+const catalog = '/v1/shops';
 const selection = '/v1/me/current-shop';
 const item = /^\/v1\/me\/saved-shops\/([^/]+)$/;
 const scalarInput = shopSchema.shape.id.refine(id => !id.includes('\0'));
@@ -26,10 +30,11 @@ const editInput = z.strictObject({
   nickname: shopSchema.shape.nickname.nullable(),
   address: shopSchema.shape.address.nullable(),
 }).refine(details => Object.keys(details).length > 0);
+const queryInput = z.string().trim().min(2).max(120).refine(value => !value.includes('\0'));
 const saveOptions = z.object({ select: z.boolean().default(false) });
 
 export function isSavedShopPath(path: string): boolean {
-  return path === collection || path === selection || item.test(path);
+  return path === collection || path === selection || path === catalog || item.test(path);
 }
 
 function decodedId(value: string): string | undefined {
@@ -44,8 +49,15 @@ function unsupported(allow: string) {
   return json({ error: 'method_not_allowed' }, 405, { Allow: allow });
 }
 
-async function readAction(request: Request, path: string): Promise<ShopAction | Response> {
+async function readAction(request: Request, url: URL): Promise<ShopAction | Response> {
+  const path = url.pathname;
   const method = request.method;
+  if (path === catalog) {
+    if (method !== 'GET') return unsupported('GET');
+    const values = url.searchParams.getAll('query');
+    const query = values.length === 1 && queryInput.safeParse(values[0]).data;
+    return query ? { kind: 'candidates', query } : json({ error: 'invalid_shop_query' }, 400);
+  }
   if (path === collection) return method === 'GET' ? { kind: 'read' } : unsupported('GET');
   if (path === selection && method !== 'PUT') return unsupported('PUT');
   const match = item.exec(path);
@@ -77,12 +89,13 @@ export function createSavedShopHandler(execute: ExecuteSavedShop) {
   return async (request: Request): Promise<Response> => {
     const digest = readCredentialDigest(request.headers.get('Authorization'));
     if (!digest) return unauthorized();
-    const action = await readAction(request, new URL(request.url).pathname);
+    const action = await readAction(request, new URL(request.url));
     if (action instanceof Response) return action;
     try {
       const result = await execute(digest, action);
       switch (result.status) {
         case 'ok': return json(result.state);
+        case 'candidates': return json({ shops: result.shops });
         case 'unauthenticated': return unauthorized();
         case 'forbidden': return json({ error: 'forbidden' }, 403);
         case 'shop_not_saved': return json({ error: 'shop_not_saved' }, 404);
