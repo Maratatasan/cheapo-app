@@ -5,14 +5,18 @@ import { postgresCatalog } from './postgres-catalog.ts';
 import { postgresPriceAppend } from './postgres-price-append.ts';
 import { postgresPriceHistory } from './postgres-price-history.ts';
 import { postgresPricePhoto } from './postgres-price-photo.ts';
+import { postgresPhotoUpload } from './postgres-price-photo-upload.ts';
 import { postgresSavedShops } from './postgres-saved-shops.ts';
 import type { ShoppingQuery, ShoppingTransaction } from './postgres-shopping.ts';
 import { postgresPreferences } from './postgres.ts';
 import { createPreferencesHandler } from './preferences.ts';
 import { createPriceHistoryHandler, isPriceHistoryPath } from './price-history.ts';
 import { createPricePhotoHandler, isPricePhotoPath, type SignPricePhoto } from './price-photo.ts';
+import { createPricePhotoUploadHandler, isPricePhotoUploadPath, type SignPhotoUpload } from './price-photo-upload.ts';
 import { createSavedShopHandler, isSavedShopPath } from './saved-shops.ts';
 import { createShoppingIdentityHandler } from './shopping-identity.ts';
+
+type EvidenceStorage = { read?: SignPricePhoto; upload?: SignPhotoUpload };
 
 function localTransaction(pool: Pool): ShoppingTransaction {
   return async run => {
@@ -33,13 +37,14 @@ function localTransaction(pool: Pool): ShoppingTransaction {
 
 export function createShoppingApi({ query, transaction }: {
   query: ShoppingQuery; transaction: ShoppingTransaction;
-}, signPhoto?: SignPricePhoto) {
+}, evidence: EvidenceStorage = {}) {
   const preferences = createPreferencesHandler(postgresPreferences({ query }));
   const shops = createSavedShopHandler(postgresSavedShops(transaction));
   const catalog = createCatalogHandler(postgresCatalog(transaction));
   const prices = createPriceHistoryHandler(postgresPriceHistory(transaction), postgresPriceAppend(transaction));
   const identity = createShoppingIdentityHandler(query);
-  const photos = createPricePhotoHandler(postgresPricePhoto(transaction), signPhoto);
+  const photos = createPricePhotoHandler(postgresPricePhoto(transaction), evidence.read);
+  const uploads = createPricePhotoUploadHandler(postgresPhotoUpload(transaction), evidence.upload);
   return (request: Request) => {
     const path = new URL(request.url).pathname;
     if (path === '/v1/me') return identity(request);
@@ -47,13 +52,14 @@ export function createShoppingApi({ query, transaction }: {
     if (isCatalogPath(path)) return catalog(request);
     if (isPriceHistoryPath(path)) return prices(request);
     if (isPricePhotoPath(path)) return photos(request);
+    if (isPricePhotoUploadPath(path)) return uploads(request);
     return preferences(request);
   };
 }
 
-export function createLocalApi(pool: Pool, signPhoto?: SignPricePhoto) {
+export function createLocalApi(pool: Pool, evidence?: EvidenceStorage) {
   return createShoppingApi({
     query: (text, params) => pool.query(text, params),
     transaction: localTransaction(pool),
-  }, signPhoto);
+  }, evidence);
 }

@@ -35,4 +35,8 @@ GRANT SELECT (id, gtin, name, product_type, brand, variety, pack, comparable_gro
   INSERT (id, gtin, name, product_type, brand, variety, pack, comparable_group_id)
   ON cheapo.product TO cheapo_api_runtime;
 
+GRANT SELECT ON cheapo.price_photo_upload TO cheapo_api_runtime;
+GRANT INSERT (household_id, shopper_id, observation_id, role, sha256, byte_count, width, height)
+  ON cheapo.price_photo_upload TO cheapo_api_runtime;
+
 COMMIT;

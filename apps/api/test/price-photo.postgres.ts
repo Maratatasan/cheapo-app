@@ -3,7 +3,7 @@ import { after, before, test } from 'node:test';
 import { Pool } from 'pg';
 
 import { credentialDigest } from '../credential.ts';
-import { importedEvidenceKey } from '../evidence-key.ts';
+import { importedEvidenceKey, newEvidenceKey } from '../evidence-key.ts';
 import { createLocalApi } from '../local-api.ts';
 
 const host = process.env.CHEAPO_TEST_PG_SOCKET;
@@ -20,12 +20,17 @@ const completed = '19000000-0000-4000-8000-000000000021';
 const draft = '19000000-0000-4000-8000-000000000022';
 const testRecord = '19000000-0000-4000-8000-000000000023';
 const invalidObject = '19000000-0000-4000-8000-000000000024';
+const awaitingPhoto = '19000000-0000-4000-8000-000000000025';
 const token = (letter: string) => `cheapo_${'r190'.repeat(10)}${letter.repeat(3)}`;
 const signed: string[] = [];
 const signedFixture = 'https://evidence.example/fixture-url';
-const api = createLocalApi(runtime, async key => {
-  signed.push(key);
-  return signedFixture;
+const uploads: string[] = [];
+const api = createLocalApi(runtime, {
+  read: async key => { signed.push(key); return signedFixture; },
+  upload: async key => {
+    uploads.push(key);
+    return { url: 'https://evidence.example/fixture-upload', headers: { 'Content-Type': 'image/jpeg' } };
+  },
 });
 
 before(async () => {
@@ -48,13 +53,14 @@ before(async () => {
   }
   for (const [resourceId, status, testShop] of [
     [completed, 'complete', false], [draft, 'draft', false],
-    [testRecord, 'complete', true], [invalidObject, 'complete', false],
+    [testRecord, 'complete', true], [invalidObject, 'complete', false], [awaitingPhoto, 'complete', false],
   ]) {
     const sourceId = 'restored-' + resourceId;
     await operator.query(`
       INSERT INTO cheapo.price_observation (household_id, shopper_id, id, resource_id, captured_at, status, source_test_shop)
       VALUES ($1, $2, $3, $4, statement_timestamp(), $5, $6)
     `, [household, owner, sourceId, resourceId, status, testShop]);
+    if (resourceId === awaitingPhoto) continue;
     const sha = 'a'.repeat(64);
     const key = resourceId === invalidObject ? 'deployment-artifacts/fixture.zip' : importedEvidenceKey(household, owner, sha);
     await operator.query(`
@@ -115,4 +121,50 @@ test('allows private draft recovery only for its active enrolled owner', async (
   assert.equal(signed.length, before);
   assert.equal((await photo(draft, 'original', 'A')).status, 200);
   assert.equal(signed.length, before + 1);
+});
+
+const uploadMetadata = { sha256: '8'.repeat(64), byteCount: 2_000, width: 800, height: 600 };
+
+function prepare(id: string, actor: string, metadata = uploadMetadata) {
+  return api(new Request(`http://localhost/v1/me/price-observations/${id}/photos/original/upload`, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token(actor)}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(metadata),
+  }));
+}
+
+test('prepares one immutable pending upload across identical concurrent attempts', async () => {
+  const results = await Promise.all([prepare(awaitingPhoto, 'A'), prepare(awaitingPhoto, 'A')]);
+  const expectedKey = newEvidenceKey(household, awaitingPhoto, 'original', uploadMetadata.sha256);
+  for (const response of results) {
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+    assert.deepEqual(await response.json(), {
+      role: 'original', availability: 'pending',
+      url: 'https://evidence.example/fixture-upload',
+      headers: { 'Content-Type': 'image/jpeg' }, expiresInSeconds: 120,
+    });
+  }
+  assert.deepEqual(uploads, [expectedKey, expectedKey]);
+  const { rows: [{ count }] } = await operator.query(`
+    SELECT count(*)::int AS count FROM cheapo.price_photo_upload
+    WHERE household_id = $1 AND observation_id = $2
+  `, [household, 'restored-' + awaitingPhoto]);
+  assert.equal(count, 1);
+  assert.equal((await photo(awaitingPhoto, 'original', 'A')).status, 404);
+});
+
+test('denies foreign, draft, test, existing, oversized and conflicting photo declarations', async () => {
+  const before = uploads.length;
+  for (const [id, actor, status] of [
+    [awaitingPhoto, 'B', 404], [awaitingPhoto, 'C', 404], [awaitingPhoto, 'D', 403], [awaitingPhoto, 'E', 401],
+    [draft, 'A', 404], [testRecord, 'A', 404], [completed, 'A', 409],
+  ] as const) {
+    assert.equal((await prepare(id, actor)).status, status);
+  }
+  assert.equal((await prepare(awaitingPhoto, 'A', { ...uploadMetadata, byteCount: 32 * 1024 * 1024 + 1 })).status, 400);
+  assert.equal((await prepare(awaitingPhoto, 'A', { ...uploadMetadata, sha256: '9'.repeat(64) })).status, 409);
+  assert.equal(uploads.length, before);
+  await assert.rejects(runtime.query('UPDATE cheapo.price_photo_upload SET sha256 = sha256'), { code: '42501' });
+  await assert.rejects(runtime.query('DELETE FROM cheapo.price_photo_upload'), { code: '42501' });
 });
