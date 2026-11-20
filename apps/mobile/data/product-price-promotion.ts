@@ -2,7 +2,7 @@ import type { Product } from '@cheapo/domain';
 
 import { isSavedPriceRecord, saveLocalPhoto } from './local-photo';
 import { reviewComplete, savedProductDetails } from './photo-review';
-import type { PriceAppendQueue, ProductPriceChoice, ProductPriceDraft } from './price-append-queue';
+import type { PriceAppendQueue, ProductPriceChoice, ProductPriceDraft, ProductPriceDraftUpdate } from './price-append-queue';
 import type { ShoppingMutationQueue } from './shopping-mutation-queue';
 
 export function createProductPricePromotion(
@@ -40,6 +40,14 @@ export function createProductPricePromotion(
     return drafts.filter(draft => !confirmed.has(draft.record.id));
   }
 
+  async function update(sourceId: string, input: ProductPriceDraftUpdate) {
+    const edited = { ...input, review: { ...input.review } };
+    await assertOwner();
+    const draft = await priceQueue.updateProductPriceDraft(sourceId, edited);
+    await assertOwner();
+    return draft;
+  }
+
   async function promote(draft: ProductPriceDraft, choice: ProductPriceChoice) {
     await assertOwner();
     // The checked price and explicit choice are already durable. A process
@@ -57,10 +65,10 @@ export function createProductPricePromotion(
     return record;
   }
 
-  async function confirm(sourceId: string, input: ProductPriceChoice) {
+  async function confirm(sourceId: string, input: ProductPriceChoice, expectedRevision?: number) {
     const choiceAtTap = { ...input };
     await assertOwner();
-    const { draft, choice } = await priceQueue.confirmProductPriceChoice(sourceId, choiceAtTap);
+    const { draft, choice } = await priceQueue.confirmProductPriceChoice(sourceId, choiceAtTap, expectedRevision);
     return promote(draft, choice);
   }
 
@@ -77,5 +85,5 @@ export function createProductPricePromotion(
     }
   }
 
-  return { stage, pendingDrafts, confirm, recover };
+  return { stage, pendingDrafts, update, confirm, recover };
 }

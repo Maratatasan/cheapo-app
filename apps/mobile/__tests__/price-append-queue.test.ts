@@ -1023,3 +1023,76 @@ it('promotes the exact protected original and crop from a camera draft without c
   expect(mockFiles.get(saved.selected!.uri)).toBe('camera crop');
   expect(request).not.toHaveBeenCalled();
 });
+
+it('edits an unconfirmed product draft with exact retained scope and rejects a concurrently stale choice', async () => {
+  const { photo } = await photoEvidence();
+  const access = { lastVerifiedOwner: async () => owner, openShoppingWriteSession: jest.fn() };
+  const phone = (await openCheapoShopping(access))!;
+  const initial = { record: photo, catalogOperationId: 'editable-product', createdAt: operationTime };
+  await phone.priceQueue.stageProductPrice(initial);
+  const review = { ...record.review, productType: 'Dry rice', price: '1.55', shop: 'Different input label' };
+  const edited = phone.priceQueue.updateProductPriceDraft(record.id, { review, barcode: '036000291452' });
+  const stale = phone.priceQueue.confirmProductPriceChoice(record.id, { kind: 'reuse', productId: 'stale-match' });
+  const [updated, result] = await Promise.all([edited, stale.catch(error => error)]);
+  expect(result).toMatchObject({ message: 'This draft changed. Check the product again before confirming.' });
+  const reopened = (await openCheapoShopping(access))!;
+  expect(await reopened.productPrices.pendingDrafts()).toEqual([updated]);
+  expect(updated).toEqual({ ...initial, revision: 2, barcode: '00036000291452',
+    record: { ...photo, review: { ...review, shop: record.review.shop } } });
+  expect((await reopened.priceQueue.backup()).files.map(file => file.name)).toEqual(expect.arrayContaining([
+    `${record.id}.product-price-draft.json`, `${record.id}.product-price-draft.r2.json`,
+  ]));
+  expect(() => reopened.priceQueue.updateProductPriceDraft(record.id, { review, barcode: '23', expectedRevision: 2 }))
+    .toThrow('Enter a valid product barcode');
+  await expect(reopened.productPrices.update(record.id, { review, barcode: null })).rejects.toThrow('This draft changed');
+  const cleared = await reopened.productPrices.update(record.id, { review, barcode: null, expectedRevision: 2 });
+  expect(cleared).toMatchObject({ revision: 3, record: { id: record.id, review: { productType: 'Dry rice' } } });
+  expect(cleared.barcode).toBeUndefined();
+  expect(await reopened.priceQueue.read()).toEqual({ entries: [], recovery: [] });
+  expect(access.openShoppingWriteSession).not.toHaveBeenCalled();
+
+  expect(await reopened.productPrices.confirm(record.id, { kind: 'reuse', productId: 'checked-product' }, cleared.revision))
+    .toMatchObject({ ...cleared.record, productId: 'checked-product' });
+  await expect(reopened.productPrices.update(record.id, { review, barcode: null, expectedRevision: 3 }))
+    .rejects.toThrow('already confirmed');
+});
+
+it('uses the prior draft after an interrupted edit and never falls back from a corrupt committed revision', async () => {
+  const access = { lastVerifiedOwner: async () => owner, openShoppingWriteSession: jest.fn() };
+  const phone = (await openCheapoShopping(access))!;
+  const original = { record, catalogOperationId: 'interrupted-product-revision', createdAt: operationTime };
+  const update = { review: { ...record.review, productType: 'Dry rice' }, barcode: null };
+  await phone.productPrices.stage(original);
+  mockFailedPublication = /\.product-price-draft\.r2\.json$/;
+  await expect(phone.productPrices.update(record.id, update)).rejects.toThrow('Publication interrupted');
+  expect(await phone.productPrices.pendingDrafts()).toEqual([original]);
+  expect((await phone.priceQueue.backup()).files.some(file => file.name.includes('.r2.json.') && file.name.endsWith('.pending'))).toBe(true);
+
+  mockFailedPublication = /$a/;
+  await phone.productPrices.update(record.id, update);
+  const newFile = [...mockFiles.keys()].find(uri => uri.endsWith('.product-price-draft.r2.json'))!;
+  mockFiles.set(newFile, 'corrupt revision');
+  const restarted = (await openCheapoShopping(access))!;
+  expect(await restarted.productPrices.pendingDrafts()).toEqual([]);
+  expect((await restarted.priceQueue.read()).recovery).toContainEqual({ sourceId: record.id, reason: 'unreadable' });
+  await expect(restarted.productPrices.confirm(record.id, { kind: 'add' }, 2)).rejects.toThrow();
+  expect((await restarted.mutationQueue.read()).entries).toEqual([]);
+  expect(access.openShoppingWriteSession).not.toHaveBeenCalled();
+});
+
+it('refuses to change an owner-mismatched draft or a valid interrupted choice', async () => {
+  let selected = owner;
+  const access = { lastVerifiedOwner: async () => selected, openShoppingWriteSession: jest.fn() };
+  const phone = (await openCheapoShopping(access))!;
+  const initial = { record, catalogOperationId: 'protected-product-revision', createdAt: operationTime };
+  const edit = { review: { ...record.review, productType: 'Dry rice' }, barcode: null };
+  await phone.productPrices.stage(initial);
+  selected = other;
+  await expect(phone.productPrices.update(record.id, edit)).rejects.toThrow('Cheapo access changed');
+  selected = owner;
+  mockFailedPublication = /\.product-price-choice\.json$/;
+  await expect(phone.productPrices.confirm(record.id, { kind: 'add' })).rejects.toThrow('Publication interrupted');
+  await expect(phone.productPrices.update(record.id, edit)).rejects.toThrow('already confirmed');
+  expect((await phone.priceQueue.backup()).productPriceDrafts).toEqual([initial]);
+  expect(access.openShoppingWriteSession).not.toHaveBeenCalled();
+});
