@@ -370,3 +370,27 @@ test('versions a pending re-crop with the reviewed fields without altering appen
   `, [receipt.id]);
   assert.deepEqual(audit, { beforeRole: null, afterSource: 'original' });
 });
+
+test('retains immutable imported original and crop references while choosing a new derived crop', async () => {
+  const source = 'restored-' + completed;
+  const physical = async () => (await operator.query(`
+    SELECT role, storage_key, sha256, byte_count, width, height FROM cheapo.price_photo
+    WHERE household_id = $1 AND shopper_id = $2 AND observation_id = $3 ORDER BY role
+  `, [household, owner, source])).rows;
+  const before = await physical();
+  assert.equal(before.length, 2);
+  const response = await api(new Request('http://localhost/v1/me/price-observations/' + completed, {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${token('B')}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      action: 'correct', operationId: 'recrop-existing', expectedVersion: 1,
+      review: { productName: 'Restored oats', price: '2.75', currency: 'GBP' },
+      photoSelection: { role: 'crop', cropBox: { left: 0.12, top: 0.38, right: 0.82, bottom: 0.78 } },
+    }),
+  }));
+  assert.equal(response.status, 200);
+  const { observation } = priceHistoryDetail.parse(await response.json());
+  assert.deepEqual([observation.selectedPhotoRole, observation.cropSource], ['crop', 'original']);
+  assert.deepEqual(observation.photos, [{ role: 'original', width: 800, height: 600 }, { role: 'crop', width: 400, height: 300 }]);
+  assert.deepEqual(await physical(), before);
+});
