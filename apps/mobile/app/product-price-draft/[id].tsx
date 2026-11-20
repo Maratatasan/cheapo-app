@@ -77,7 +77,7 @@ function DraftReview({ id, shopping, lookup }: { id: string; shopping: CheapoSho
   }
 
   const editedBarcode = edit?.barcode.trim();
-  const canonicalBarcode = editedBarcode ? canonicalProductBarcode(editedBarcode) : null;
+  const canonicalBarcode = editedBarcode ? canonicalProductBarcode(editedBarcode) ?? null : null;
   const invalidBarcode = Boolean(editedBarcode && !canonicalBarcode);
 
   async function saveEdits() {
