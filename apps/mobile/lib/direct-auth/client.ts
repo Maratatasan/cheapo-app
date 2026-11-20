@@ -1,4 +1,4 @@
-import { authorizeUrl,validateCallback } from './protocol';
+import { authorizeUrl,validateCallback,type PhoneAuthBrowser } from './protocol';
 import { validatePhoneIdentity,type IdentityBridge } from './identity';
 const AUTH_ORIGIN='https://auth.openai.com';
 const TOKEN=`${AUTH_ORIGIN}/api/accounts/oauth/token`;
@@ -13,7 +13,7 @@ export type PhoneNative=IdentityBridge & {
   stopReceiver():Promise<void>;
   requestJson(url:string,form:string|null):Promise<{status:number;bodyText:string}>;
 };
-type Dependencies={native:PhoneNative;getItem(key:string):Promise<string|null>;setItem(key:string,value:string):Promise<void>;deleteItem(key:string):Promise<void>;randomUUID():string;randomHex():string;challenge(verifier:string):Promise<string>;openBrowser(url:string):Promise<unknown>;isAppActive():boolean;now?():number;appName?:string;storageName?:string};
+type Dependencies={native:PhoneNative;getItem(key:string):Promise<string|null>;setItem(key:string,value:string):Promise<void>;deleteItem(key:string):Promise<void>;randomUUID():string;randomHex():string;challenge(verifier:string):Promise<string>;openBrowser(url:string,browser:PhoneAuthBrowser):Promise<unknown>;isAppActive():boolean;now?():number;appName?:string;storageName?:string};
 class AuthFailure extends Error {constructor(message:string,readonly code='invalid'){super(message);}}
 export function createPhoneAuth(deps:Dependencies) {
   const now=deps.now??Date.now;
@@ -148,7 +148,7 @@ export function createPhoneAuth(deps:Dependencies) {
     getState:()=>view,
     subscribe(listener:(state:PhoneAuthState)=>void){listeners.add(listener);return()=>{listeners.delete(listener);};},
     checkConnection:()=>operation(async()=>{update({message:'Connection probe v2: checking the public OpenAI endpoint…'});const keys=await request(`${AUTH_ORIGIN}/.well-known/jwks.json`,undefined,true);if(!Array.isArray(keys?.keys)||!keys.keys.length)throw new AuthFailure('Trusted identity keys were unavailable.','temporary');update({message:'Connection probe v2 passed. OpenAI identity keys received; no login or inference request sent.'});}),
-    signIn:()=>operation(async()=>{
+    signIn:(browser:PhoneAuthBrowser='default')=>operation(async()=>{
       const currentFlow=++flow;
       if(pendingSession){const session=pendingSession;await persistSignIn(session,currentFlow);publish(session);return;}
       const ensureActive=()=>{if(currentFlow!==flow)throw new AuthFailure('Phone sign-in cancelled.');};
@@ -167,7 +167,12 @@ export function createPhoneAuth(deps:Dependencies) {
         const callback=deps.native.waitForCallback();
         // Observe an early native timeout without an unhandled rejection while the browser opens.
         void callback.catch(()=>{});
-        await deps.openBrowser(url);
+        try{await deps.openBrowser(url,browser);}
+        catch(error){
+          ensureActive();
+          if(browser==='chrome')throw new AuthFailure('Chrome could not open. Install or update Chrome, then try again.');
+          throw error;
+        }
         let target;try{target=await callback;}catch{ensureActive();throw new AuthFailure('No valid phone callback arrived. Return to the app and retry.');}
         ensureActive();
         const returned=validateCallback(target,{port,state,clientId:registration?.clientId});
