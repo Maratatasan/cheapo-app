@@ -5,14 +5,19 @@ import { randomBytes, randomUUID, createHash } from 'node:crypto';
 import { readFile, writeFile, rm, mkdir } from 'node:fs/promises';
 
 import { credentialDigest } from '../../apps/api/credential.ts';
+import { importedEvidenceKey } from '../../apps/api/evidence-key.ts';
 import { createLocalApi } from '../../apps/api/local-api.ts';
 import { createCheapoPricePhotoRead } from '../../apps/mobile/data/cheapo-price-photo-read.ts';
 import { cheapoShoppingReadCache, cheapoPricePhotoCache } from '../../apps/mobile/data/cheapo-shopping-read-cache.ts';
 import { createCheapoShoppingReads } from '../../apps/mobile/data/cheapo-shopping-reads.ts';
+import { comparisonUnitPrice } from '../../apps/mobile/data/comparison-prices.ts';
 import { readEnrolledPriceEdit } from '../../apps/mobile/data/edit-enrolled-price.ts';
+import { createEnrolledComparisonPreferences } from '../../apps/mobile/data/enrolled-comparison-preferences.ts';
+import { createEnrolledCatalog } from '../../apps/mobile/data/enrolled-catalog.ts';
 import { createEnrolledSavedShops } from '../../apps/mobile/data/enrolled-saved-shops.ts';
 import { emptyReview } from '../../apps/mobile/data/photo-review.ts';
-import { projectSharedPrice } from '../../apps/mobile/data/saved-price-history.ts';
+import { comparisonRowFromSavedHistory, projectSharedPrice } from '../../apps/mobile/data/saved-price-history.ts';
+import { createSelectedPricePhotoRead, viewedPricePhotoRoles } from '../../apps/mobile/data/selected-price-photo-read.ts';
 import { openCheapoShopping } from '../../apps/mobile/data/shopping-sync-runtime.ts';
 import { createCheapoAccess } from '../../apps/mobile/lib/cheapo-access/client.ts';
 import { configureObjectTransport, device } from './expo-fixtures.mjs';
@@ -36,8 +41,9 @@ const fixturePhoto = name => new URL('../../apps/mobile/stories/fixtures/' + nam
 const digest = (value, format = 'hex') => createHash('sha256').update(value).digest(format);
 const blobPath = (key) => join(fixture, 'objects', digest(key));
 const grantUrl = key => 'https://fixtures.s3.amazonaws.com/object/' + encodeURIComponent(key) + '?X-Amz-Signature=' + 'a'.repeat(64);
+const photoGrants = [];
 const api = createLocalApi(runtimePool, {
-  read: async key => grantUrl(key),
+  read: async key => { photoGrants.push(key); return grantUrl(key); },
   upload: async (key, photo) => ({
     url: grantUrl(key), headers: {
       'Content-Type': 'image/jpeg', 'Content-Length': String(photo.byteCount), 'If-None-Match': '*',
@@ -95,8 +101,9 @@ const raw = (person, path, method = 'GET', body) => person.access.request(path, 
 const readers = person => createCheapoShoppingReads(person.access.openReadSession, cheapoShoppingReadCache);
 const observed = async (name, id) => operate(name, async person =>
   (await readers(person).loadPriceObservation(id)).value.observation);
+const initialBarcode = '2000000000015';
 const product = {
-  id: 'two-owner-rolled-oats', barcode: '2000000000015', name: 'Example oats', productType: 'Oats',
+  id: 'two-owner-rolled-oats', barcode: '2000000000022', name: 'Example oats', productType: 'Oats',
   brand: 'Example Mill', variety: 'Rolled', pack: { quantity: 500, unit: 'g' },
 };
 const groupId = 'two-owner-oats';
@@ -107,9 +114,6 @@ const reviewFields = price => ({
 });
 const edits = (price, extras = {}) => ({ action: 'correct',
   review: reviewFields(price), unitPrice: { amount: Number(units(price)), unit: '100g' }, ...extras });
-function queued(action, title) {
-  return { operationId: randomUUID(), title, createdAt: new Date().toISOString(), action };
-}
 let clock = 0;
 const mutation = (target, change) => ({ operationId: randomUUID(), title: 'Correct synthetic price',
   createdAt: new Date(Date.UTC(2026, 0, 10) + clock++).toISOString(), action: { kind: 'price', ...target, change } });
@@ -135,21 +139,37 @@ try {
       await person.access.enroll(credential);
       person.runtime = await openCheapoShopping(person.access);
       assert.equal(person.runtime.owner.shopperId, shopperId);
+      const queue = person.runtime.mutationQueue;
+      const { assertOwner: assertCurrent, retry: sync } = person.runtime;
       person.shops = createEnrolledSavedShops({
-        queue: person.runtime.mutationQueue, assertCurrent: person.runtime.assertOwner, sync: person.runtime.retry,
-        loadHosted: operations => readers(person).loadEditableSavedShops(undefined, operations),
+        queue, assertCurrent, sync, loadHosted: operations => readers(person).loadEditableSavedShops(undefined, operations),
+      });
+      const reads = readers(person);
+      person.catalog = createEnrolledCatalog({
+        queue, assertCurrent, sync, readByBarcode: reads.findEditableProductByBarcode, readById: reads.findEditableProductById,
+      });
+      person.preferences = createEnrolledComparisonPreferences({ queue, assertOwner: assertCurrent, sync,
+        readHosted: reads.loadComparisonPreference,
       });
     });
   }
   await operate('A', async person => {
+    const beforePreference = await person.preferences.load(groupId);
+    assert.equal(beforePreference.basis, null);
     person.online = false;
     const saved = await person.shops.saveShop({ id: 'fixture-market', name: 'Fixture Market', nickname: 'Before rename' }, { select: true });
     assert.equal(saved.currentShop.nickname, 'Before rename');
     await person.shops.updateShop('fixture-market', { nickname: 'Household nickname' }, saved.editBases.get('fixture-market'));
+    const first = await person.catalog.save({ ...product, barcode: initialBarcode });
+    assert.equal(first.catalogBase.kind, 'operation');
+    assert.equal((await person.catalog.findByBarcode(initialBarcode)).id, product.id);
+    const corrected = await person.catalog.replaceBarcode(first, product.barcode);
+    assert.equal(corrected.catalogBase.kind, 'operation');
+    assert.equal((await person.catalog.findById(product.id)).barcode, '02000000000022');
+    const changed = await person.preferences.save(beforePreference, '100g');
+    assert.equal(changed.base.kind, 'operation');
+    assert.equal((await person.preferences.loadLocal(groupId)).basis, '100g');
     person.online = true;
-    await person.runtime.commitMutation(queued({ kind: 'create-product', product }, 'Add the synthetic barcode'));
-    await person.runtime.commitMutation(queued({ kind: 'preference', groupId, basis: 'kg',
-      base: { kind: 'version', version: 0 } }, 'Set the comparison basis'));
     assert.equal((await person.runtime.retry()).state, 'complete');
   });
   await operate('B', async person => {
@@ -167,17 +187,19 @@ try {
   assert.equal(shopB.currentShop.id, 'fixture-second');
   assert.equal(shopB.shops.find(shop => shop.id === 'fixture-market').nickname, 'Household nickname');
   assert.equal(shopC.currentShop.nickname, 'Outside nickname');
-  const preferenceA = await operate('A', person => readers(person).loadComparisonPreference(groupId));
-  const preferenceB = await operate('B', person => readers(person).loadComparisonPreference(groupId));
-  assert.deepEqual(preferenceA.value, { basis: 'kg', version: 1 });
-  assert.deepEqual(preferenceB.value, { basis: null, version: 0 });
+  const preferenceA = await operate('A', person => person.preferences.load(groupId));
+  const preferenceB = await operate('B', person => person.preferences.load(groupId));
+  assert.equal(preferenceA.basis, '100g');
+  assert.equal(preferenceB.basis, null);
+  assert.deepEqual(preferenceA.base, { kind: 'version', version: 1 });
+  assert.deepEqual(preferenceB.base, { kind: 'version', version: 0 });
   await operate('B', async person => {
-    const read = await readers(person).findEditableProductByBarcode(product.barcode);
-    assert.deepEqual(read.value, { product: { ...product, barcode: '02000000000015' }, version: 1 });
+    assert.equal(await person.catalog.findByBarcode(initialBarcode), undefined);
+    const read = await person.catalog.findByBarcode(product.barcode);
+    assert.deepEqual(read, { ...product, barcode: '02000000000022', catalogBase: { kind: 'version', version: 2 } });
     person.online = false;
-    const reopened = await readers(person).findEditableProductByBarcode(product.barcode);
-    assert.equal(reopened.status, 'cached');
-    assert.deepEqual(reopened.value, read.value);
+    const reopened = await person.catalog.findByBarcode(product.barcode);
+    assert.deepEqual(reopened, read);
     person.online = true;
   });
   summary.push('The enrolled shop repository isolates household nicknames and personal current shops; queued catalog and comparison-preference changes keep exact IDs, versions and personal basis boundaries.');
@@ -219,6 +241,9 @@ try {
   assert.equal(initial.productId, product.id);
   assert.deepEqual(initial.review, { ...reviewFields('3.25'), shop: 'Fixture Market' });
   assert.deepEqual(initial.unitPrice, { amount: 0.65, unit: '100g' });
+  const comparison = comparisonRowFromSavedHistory({ source: 'shared', key: 'shared:' + canonical, observation: initial });
+  assert.deepEqual(comparisonUnitPrice(comparison, preferenceA.basis), { amount: 0.65, unit: '100 g' });
+  assert.deepEqual(comparisonUnitPrice(comparison, preferenceB.basis), { amount: 6.5, unit: 'kg' });
   assert.deepEqual(initial.cropBox, cropBox);
   assert.equal(initial.version, 2);
   assert.equal(initial.ownedByCurrentShopper, false);
@@ -237,6 +262,19 @@ try {
     person.online = true;
   });
   assert.equal((await operate('C', person => raw(person, collection + '/' + canonical))).status, 404);
+  const sourceFilter = { sourceId: id, includeRecordedInError: true };
+  const own = await operate('A', person => readers(person).loadPriceHistory(sourceFilter));
+  const another = await operate('B', person => readers(person).loadPriceHistory(sourceFilter));
+  assert.deepEqual(own.value.observations.map(price => price.id), [canonical]);
+  assert.deepEqual(another.value.observations, []);
+  const offlineOther = await operate('B', async person => {
+    person.online = false;
+    const read = await readers(person).loadPriceHistory(sourceFilter);
+    person.online = true;
+    return read;
+  });
+  assert.equal(offlineOther.status, 'cached');
+  assert.deepEqual(offlineOther.value.observations, []);
   summary.push('Actual offline save and edit survived reopening, a committed append response was lost, and replay produced one corrected observation with two independently verified photos visible to B only inside the household.');
 
   const editA = mutation(target(canonical, 2), edits('3.45'));
@@ -288,8 +326,71 @@ try {
   assert.equal(Number(newest.priceAmount), 3.75);
   summary.push('Concurrent edits produced one conflict. Keep cloud retained its validated snapshot and Keep phone retried against the current version while preserving a dependent edit.');
 
+  const revisedBox = { left: 0.05, top: 0.2, right: 0.85, bottom: 0.76734693877551 };
   await operate('A', async person => {
-    await person.runtime.commitMutation(mutation(target(canonical, newest.version), { action: 'record_in_error', reason: 'Synthetic review' }));
+    person.online = false;
+    await person.runtime.commitMutation(mutation(target(canonical, newest.version), edits('3.75', {
+      photoSelection: { role: 'crop', cropBox: revisedBox },
+    })));
+    const change = (await person.runtime.loadPriceChanges()).at(-1);
+    assert.deepEqual(change.change.photoSelection, { role: 'crop', cropBox: revisedBox });
+    person.online = true;
+    assert.equal((await person.runtime.retry()).state, 'complete');
+  });
+  const revised = await observed('B', canonical);
+  assert.equal(revised.version, newest.version + 1);
+  assert.equal(revised.cropSource, 'original');
+  assert.equal(revised.selectedPhotoRole, 'crop');
+  assert.deepEqual(revised.cropBox, revisedBox);
+  assert.deepEqual(revised.photos, initial.photos);
+  await operate('B', async person => {
+    await cheapoShoppingReadCache.clear();
+    const grantsBefore = photoGrants.length;
+    const session = await person.access.openReadSession();
+    const readPhoto = createCheapoPricePhotoRead(async () => session, cheapoPricePhotoCache);
+    let renders = 0;
+    const readSelection = createSelectedPricePhotoRead(session, cheapoPricePhotoCache, readPhoto, async (verified, normalized) => {
+      // Stand in for the native pixel transform, using a distinct JPEG fixture derived from the sample.
+      const originalBytes = await readFile(new URL(verified.uri));
+      assert.equal(digest(originalBytes), verified.sha256);
+      assert.deepEqual(originalBytes, await readFile(new URL(original.uri)));
+      assert.deepEqual(normalized, revisedBox);
+      renders++;
+      const cropBytes = await readFile(new URL(crop.uri));
+      const tagged = Buffer.concat([cropBytes.subarray(0, 2), Buffer.from([255, 254, 0, 7]), Buffer.from('newer'), cropBytes.subarray(2)]);
+      return { bytes: Uint8Array.from(tagged), width: 560, height: 278, sha256: digest(tagged) };
+    });
+    const derived = await readSelection(revised, 'crop');
+    assert.equal(derived.status, 'fresh');
+    assert.equal(derived.value.width, 560);
+    assert.equal(photoGrants.length, grantsBefore + 1);
+    assert.match(photoGrants.at(-1), /\/original\//);
+    assert.notDeepEqual(await readFile(new URL(derived.value.uri)), await readFile(new URL(crop.uri)));
+    person.online = false;
+    const offline = await readSelection(revised, 'crop');
+    assert.equal(offline.status, 'cached');
+    assert.equal(offline.value.uri, derived.value.uri);
+    assert.equal(renders, 1);
+    await cheapoShoppingReadCache.clear();
+    assert.equal((await readSelection(revised, 'crop')).status, 'unavailable');
+    person.online = true;
+  });
+  await operate('A', async person => {
+    await person.runtime.commitMutation(mutation(target(canonical, revised.version), edits('3.75', {
+      photoSelection: { role: 'original' },
+    })));
+    assert.equal((await person.runtime.retry()).state, 'complete');
+  });
+  const reverted = await observed('B', canonical);
+  assert.equal(reverted.selectedPhotoRole, 'original');
+  assert.equal(reverted.cropBox, null);
+  assert.deepEqual(viewedPricePhotoRoles(reverted).map(asset => asset.role), ['original']);
+  assert.deepEqual(reverted.photos, initial.photos);
+  assert.equal(objectWrites, 2);
+  summary.push('The queued re-crop changes the canonical selection, uses only the verified original, caches its derived image offline and preserves both physical evidence objects after revert.');
+
+  await operate('A', async person => {
+    await person.runtime.commitMutation(mutation(target(canonical, reverted.version), { action: 'record_in_error', reason: 'Synthetic review' }));
     assert.equal((await person.runtime.retry()).state, 'complete');
   });
   const removed = await observed('B', canonical);
@@ -303,6 +404,50 @@ try {
     assert.equal(restored.value.observations.some(x => x.id === canonical), true);
   });
   summary.push('Recorded in error excluded the record from comparison and kept the exact detail; B’s undo restored it.');
+
+  const draftSource = 'imported-draft-oats';
+  const draftId = randomUUID();
+  const draftTime = '2026-01-02T10:30:00.123Z';
+  const draftOwner = people.A.runtime.owner.shopperId;
+  await operator.query(`
+    INSERT INTO cheapo.price_observation (household_id, shopper_id, id, resource_id, captured_at, source_test_shop, status)
+    VALUES ($1, $2, $3, $4, $5, false, 'draft')
+  `, [house, draftOwner, draftSource, draftId, draftTime]);
+  const imported = await readFile(new URL(original.uri));
+  const importedHash = digest(imported);
+  const importedKey = importedEvidenceKey(house, draftOwner, importedHash);
+  await writeFile(blobPath(importedKey), imported);
+  await operator.query(`
+    INSERT INTO cheapo.price_photo (household_id, shopper_id, observation_id, role, storage_key, sha256, byte_count, width, height)
+    VALUES ($1, $2, $3, 'original', $4, $5, $6, $7, $8)
+  `, [house, draftOwner, draftSource, importedKey, importedHash, imported.byteLength, original.width, original.height]);
+  const originalPath = collection + '/' + draftId + '/photos/original';
+  assert.equal((await operate('B', person => raw(person, originalPath))).status, 404);
+
+  await operate('A', async person => {
+    person.online = false;
+    await person.runtime.priceRecords.saveNewPhoto({
+      id: draftSource, capturedAt: draftTime, productId: product.id, original, selected: crop, cropBox: revisedBox,
+      review: { ...emptyReview('Fixture Market'), ...reviewFields('3.88') },
+      shop: { id: 'fixture-market', displayName: 'Fixture Market' },
+    });
+    person.online = true;
+    person.dropAppend = true;
+    assert.equal((await person.runtime.retry()).state, 'pending');
+    assert.equal((await person.runtime.retry()).state, 'complete');
+    const saved = (await person.runtime.priceQueue.read()).entries.find(entry => entry.record.id === draftSource);
+    assert.deepEqual(saved.receipt, { id: draftId, sourceId: draftSource, version: 2, deriveCropFromOriginal: true });
+    assert.deepEqual(await person.runtime.priceQueue.evidence.load({ record: saved.record, receipt: saved.receipt }), []);
+  });
+  const completedDraft = await observed('B', draftId);
+  assert.equal(completedDraft.priceAmount, '3.88');
+  assert.equal(completedDraft.version, 2);
+  assert.equal(completedDraft.cropSource, 'original');
+  assert.deepEqual(completedDraft.cropBox, revisedBox);
+  assert.equal((await operate('B', person => raw(person, originalPath))).status, 200);
+  assert.equal(photoGrants.at(-1), importedKey);
+  assert.equal(objectWrites, 2);
+  summary.push('The imported draft stayed private until completion, recovered a lost reply on the same resource ID, and acknowledged its exact archived original without uploading or replacing it.');
 
   await operate('A', async person => {
     const get = createCheapoPricePhotoRead(person.access.openReadSession, cheapoPricePhotoCache);
