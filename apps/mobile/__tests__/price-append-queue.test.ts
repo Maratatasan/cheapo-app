@@ -1,7 +1,8 @@
 import { Directory, File, Paths } from 'expo-file-system';
 
 import { emptyReview, type ManualPriceRecord } from '../data/local-photo';
-import { openPriceAppendQueue, syncPriceAppends } from '../data/price-append-queue';
+import { openPriceAppendQueue } from '../data/price-append-queue';
+import { createPriceAppendSync } from '../data/price-append-sync';
 
 const mockFiles = new Map<string, string>();
 let mockFailedPublication = /$a/;
@@ -49,6 +50,11 @@ const record: ManualPriceRecord = {
   id: receipt.sourceId, capturedAt: '2026-11-20T12:00:00.000Z', productId: 'product-01', shop,
   review: { ...emptyReview(shop.displayName), productName: 'Test rice', price: '1.20' },
 };
+const body = JSON.stringify({
+  sourceId: record.id, capturedAt: record.capturedAt, productId: record.productId,
+  shopId: shop.id, shopDisplayName: shop.displayName,
+  review: { productName: 'Test rice', price: '1.20', currency: 'GBP' }, unitPrice: null,
+});
 
 beforeEach(() => {
   mockFiles.clear();
@@ -61,7 +67,7 @@ it('reopens the immutable record and operation together and rejects ID reuse wit
   await Promise.all([queue.save(record), second.save({ ...record })]);
   const restarted = await openPriceAppendQueue(owner);
   const before = await restarted.read();
-  expect(before).toEqual({ entries: [{ record }], recovery: [] });
+  expect(before).toEqual({ entries: [{ record, body }], recovery: [] });
   expect([...mockFiles.keys()]).toHaveLength(1);
   await expect(restarted.save({ ...record, review: { ...record.review, price: '2.00' } })).rejects.toThrow('different');
   expect(await queue.read()).toEqual(before);
@@ -75,7 +81,7 @@ it('keeps a partial publication visible for recovery and leaves valid work avail
   const staging = [...mockFiles.keys()].find(key => key.endsWith('.pending'))!;
   mockFiles.set(staging, '{partial');
   const restarted = await openPriceAppendQueue(owner);
-  expect(await restarted.read()).toEqual({ entries: [{ record }], recovery: [{ sourceId: 'interrupted', reason: 'unfinished' }] });
+  expect(await restarted.read()).toEqual({ entries: [{ record, body }], recovery: [{ sourceId: 'interrupted', reason: 'unfinished' }] });
   expect(mockFiles.get(staging)).toBe('{partial');
   const published = [...mockFiles.keys()].find(key => key.endsWith('.price.json'))!;
   mockFiles.set(published, '{invalid');
@@ -88,32 +94,40 @@ it('keeps a partial publication visible for recovery and leaves valid work avail
 it('holds a blocked operation across rotation, preserves it across restart and retries a lost acknowledgement once', async () => {
   const original = await openPriceAppendQueue(owner);
   await original.save(record);
-  const send = jest.fn().mockResolvedValue({ outcome: 'acknowledged', receipt });
-  await expect(syncPriceAppends(original, { owner: other, send })).resolves.toBe('blocked');
-  await expect(syncPriceAppends(original, { owner: { ...owner, origin: 'https://staging.example' }, send })).resolves.toBe('blocked');
-  expect(send).not.toHaveBeenCalled();
+  const post = jest.fn(async () => Response.json(receipt));
+  await expect(createPriceAppendSync(original, async () => ({ owner: other, post }))()).resolves.toBe('blocked');
+  await expect(createPriceAppendSync(original, async () => ({ owner: { ...owner, origin: 'https://staging.example' }, post }))()).resolves.toBe('blocked');
+  expect(post).not.toHaveBeenCalled();
   expect((await (await openPriceAppendQueue(other)).read()).entries).toEqual([]);
-  await expect(syncPriceAppends(original, { owner, send: async () => ({ outcome: 'blocked' }) })).resolves.toBe('blocked');
-  expect((await original.read()).entries).toEqual([{ record }]);
+  await expect(createPriceAppendSync(original, async () => ({ owner, post: async () => new Response(null, { status: 403 }) }))()).resolves.toBe('blocked');
+  expect((await original.read()).entries).toEqual([{ record, body }]);
 
-  const server = new Map<string, ManualPriceRecord>();
-  const append = jest.fn(async (pending: ManualPriceRecord) => {
-    if (!server.has(pending.id)) {
-      server.set(pending.id, pending);
+  // An older serializer can produce valid JSON with different formatting.
+  // A retry must use what was stored even when re-encoding would change it.
+  const storageFile = [...mockFiles.keys()].find(key => key.endsWith('.price.json'))!;
+  const previousBody = `${body}\n`;
+  mockFiles.set(storageFile, JSON.stringify({ ...JSON.parse(mockFiles.get(storageFile)!), body: previousBody }));
+
+  const server = new Map<string, string>();
+  const append = jest.fn(async (pending: string) => {
+    const { sourceId } = JSON.parse(pending);
+    if (!server.has(sourceId)) {
+      server.set(sourceId, pending);
       throw Error('Network disconnected before the response.');
     }
-    expect(server.get(pending.id)).toEqual(pending);
-    return { outcome: 'acknowledged', receipt } as const;
+    expect(server.get(sourceId)).toBe(pending);
+    return Response.json(receipt);
   });
-  await expect(syncPriceAppends(original, { owner, send: append })).resolves.toBe('failed');
+  await expect(createPriceAppendSync(original, async () => ({ owner, post: append }))()).resolves.toBe('failed');
   const restarted = await openPriceAppendQueue({ ...owner });
-  expect((await restarted.read()).entries).toEqual([{ record }]);
-  await expect(syncPriceAppends(restarted, { owner: { ...owner }, send: append })).resolves.toBe('complete');
+  expect((await restarted.read()).entries).toEqual([{ record, body: previousBody }]);
+  await expect(createPriceAppendSync(restarted, async () => ({ owner: { ...owner }, post: append }))()).resolves.toBe('complete');
   expect(server.size).toBe(1);
-  expect(append).toHaveBeenCalledTimes(2);
-  expect((await (await openPriceAppendQueue(owner)).read()).entries).toEqual([{ record, receipt }]);
-  await expect(syncPriceAppends(restarted, { owner, send })).resolves.toBe('complete');
-  expect(send).not.toHaveBeenCalled();
+  expect(append.mock.calls.map(([sent]) => sent)).toEqual([previousBody, previousBody]);
+  expect((await (await openPriceAppendQueue(owner)).read()).entries).toEqual([{ record, body: previousBody, receipt }]);
+  const reopen = jest.fn(async () => ({ owner, post }));
+  await expect(createPriceAppendSync(restarted, reopen)()).resolves.toBe('complete');
+  expect(reopen).not.toHaveBeenCalled();
 });
 
 it('accepts only existing evidence from the protected price photo directory', async () => {
@@ -130,7 +144,7 @@ it('accepts only existing evidence from the protected price photo directory', as
   const cropBox = { left: 0.1, top: 0.1, right: 0.9, bottom: 0.9 };
   const photoRecord = { ...record, original, selected, cropBox };
   await expect(queue.save(photoRecord)).resolves.toBeUndefined();
-  expect((await queue.read()).entries).toEqual([{ record: photoRecord }]);
+  expect((await queue.read()).entries).toEqual([{ record: photoRecord, body }]);
   expect(mockFiles.get(original.uri)).toBe('saved JPEG');
   expect(mockFiles.get(selected.uri)).toBe('selected JPEG');
 });
@@ -138,13 +152,76 @@ it('accepts only existing evidence from the protected price photo directory', as
 it('retries an interrupted acknowledgement and preserves the local price and its source ID', async () => {
   const queue = await openPriceAppendQueue(owner);
   await queue.save(record);
-  const session = { owner, send: jest.fn().mockResolvedValue({ outcome: 'acknowledged', receipt }) };
+  const session = { owner, post: jest.fn(async () => Response.json(receipt)) };
   mockFailedPublication = /\.receipt\.json$/;
-  await expect(syncPriceAppends(queue, session)).resolves.toBe('failed');
+  await expect(createPriceAppendSync(queue, async () => session)()).resolves.toBe('failed');
   const restarted = await openPriceAppendQueue(owner);
-  expect(await restarted.read()).toEqual({ entries: [{ record }], recovery: [{ sourceId: record.id, reason: 'unfinished' }] });
+  expect(await restarted.read()).toEqual({ entries: [{ record, body }], recovery: [{ sourceId: record.id, reason: 'unfinished' }] });
   mockFailedPublication = /$a/;
-  await expect(syncPriceAppends(restarted, session)).resolves.toBe('complete');
-  expect(await restarted.read()).toEqual({ entries: [{ record, receipt }], recovery: [] });
-  expect(session.send.mock.calls).toEqual([[record], [record]]);
+  await expect(createPriceAppendSync(restarted, async () => session)()).resolves.toBe('complete');
+  expect(await restarted.read()).toEqual({ entries: [{ record, body, receipt }], recovery: [] });
+  expect(session.post.mock.calls).toEqual([[body, expect.any(AbortSignal)], [body, expect.any(AbortSignal)]]);
+});
+
+it('aborts a stalled write and lets the shopper retry the same durable request', async () => {
+  jest.useFakeTimers();
+  try {
+    const queue = await openPriceAppendQueue(owner);
+    await queue.save(record);
+    let start!: (signal: AbortSignal | undefined) => void;
+    const sending = new Promise<AbortSignal | undefined>(resolve => { start = resolve; });
+    const post = jest.fn<Promise<Response>, [string, AbortSignal?]>()
+      .mockImplementationOnce((_body, signal) => {
+        start(signal);
+        return new Promise(() => {});
+      })
+      .mockImplementation(async () => Response.json(receipt));
+    const sync = createPriceAppendSync(queue, async () => ({ owner, post }));
+    const stalled = sync();
+    const signal = await sending;
+    await jest.advanceTimersByTimeAsync(44_999);
+    expect(signal?.aborted).toBe(false);
+    await jest.advanceTimersByTimeAsync(1);
+    expect(signal?.aborted).toBe(true);
+    await expect(stalled).resolves.toBe('failed');
+    expect(post).toHaveBeenCalledTimes(1);
+    expect(await queue.read()).toEqual({ entries: [{ record, body }], recovery: [] });
+    await expect(sync()).resolves.toBe('complete');
+    expect(post.mock.calls.map(([sent]) => sent)).toEqual([body, body]);
+    expect(await queue.read()).toEqual({ entries: [{ record, body, receipt }], recovery: [] });
+    expect(jest.getTimerCount()).toBe(0);
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
+it('serializes an explicit shelf unit-price pair before sending', async () => {
+  const queue = await openPriceAppendQueue(owner);
+  await queue.save({ ...record, review: { ...record.review, unitPrice: ' 2.050 ', unit: ' 100 g ' } });
+  const stored = (await queue.read()).entries[0];
+  expect(JSON.parse(stored.body)).toMatchObject({
+    review: { unitPrice: '2.050', unit: '100 g' }, unitPrice: { amount: 2.05, unit: '100 g' },
+  });
+});
+
+it('runs another pass when a new save asks to sync during an active pass', async () => {
+  const queue = await openPriceAppendQueue(owner);
+  await queue.save(record);
+  const next = { ...record, id: 'price-local-02' };
+  let release!: (response: Response) => void;
+  let sending!: () => void;
+  const started = new Promise<void>(resolve => { sending = resolve; });
+  const post = jest.fn<Promise<Response>, [string]>()
+    .mockImplementationOnce(() => new Promise(resolve => { release = resolve; sending(); }))
+    .mockImplementation(async () => Response.json({ ...receipt, sourceId: next.id }));
+  const sync = createPriceAppendSync(queue, async () => ({ owner, post }));
+  const firstPass = sync();
+  await started;
+  await queue.save(next);
+  const requestedPass = sync();
+  release(Response.json(receipt, { status: 201 }));
+  await expect(firstPass).resolves.toBe('complete');
+  await expect(requestedPass).resolves.toBe('complete');
+  expect(post.mock.calls.map(([pending]) => JSON.parse(pending).sourceId)).toEqual([record.id, next.id]);
+  expect((await queue.read()).entries.every(entry => entry.receipt)).toBe(true);
 });
