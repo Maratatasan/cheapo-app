@@ -1,5 +1,5 @@
 import { View, StyleSheet, Platform } from "react-native";
-import { useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { shopDisplayName } from "@cheapo/domain/names";
 import { CameraComponent } from "@/component/camera";
@@ -8,6 +8,7 @@ import { useCheapoShopping } from "@/component/cheapo-shopping-provider";
 import type { ProductCandidateLookupProps } from "@/component/product-candidate-lookup";
 import { ShopChooser, ShopLoadFeedback } from "@/component/shop/shop-chooser";
 import { createOwnerShoppingReads } from "@/data/cheapo-shopping-read-device";
+import { productPhotoPriceSources } from "@/data/photo-price-source";
 import { useSavedShops } from "@/hooks/use-saved-shops";
 import { photoShopCountry } from "@/lib/direct-auth/shop-country";
 
@@ -20,6 +21,12 @@ export default function ScanScreen() {
 function ProductLookupScreen() {
   const router = useRouter();
   const shopping = useCheapoShopping();
+  const activePhotoSource = useRef<string>(undefined);
+  const clearPhotoSource = useCallback(() => {
+    if (activePhotoSource.current) productPhotoPriceSources.delete(activePhotoSource.current);
+    activePhotoSource.current = undefined;
+  }, []);
+  useEffect(() => clearPhotoSource, [clearPhotoSource, shopping]);
   const candidateLookup = useMemo<ProductCandidateLookupProps | undefined>(() => {
     if (!shopping) return;
     const reads = createOwnerShoppingReads(shopping.owner);
@@ -40,8 +47,14 @@ function ProductLookupScreen() {
   }, [router, shopping]);
   return <>
     <Stack.Screen options={{ title: "Find product from a photo" }} />
-    <CameraComponent productLookup={{ onCompare: barcode => router.push({ pathname: "/find-product", params: { barcode } }),
-      candidateLookup }} />
+    <CameraComponent productLookup={{ onCompare: (barcode, product, draft) => {
+      clearPhotoSource();
+      activePhotoSource.current = draft.id;
+      const { original, selected, cropBox, capturedAt } = draft;
+      productPhotoPriceSources.set(draft.id, { productId: product.id, owner: shopping, source: { original, selected, cropBox, capturedAt } });
+      router.push({ pathname: "/find-product", params: { barcode, photoSource: draft.id } });
+    },
+      onRetake: clearPhotoSource, candidateLookup }} />
   </>;
 }
 

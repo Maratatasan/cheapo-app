@@ -13,8 +13,8 @@ export function PhotoAnalysisControls({ label, status, disabled, onPress, packag
 }) {
   return <View style={styles.controls}>
     <Text style={styles.note}>{packaging
-      ? 'Analyse packaging photo sends the selected photo to OpenAI using your ChatGPT plan.'
-      : 'Analyse photo uses your ChatGPT plan to send the selected photo and, when available, the shop’s country hint to OpenAI.'}</Text>
+      ? 'Analysis sends the selected packaging photo and any text read from it to OpenAI using your ChatGPT plan.'
+      : 'Analysis sends the selected photo, any text read from it, and the shop’s country when available to OpenAI using your ChatGPT plan.'}</Text>
     <Button title={label} disabled={disabled} onPress={onPress} />
     <Text aria-live="polite" style={styles.note}>{status}</Text>
   </View>;

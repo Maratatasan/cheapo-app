@@ -261,7 +261,9 @@ describe("CameraComponent", () => {
 
     expect(await screen.findByLabelText('Product photo')).toHaveProp('source', { uri: 'file:///package.jpg' });
     expect(await screen.findByText('Saved rice')).toBeOnTheScreen();
-    expect(onCompare).toHaveBeenCalledWith(product.barcode, product);
+    expect(onCompare).toHaveBeenCalledWith(product.barcode, product, expect.objectContaining({
+      original: expect.objectContaining({ uri: 'file:///package.jpg' }),
+    }));
     expect(mockScanFromURLAsync).toHaveBeenCalledWith('file:///package.jpg', expect.any(Array));
     expect(mockRequestPhotoDraft).not.toHaveBeenCalled();
     expect(mockSaveLocalPhoto).not.toHaveBeenCalled();
@@ -835,6 +837,39 @@ describe("CameraComponent", () => {
     await waitFor(() => expect(mockRequestPhotoDraft).toHaveBeenCalledWith(expect.objectContaining({
       sourcePhoto: photo, photoText: { photo, result: ocr },
     })));
+  });
+
+  it('confirms a clear retained product photo once without AI and keeps its evidence', async () => {
+    mockPermission = { granted: false };
+    const photo = { uri: 'file:///label.jpg', width: 1200, height: 800, mimeType: 'image/jpeg' } as const;
+    const product = { id: 'known', name: 'Example Rice', pack: { quantity: 500, unit: 'g' } };
+    const sourcePhoto = { original: photo, selected: photo, capturedAt: '2026-11-20T12:00:00Z' };
+    const shop = { id: 'selected-shop', displayName: 'Example Market' };
+    const initialReview = { productName: product.name, price: '', currency: 'GBP', shop: shop.displayName, packSize: '500 g', unitPrice: '', unit: '' };
+    mockReadPhotoText.mockImplementation(async (uri: string) => ({ status: 'found', evidence: { width: 1200, height: 800, blocks: [{ lines: [
+      { text: 'Example Rice 500 g', box: [0.1, 0.1, 0.4, 0.14], elements: [] },
+      { text: uri.endsWith('cropped.jpg') ? '£3.50' : '£2.50', box: [0.1, 0.17, 0.25, 0.22], elements: [] },
+    ] }] } }));
+    mockSaveLocalPhoto.mockImplementation(async draft => draft);
+    await render(<CameraComponent currentShop={shop} linkedPrice={{ productId: product.id, product, sourcePhoto, initialReview,
+      onCancel: jest.fn(), onSaved: jest.fn() }} />);
+    await waitFor(() => expect(screen.getByLabelText('Pack price')).toHaveDisplayValue('2.50'));
+    expect(mockSaveLocalPhoto).not.toHaveBeenCalled();
+    expect(mockRequestPhotoDraft).not.toHaveBeenCalled();
+
+    await fireEvent.press(screen.getByRole('button', { name: 'Crop photo' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Apply crop' }));
+    await waitFor(() => expect(mockReadPhotoText).toHaveBeenCalledWith('file:///cropped.jpg'));
+    expect(screen.getByLabelText('Pack price')).toHaveDisplayValue('');
+    expect(screen.getByRole('button', { name: 'Confirm current price' })).toBeDisabled();
+    await fireEvent.press(screen.getByRole('button', { name: 'Use original' }));
+    await waitFor(() => expect(screen.getByLabelText('Pack price')).toHaveDisplayValue('2.50'));
+
+    await fireEvent.press(screen.getByRole('button', { name: 'Confirm current price' }));
+    expect(mockSaveLocalPhoto).toHaveBeenCalledTimes(1);
+    expect(mockSaveLocalPhoto).toHaveBeenCalledWith(expect.objectContaining({ ...sourcePhoto, shop, productId: product.id,
+      review: expect.objectContaining({ price: '2.50', currency: 'GBP' }),
+    }));
   });
 
   it('applies the chosen price only on request and preserves a manual correction', async () => {

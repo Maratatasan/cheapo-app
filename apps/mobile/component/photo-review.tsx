@@ -25,10 +25,11 @@ type Props = {
   barcodeLinkSaved?: boolean;
   barcodeLinkStatus?: string;
   recordingPrice?: boolean;
+  currentPriceConfirmation?: boolean;
   savedStatus?: string;
 };
 
-export function PhotoReview({ photo, review, selectedShopName, saved, savedStatus, busy, onReviewChange, onSave, onRetake, onCrop, onCancel, onOriginal, onImageError, galleryAction, children, leadContent, saveError, saveBlocked, recordingPrice, suggestion, barcodeReview, savedBarcode, barcodeLinkSaved, barcodeLinkStatus }: Props) {
+export function PhotoReview({ photo, review, selectedShopName, saved, savedStatus, busy, onReviewChange, onSave, onRetake, onCrop, onCancel, onOriginal, onImageError, galleryAction, children, leadContent, saveError, saveBlocked, recordingPrice, currentPriceConfirmation, suggestion, barcodeReview, savedBarcode, barcodeLinkSaved, barcodeLinkStatus }: Props) {
   const container = useRef<ComponentRef<typeof View>>(null);
   const scroll = useRef<ComponentRef<typeof ScrollView>>(null);
   const fieldViews = useRef<Partial<Record<keyof ManualReview, ComponentRef<typeof View> | null>>>({});
@@ -92,7 +93,8 @@ export function PhotoReview({ photo, review, selectedShopName, saved, savedStatu
   const amount = reviewUnitPrice(review);
   const invalidPack = !!review.packSize?.trim() && !calculatePackUnitPrice('1', review.packSize);
   const saveDisabled = busy || saved || Boolean(saveBlocked) || (requireComplete && !complete);
-  const saveLabel = busy ? 'Saving…' : editing ? 'Save changes' : recordingPrice || complete ? 'Save Price' : 'Save on this phone';
+  const saveLabel = busy ? 'Saving…' : editing ? 'Save changes' : currentPriceConfirmation ? 'Confirm current price'
+    : recordingPrice || complete ? 'Save Price' : 'Save on this phone';
   return <View ref={container} style={styles.root} onLayout={() => container.current?.measureInWindow((_, y) => setHeaderOffset(y))}>
     <KeyboardAvoidingView style={styles.root} behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={headerOffset}>
       <ScrollView ref={scroll} style={styles.root} contentContainerStyle={styles.content}
