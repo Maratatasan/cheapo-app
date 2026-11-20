@@ -62,6 +62,7 @@ function samePhoto(first: LoadedDetail, second: LoadedDetail) {
 export function useSavedPriceReads(queue: SavedPriceQueueRead | null, loadPriceChanges?: () => Promise<readonly PendingHistoryChange[]>) {
   const [historyState, setHistory] = useState<History>();
   const [detailState, setDetail] = useState<Detail>();
+  const [thumbnailRevision, setThumbnailRevision] = useState(cheapoShoppingReadCache.revision);
   const historyWork = useRef<AbortController | null>(null);
   const detailWork = useRef<AbortController | null>(null);
   const thumbnailWork = useRef(new Set<AbortController>());
@@ -74,6 +75,7 @@ export function useSavedPriceReads(queue: SavedPriceQueueRead | null, loadPriceC
       historyWork.current?.abort();
       detailWork.current?.abort();
       for (const controller of thumbnailWork.current) controller.abort();
+      setThumbnailRevision(cheapoShoppingReadCache.revision());
       setHistory(previous => previous?.queue === queue
         ? { ...previous, observations: [], status: 'unavailable', nextCursor: null, lastSyncedAt: undefined } : previous);
       setDetail(previous => previous?.queue === queue ? undefined : previous);
@@ -135,7 +137,7 @@ export function useSavedPriceReads(queue: SavedPriceQueueRead | null, loadPriceC
   }, []);
 
   const loadThumbnail = useCallback(async (id: string, changes: readonly PendingHistoryChange[], rowSignal: AbortSignal, version?: number) => {
-    if (!queue || rowSignal.aborted) return;
+    if (!queue || rowSignal.aborted || thumbnailRevision !== cheapoShoppingReadCache.revision()) return;
     const controller = new AbortController();
     const { signal } = controller;
     const cancel = () => controller.abort();
@@ -167,7 +169,7 @@ export function useSavedPriceReads(queue: SavedPriceQueueRead | null, loadPriceC
       rowSignal.removeEventListener('abort', cancel);
       thumbnailWork.current.delete(controller);
     }
-  }, [queue]);
+  }, [queue, thumbnailRevision]);
 
   function close() {
     abort();

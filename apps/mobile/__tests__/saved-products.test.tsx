@@ -31,7 +31,12 @@ const mockPreferenceRuntime = {
 };
 let mockFocusRevision = 0;
 let mockListVisibility: FlatListProps<unknown>['onViewableItemsChanged'];
+let mockCacheRevision = 0;
 const mockCacheClearListeners = new Set<() => void>();
+function clearDownloadedFixture() {
+  mockCacheRevision++;
+  mockCacheClearListeners.forEach(listener => listener());
+}
 let mockCompareParams: { id: string; source?: string } = { id: 'rice' };
 let mockShoppingRuntime: { owner: typeof owner; priceQueue: { read: () => Promise<unknown> };
   loadPriceChanges: () => Promise<PendingHistoryChange[]> } | null = null;
@@ -64,6 +69,7 @@ jest.mock('../component/cheapo-shopping-provider', () => ({
 jest.mock('expo-file-system', () => ({}));
 jest.mock('../data/cheapo-shopping-read-cache', () => ({
   cheapoShoppingReadCache: {
+    revision: () => mockCacheRevision,
     subscribeClear(listener: () => void) {
       mockCacheClearListeners.add(listener);
       return () => { mockCacheClearListeners.delete(listener); };
@@ -184,7 +190,7 @@ test('drops replaceable preference state on clear and retains the protected queu
   expect(await screen.findByRole('radio', { name: 'Per kg', checked: true })).toBeOnTheScreen();
   await fireEvent.press(screen.getByRole('radio', { name: 'Per 100 g' }));
   expect(screen.getByText(/Preference last synced/)).toBeOnTheScreen();
-  await act(() => { for (const listener of mockCacheClearListeners) listener(); });
+  await act(() => clearDownloadedFixture());
   expect(screen.queryByText(/Preference last synced/)).not.toBeOnTheScreen();
   expect(mockPreferenceEntries[0].intent.action).toMatchObject({ kind: 'preference', basis: '100g', groupId: 'type:dry rice' });
   expect(mockPreferenceRead).toHaveBeenCalledTimes(1);
@@ -343,6 +349,33 @@ test('reopens a cached shared price and its checked photo while the server read 
   expect(await screen.findByRole('header', { name: 'Updated shared rice' })).toBeOnTheScreen();
 });
 
+test.each(['denied', 'missing', 'cleared'])('removes a visible cached photo when revalidation is %s', async outcome => {
+  jest.mocked(loadSavedPriceRecords).mockResolvedValue([]);
+  const queue = { owner, read: jest.fn().mockResolvedValue({ entries: [], recovery: [] }) };
+  const response = Promise.withResolvers<Awaited<ReturnType<BoundReads['loadPriceObservation']>>>();
+  const loadPriceObservation = jest.fn((_id: string, _signal?: AbortSignal) => response.promise);
+  const loadPriceHistory = jest.fn().mockResolvedValue(cached({ observations: [shared], nextCursor: null }));
+  mockSavedReads({ assertCurrent: jest.fn(), loadPriceObservation, loadPhoto: jest.fn(), loadSelectedPhoto: jest.fn(), loadPriceHistory,
+    cached: { loadPriceHistory, loadPriceObservation: jest.fn().mockResolvedValue(cached({ observation: shared })),
+      loadSelectedPhoto: jest.fn().mockResolvedValue(cached({ uri: 'file:///cache/visible-preview.jpg' })) } });
+  await render(<SafeAreaProvider initialMetrics={safeArea}><SavedProductsScreen priceQueue={queue} /></SafeAreaProvider>);
+  await fireEvent.press(await screen.findByRole('button', { name: 'Open Original shared rice' }));
+  expect(await screen.findByLabelText('Cropped price photo')).toBeOnTheScreen();
+  const signal = loadPriceObservation.mock.calls[0][1];
+
+  await act(async () => {
+    if (outcome === 'denied') response.reject(new CheapoAccessError('Cheapo access ended'));
+    else if (outcome === 'missing') response.resolve({ status: 'fresh', value: { observation: null }, lastSyncedAt });
+    else {
+      clearDownloadedFixture();
+      response.resolve({ status: 'fresh', value: { observation: shared }, lastSyncedAt });
+    }
+  });
+  expect(screen.queryByLabelText('Cropped price photo')).not.toBeOnTheScreen();
+  if (outcome === 'cleared') expect(signal?.aborted).toBe(true);
+  else expect(screen.getByText('Shared details unavailable')).toBeOnTheScreen();
+});
+
 test('reopens a kept cloud record offline without an old detail cache and hides it after access denial', async () => {
   jest.mocked(loadSavedPriceRecords).mockResolvedValue([]);
   const queue = { owner, read: jest.fn().mockResolvedValue({ entries: [], recovery: [] }) };
@@ -417,7 +450,7 @@ test('clearing downloads aborts an open photo and keeps the protected queue visi
   await screen.findByText('Loading photo…');
   const [, , pictureSignal] = session.loadSelectedPhoto.mock.calls[0];
   await act(async () => {
-    mockCacheClearListeners.forEach(listener => listener());
+    clearDownloadedFixture();
     finishPhoto(cached({ uri: 'file:///cache/now-cleared.jpg' }));
   });
   expect(pictureSignal.aborted).toBe(true);
