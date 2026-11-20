@@ -221,7 +221,7 @@ photos. Supply temporary AWS credentials through the normal SDK credential
 chain.
 
 ```sh
-AWS_REGION=eu-north-1 CHEAPO_IMPORT_BUCKET=YOUR_PRIVATE_BUCKET \
+AWS_REGION=YOUR_AWS_REGION CHEAPO_IMPORT_BUCKET=YOUR_PRIVATE_BUCKET \
   CHEAPO_IMPORT_BUCKET_OWNER=YOUR_AWS_PROJECT_NUMBER \
   pnpm --silent --filter @cheapo/api import:hosted \
   /path/to/extracted-backup HOUSEHOLD_UUID SHOPPER_UUID
