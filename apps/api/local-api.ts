@@ -1,6 +1,8 @@
 import type { Pool } from 'pg';
 
+import { catalogCandidatesPath, createCatalogCandidatesHandler } from './catalog-candidates.ts';
 import { createCatalogHandler, isCatalogPath } from './catalog.ts';
+import { postgresCatalogCandidates } from './postgres-catalog-candidates.ts';
 import { postgresCatalog } from './postgres-catalog.ts';
 import { postgresPriceAppend } from './postgres-price-append.ts';
 import { postgresPriceCorrection } from './postgres-price-correction.ts';
@@ -43,6 +45,7 @@ export function createShoppingApi({ query, transaction }: {
 }, evidence: EvidenceStorage = {}) {
   const preferences = createPreferencesHandler(postgresPreferences({ query, transaction }));
   const shops = createSavedShopHandler(postgresSavedShops(transaction));
+  const candidates = createCatalogCandidatesHandler(postgresCatalogCandidates(transaction));
   const catalog = createCatalogHandler(postgresCatalog(transaction));
   const prices = createPriceHistoryHandler(
     postgresPriceHistory(transaction), postgresPriceAppend(transaction), postgresPriceCorrection(transaction),
@@ -58,6 +61,7 @@ export function createShoppingApi({ query, transaction }: {
     const path = new URL(request.url).pathname;
     if (path === '/v1/me') return identity(request);
     if (isSavedShopPath(path)) return shops(request);
+    if (path === catalogCandidatesPath) return candidates(request);
     if (isCatalogPath(path)) return catalog(request);
     if (isProductPresentationPhotoPath(path)) return presentationPhotos(request);
     if (isPriceHistoryPath(path)) return prices(request);
