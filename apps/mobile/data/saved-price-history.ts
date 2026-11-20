@@ -5,29 +5,25 @@ import type { SavedPriceRecord } from './local-photo';
 import { reviewComplete } from './photo-review';
 import type { PriceAppendReceipt } from './price-append-queue';
 import { comparisonRowFromDraft } from './saved-comparison';
-import type { ShoppingMutation } from './shopping-mutations';
+import { priceChangeIsNewerThan, type PendingPriceChange } from './shopping-pending-price-changes';
 
 type LegacyHistoryRow = { source: 'legacy'; key: string; record: SavedPriceRecord };
 type QueuedHistoryRow = { source: 'queued'; key: string; record: SavedPriceRecord; receipt?: PriceAppendReceipt };
 type LocalHistoryRow = LegacyHistoryRow | QueuedHistoryRow;
 type SharedHistoryRow = { source: 'shared'; key: string; observation: PriceObservation; linkedLocal?: LocalHistoryRow };
 export type SavedPriceHistoryRow = LocalHistoryRow | SharedHistoryRow;
-export type PendingHistoryChange = {
-  sourceId?: string;
-  resourceId?: string;
-  change: Extract<ShoppingMutation['action'], { kind: 'price' }>['change'];
-  state: 'waiting' | 'failed' | 'conflict' | 'recovery';
-};
+export type PendingHistoryChange = PendingPriceChange;
+export type PendingPriceState = Exclude<PendingPriceChange['state'], 'acknowledged'>;
 const pendingPriority = { waiting: 0, failed: 1, recovery: 2, conflict: 3 } as const;
 
-function strongestPending(current: PendingHistoryChange['state'] | undefined, next: PendingHistoryChange['state']) {
+function strongestPending(current: PendingPriceState | undefined, next: PendingPriceState) {
   return !current || pendingPriority[next] > pendingPriority[current] ? next : current;
 }
 
 function appliesTo(change: PendingHistoryChange, row: SavedPriceHistoryRow) {
   if (row.source === 'legacy') return false;
   if (row.source === 'shared') {
-    return change.resourceId ? change.resourceId === row.observation.id && row.observation.ownedByCurrentShopper
+    return change.resourceId ? change.resourceId === row.observation.id
       : row.observation.ownedByCurrentShopper && change.sourceId === row.observation.sourceId;
   }
   return change.resourceId ? change.resourceId === row.receipt?.id : change.sourceId === row.record.id;
@@ -35,10 +31,10 @@ function appliesTo(change: PendingHistoryChange, row: SavedPriceHistoryRow) {
 
 export function projectSharedPrice<T extends PriceObservation>(observation: T, changes: readonly PendingHistoryChange[]) {
   let display = observation;
-  let pending: PendingHistoryChange['state'] | undefined;
+  let pending: PendingPriceState | undefined;
   for (const item of changes) {
-    if (!appliesTo(item, { source: 'shared', key: observation.id, observation })) continue;
-    pending = strongestPending(pending, item.state);
+    if (!appliesTo(item, { source: 'shared', key: observation.id, observation }) || !priceChangeIsNewerThan(item, observation.version)) continue;
+    if (item.state !== 'acknowledged') pending = strongestPending(pending, item.state);
     const change = item.change;
     if (change.action === 'correct') {
       display = { ...display, productName: change.review.productName, review: change.review, priceAmount: change.review.price,
@@ -54,11 +50,11 @@ export function projectSharedPrice<T extends PriceObservation>(observation: T, c
 
 export function projectLocalPrice(row: LocalHistoryRow, changes: readonly PendingHistoryChange[]) {
   let display = row.record;
-  let pending: PendingHistoryChange['state'] | undefined;
+  let pending: PendingPriceState | undefined;
   let recordedInErrorReason: string | undefined;
   for (const item of changes) {
-    if (!appliesTo(item, row)) continue;
-    pending = strongestPending(pending, item.state);
+    if (!appliesTo(item, row) || !priceChangeIsNewerThan(item, row.source === 'queued' ? row.receipt?.version : undefined)) continue;
+    if (item.state !== 'acknowledged') pending = strongestPending(pending, item.state);
     const change = item.change;
     if (change.action === 'correct') {
       const shop = change.shop ?? display.shop;

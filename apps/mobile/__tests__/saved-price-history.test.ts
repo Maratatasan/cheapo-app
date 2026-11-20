@@ -99,10 +99,10 @@ test('compares projected prices by compatible units and independent brand and va
   const hidden = { ...observation('771f4baa-b8ec-442c-8592-ed74b6c8acbb', 'wrong', false), recordedInErrorReason: 'Wrong pack' };
   const waiting = { ...local('queued'), review: { ...review, brand: 'Example', variety: 'Steel-cut', unitPrice: '2', unit: 'kg' } };
   const changes: PendingHistoryChange[] = [
-    { resourceId: reference.id, state: 'waiting', change: { action: 'correct',
+    { operationId: 'oat-correction', title: 'Correct oats', resourceId: reference.id, state: 'waiting', change: { action: 'correct',
       review: { productName: 'Corrected oats', productType: 'Oats', brand: 'Example', variety: 'Rolled', price: '3.20', currency: 'GBP' },
       unitPrice: { amount: 3.2, unit: 'kg' } } },
-    { sourceId: waiting.id, state: 'waiting', change: { action: 'correct',
+    { operationId: 'queued-correction', title: 'Correct queued oats', sourceId: waiting.id, state: 'waiting', change: { action: 'correct',
       review: { productName: 'Corrected queued oats', productType: 'Oats', brand: 'Example', variety: 'Steel-cut',
         price: '1.50', currency: 'GBP', unitPrice: '1.5', unit: 'kg' }, unitPrice: { amount: 1.5, unit: 'kg' } } },
   ];
@@ -119,4 +119,24 @@ test('compares projected prices by compatible units and independent brand and va
   expect(ranked.unranked.map(row => [row.id, row.unit_price])).toEqual([[`shared:${unrankable.id}`, null]]);
   expect(comparePrices(comparisons, selected, { sameBrand: true, sameVariety: false }).groups[0].entries[0].row.id).toBe('queued:queued');
   expect(comparePrices(comparisons, selected, { sameBrand: false, sameVariety: true }).groups[0].entries[0].row.id).toBe(`shared:${peer.id}`);
+});
+
+test('displays an acknowledged correction offline until the shared snapshot reaches its version', () => {
+  const previous = { ...observation(primaryId, 'accepted-price', true), version: 2 };
+  const change: PendingHistoryChange = { operationId: 'accepted-correction', title: 'Correct oats', resourceId: previous.id, state: 'acknowledged', acceptedVersion: 3, change: {
+    action: 'correct', review: { productName: 'Corrected oats', price: '3.45', currency: 'GBP' },
+  } };
+  expect(projectSharedPrice(previous, [change])).toMatchObject({ display: { version: 2, priceAmount: '3.45' }, pending: undefined });
+  const current = { ...previous, version: 4, priceAmount: '3.80' };
+  expect(projectSharedPrice(current, [change])).toEqual({ display: current, pending: undefined });
+});
+
+test('projects a permitted household correction by its exact resource ID without aliasing a peer source ID', () => {
+  const peer = observation(peerId, 'same-local-source', false);
+  const correction: PendingHistoryChange = { operationId: 'shared-correction', title: 'Correct shared oats',
+    resourceId: peerId, sourceId: peer.sourceId, state: 'waiting', change: {
+      action: 'correct', review: { productName: 'Corrected shared oats', price: '3.50', currency: 'GBP' },
+    } };
+  expect(projectSharedPrice(peer, [correction])).toMatchObject({ display: { priceAmount: '3.50' }, pending: 'waiting' });
+  expect(projectSharedPrice(peer, [{ ...correction, resourceId: undefined }])).toEqual({ display: peer, pending: undefined });
 });

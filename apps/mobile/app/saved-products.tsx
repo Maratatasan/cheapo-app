@@ -3,6 +3,7 @@ import { Stack, useFocusEffect, useRouter } from 'expo-router';
 import { Button, Image, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { useCheapoShopping } from '@/component/cheapo-shopping-provider';
 import { EditPriceButton } from '@/component/results/edit-price-button';
 import { color, spacing, ui } from '@/component/results/theme';
 import { SavedPriceDetails, SavedPriceHistoryList } from '@/component/saved-price-history-list';
@@ -13,7 +14,8 @@ import { projectLocalPrice, projectSharedPrice, savedPriceHistoryRows, type Pend
 import { useSavedPriceReads, type SavedPriceQueueRead } from '@/data/use-saved-price-reads';
 
 export default function SavedProducts() {
-  return <SavedProductsScreen />;
+  const shopping = useCheapoShopping();
+  return <SavedProductsScreen priceQueue={shopping?.priceQueue} loadPriceChanges={shopping?.loadPriceChanges} />;
 }
 
 export function SavedProductsScreen({ priceQueue = null, loadPriceChanges }: {
@@ -138,15 +140,15 @@ export function SavedProductsScreen({ priceQueue = null, loadPriceChanges }: {
             setOriginal(false);
             setOpenedId(item.key);
           }
-        }} header={error ? (
+        }} header={error || history || (Platform.OS === 'android' && drafts) ? (
             <View style={styles.details}>
-              <Text accessibilityRole="alert" style={ui.body}>Could not read saved products and photos.</Text>
-              <Button title="Try again" onPress={() => { if (focus.current) refresh(focus.current.signal); }} />
-            </View>
-          ) : Platform.OS === 'android' && drafts ? (
-            <View style={styles.details}>
-              <Button title={exporting ? 'Preparing ZIP…' : 'Export saved products and photos'} disabled={exporting} onPress={exportSaved} />
-              {exportError ? <Text accessibilityRole="alert" style={ui.body}>{exportError}</Text> : null}
+              {error ? <>
+                <Text accessibilityRole="alert" style={ui.body}>Could not read saved products and photos.</Text>
+                <Button title="Try again" onPress={() => { if (focus.current) refresh(focus.current.signal); }} />
+              </> : Platform.OS === 'android' && drafts ? <>
+                <Button title={exporting ? 'Preparing ZIP…' : 'Export saved products and photos'} disabled={exporting} onPress={exportSaved} />
+                {exportError ? <Text accessibilityRole="alert" style={ui.body}>{exportError}</Text> : null}
+              </> : null}
               {history?.lastSyncedAt ? <Text style={ui.small}>Last synced {new Date(history.lastSyncedAt).toLocaleString()}</Text> : null}
               {history?.status === 'cached' ? <Text style={ui.small}>Showing saved shared prices</Text> : null}
               {history?.status === 'loading' ? <Text accessibilityLiveRegion="polite" style={ui.small}>Loading shared prices…</Text> : null}

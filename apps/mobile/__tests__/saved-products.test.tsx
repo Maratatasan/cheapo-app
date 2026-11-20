@@ -60,7 +60,7 @@ const cached = <T,>(value: T) => ({ status: 'cached' as const, value, lastSynced
 test('opens shared history and only the selected photo, applying the current owner’s pending correction', async () => {
   jest.mocked(loadSavedPriceRecords).mockResolvedValue([complete]);
   const queue = { owner, read: jest.fn().mockResolvedValue({ entries: [], recovery: [] }) };
-  const correction: PendingHistoryChange = { resourceId: shared.id, state: 'waiting', change: { action: 'correct',
+  const correction: PendingHistoryChange = { operationId: 'rice-correction', title: 'Correct shared rice', resourceId: shared.id, state: 'waiting', change: { action: 'correct',
     review: { productName: 'Corrected shared rice', price: '3.40', currency: 'GBP', productType: 'Dry rice' } } };
   const session = {
     assertCurrent: jest.fn(),

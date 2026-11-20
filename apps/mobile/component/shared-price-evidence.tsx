@@ -5,7 +5,7 @@ import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-nati
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import type { PriceEvidenceRole } from '../data/cheapo-price-photo-read';
-import type { PendingHistoryChange } from '../data/saved-price-history';
+import type { PendingPriceState } from '../data/saved-price-history';
 import { PriceDisplay } from './results/price-display';
 import { color, radius, spacing, typography, ui } from './results/theme';
 
@@ -19,7 +19,7 @@ type Props = {
   cached: boolean;
   activeRole: PriceEvidenceRole | null;
   photo?: EvidenceView;
-  pendingChange?: PendingHistoryChange['state'];
+  pendingChange?: PendingPriceState;
   onPhotoRole(role: PriceEvidenceRole): void;
   onRetryPhoto(): void;
   onBack(): void;
@@ -35,7 +35,7 @@ function formatDate(value: string, withTime = false) {
 
 const pendingLabel = { waiting: 'Saved on this phone · Waiting to sync', failed: 'Could not sync',
   conflict: 'Conflicting changes', recovery: 'Needs attention' } as const;
-export function PendingPriceNotice({ state }: { state?: PendingHistoryChange['state'] }) {
+export function PendingPriceNotice({ state }: { state?: PendingPriceState }) {
   return state ? <Text style={ui.small}>{pendingLabel[state]}</Text> : null;
 }
 
