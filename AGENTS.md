@@ -23,6 +23,7 @@
   `apps/mobile/android` project when following the Android build instructions.
 - See the [app map](docs/app-map.md) for the current flow and responsibility boundaries. Preserve the scan-to-local-save flow and update the map when a flow or responsibility boundary changes.
 - Use the [domain glossary](docs/domain-glossary.md) for shared shopping terms in specs, tickets, and code discussions.
+- Use the [testing guide](docs/testing.md) when choosing or reporting smoke, integration, acceptance, or field tests.
 - Follow the [UI verification standard](docs/ui-verification.md) for UI changes and their handoff evidence.
 - Camera tests mock hardware. Report simulator, browser, physical-device, and bundle checks separately; a bundle export is not a native build.
 - Follow official Expo release notes and upgrade one SDK at a time. Keep React, React Native, TypeScript, and Expo modules within the supported SDK versions.
