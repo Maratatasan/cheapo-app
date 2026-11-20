@@ -1,4 +1,4 @@
-import { importedEvidenceKey } from './evidence-key.ts';
+import { importedEvidenceKey, newEvidenceKey } from './evidence-key.ts';
 import { readShoppingMember, type ShoppingTransaction } from './postgres-shopping.ts';
 import type { ReadPricePhoto } from './price-photo.ts';
 
@@ -32,9 +32,10 @@ export function postgresPricePhoto(transaction: ShoppingTransaction): ReadPriceP
         AND photo.role = $4
     `, [observationId, member.household_id, member.shopper_id, role]);
 
-    if (!photo || photo.key !== importedEvidenceKey(photo.householdId, photo.shopperId, photo.sha256)) {
-      return { status: 'not_found' };
-    }
+    if (!photo) return { status: 'not_found' };
+    const imported = importedEvidenceKey(photo.householdId, photo.shopperId, photo.sha256);
+    const captured = newEvidenceKey(photo.householdId, observationId, role, photo.sha256);
+    if (photo.key !== imported && photo.key !== captured) return { status: 'not_found' };
     return { status: 'ok', photo };
   });
 }

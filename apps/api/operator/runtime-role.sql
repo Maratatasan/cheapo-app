@@ -47,4 +47,7 @@ GRANT SELECT ON cheapo.price_photo_upload TO cheapo_api_runtime;
 GRANT INSERT (household_id, shopper_id, observation_id, role, sha256, byte_count, width, height)
   ON cheapo.price_photo_upload TO cheapo_api_runtime;
 
+GRANT INSERT (household_id, shopper_id, observation_id, role, storage_key, sha256, byte_count, width, height)
+  ON cheapo.price_photo TO cheapo_api_runtime;
+
 COMMIT;

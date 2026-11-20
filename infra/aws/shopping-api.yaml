@@ -87,7 +87,9 @@ Resources:
                 - AllowEvidenceReads
                 - Effect: Allow
                   Action: s3:GetObject
-                  Resource: !Sub 'arn:${AWS::Partition}:s3:::${EvidenceBucket}/shopping-import/*'
+                  Resource:
+                    - !Sub 'arn:${AWS::Partition}:s3:::${EvidenceBucket}/shopping-import/*'
+                    - !Sub 'arn:${AWS::Partition}:s3:::${EvidenceBucket}/price-evidence/*'
                   Condition:
                     StringEquals:
                       aws:ResourceAccount: !Ref AWS::AccountId

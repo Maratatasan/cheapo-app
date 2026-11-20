@@ -14,9 +14,10 @@ const details = z.strictObject({
 });
 export const photoUploadLifetimeSeconds = 120;
 export type PhotoUploadDetails = z.infer<typeof details>;
+type UploadFailure = 'unauthenticated' | 'forbidden' | 'not_found' | 'conflict';
 type UploadResult =
   | { status: 'pending'; key: string }
-  | { status: 'unauthenticated' | 'forbidden' | 'not_found' | 'conflict' };
+  | { status: 'available' | UploadFailure };
 export type PreparePhotoUpload = (
   digest: string, id: string, role: PricePhotoRole, photo: PhotoUploadDetails,
 ) => Promise<UploadResult>;
@@ -24,15 +25,48 @@ export type SignPhotoUpload = (
   key: string, photo: PhotoUploadDetails,
 ) => Promise<{ url: string; headers: Record<string, string> }>;
 
+export type VerifyPhotoObject = (
+  key: string, photo: PhotoUploadDetails, signal: AbortSignal,
+) => Promise<'verified' | 'missing' | 'mismatch'>;
+export type CompletePhotoUpload = (
+  digest: string, id: string, role: PricePhotoRole,
+) => Promise<{ status: 'pending' | 'available' | 'mismatch' | UploadFailure }>;
+
+function uploadFailure(status: UploadFailure | 'mismatch') {
+  if (status === 'unauthenticated') return unauthorized();
+  if (status === 'forbidden') return json({ error: 'forbidden' }, 403);
+  if (status === 'conflict') return json({ error: 'photo_conflict' }, 409);
+  if (status === 'mismatch') return json({ error: 'photo_checksum_mismatch' }, 409);
+  return json({ error: 'photo_not_found' }, 404);
+}
+
+async function hasBody(request: Request): Promise<boolean> {
+  const reader = request.body?.getReader();
+  if (!reader) return false;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) return false;
+      if (value.byteLength) return true;
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
 export function isPricePhotoUploadPath(path: string) {
   return pathPattern.test(path);
 }
 
-export function createPricePhotoUploadHandler(prepare: PreparePhotoUpload, sign?: SignPhotoUpload) {
+export function createPricePhotoUploadHandler(
+  prepare: PreparePhotoUpload, sign?: SignPhotoUpload, complete?: CompletePhotoUpload,
+) {
   return async (request: Request): Promise<Response> => {
     const digest = readCredentialDigest(request.headers.get('Authorization'));
     if (!digest) return unauthorized();
-    if (request.method !== 'PUT') return json({ error: 'method_not_allowed' }, 405, { Allow: 'PUT' });
+    if (request.method !== 'PUT' && request.method !== 'POST') {
+      return json({ error: 'method_not_allowed' }, 405, { Allow: 'PUT, POST' });
+    }
 
     const url = new URL(request.url);
     const parsed = pathPattern.exec(url.pathname);
@@ -41,19 +75,27 @@ export function createPricePhotoUploadHandler(prepare: PreparePhotoUpload, sign?
     if (!id || (role !== 'original' && role !== 'crop') || url.search) {
       return json({ error: 'invalid_photo_request' }, 400);
     }
-    if (!sign) return json({ error: 'photo_unavailable' }, 503);
-
-    const body = await readJson(request, 1024, 'invalid_photo_upload');
-    if (body instanceof Response) return body;
-    const metadata = details.safeParse(body.value);
-    if (!metadata.success) return json({ error: 'invalid_photo_upload' }, 400);
 
     try {
+      if (request.method === 'POST') {
+        if (await hasBody(request)) return json({ error: 'invalid_photo_request' }, 400);
+        if (!complete) return json({ error: 'photo_unavailable' }, 503);
+        const result = await complete(digest, id, role);
+        if (result.status === 'pending' || result.status === 'available') {
+          return json({ role, availability: result.status });
+        }
+        return uploadFailure(result.status);
+      }
+
+      if (!sign) return json({ error: 'photo_unavailable' }, 503);
+      const body = await readJson(request, 1024, 'invalid_photo_upload');
+      if (body instanceof Response) return body;
+      const metadata = details.safeParse(body.value);
+      if (!metadata.success) return json({ error: 'invalid_photo_upload' }, 400);
+
       const result = await prepare(digest, id, role, metadata.data);
-      if (result.status === 'unauthenticated') return unauthorized();
-      if (result.status === 'forbidden') return json({ error: 'forbidden' }, 403);
-      if (result.status === 'conflict') return json({ error: 'photo_conflict' }, 409);
-      if (result.status !== 'pending') return json({ error: 'photo_not_found' }, 404);
+      if (result.status === 'available') return json({ role, availability: 'available' });
+      if (result.status !== 'pending') return uploadFailure(result.status);
       const grant = await sign(result.key, metadata.data);
       return json({ role, availability: 'pending', ...grant, expiresInSeconds: photoUploadLifetimeSeconds });
     } catch {

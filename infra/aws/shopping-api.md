@@ -52,10 +52,10 @@ together in the release record.
   storage stack or provision a database.
 - Confirm the private evidence bucket and account ownership before setting
   `EvidenceBucket`. When configured, the runtime may sign reads within the
-  restored `shopping-import/` prefix and sign conditional JPEG uploads in
-  `price-evidence/`. Keep the artifact prefix outside the runtime S3 grant,
-  even when the two use the same bucket. Review the object verification
-  flow before activating uploads.
+  restored `shopping-import/` prefix, sign conditional JPEG uploads in
+  `price-evidence/`, and check checksum metadata and read verified evidence
+  in that prefix. Keep the artifact prefix outside the runtime S3 grant,
+  even when the two use the same bucket.
 - Validate the template with a change set and inspect the scoped role and rate
   limits. Keep `PublishRoute=false` for the first approved stack change set.
   This leaves the endpoint available as an origin and does not grant API
