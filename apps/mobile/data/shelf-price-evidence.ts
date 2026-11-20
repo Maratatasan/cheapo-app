@@ -29,7 +29,8 @@ export type ShelfPriceEvidence = { snapshots: readonly PriceEvidenceSnapshot[] }
 const sellingPrice = /^(?:(?:now|(?:selling\s+|shelf\s+)?price)\s*:?\s*)?(?:(?:£\s*|GBP\s+)(\d{1,7}(?:\.\d{1,2})?)|(\d{1,9})\s*p|(\d{1,7}(?:\.\d{1,2})?)\s+GBP)(?:\s+each)?$/i;
 const decimal = /^(?:(?:now|(?:selling\s+|shelf\s+)?price)\s*:?\s*)?(\d{1,7}\.\d{2})(?:\s+each)?$/i;
 const amountCue = /(?:£\s*\d|\b\d+\s*p\b|\bGBP\b|\b(?:price|rrp|save|was)\b)/i;
-const currencyEvidence = /£\s*\d|\bGBP\b|\b\d+\s*p\b/i;
+const markedAmount = /£\s*\d|\bGBP\s*\d|\b\d+(?:\.\d+)?\s*GBP\b|\b\d+\s*p\b/i;
+const gbpCode = /\bGBP\b/i;
 const foreignCurrency = /[€$]\s*\d|\b(?:EUR|USD|CAD|AUD|CHF)\b/i;
 const reference = /\b(?:rrp|was|save|saving|worth|from)\b/i;
 const unitRate = /\b(?:unit\s*(?:price|rate)|per\s*(?:\d+(?:\.\d+)?\s*)?(?:kg|g|ml|l|litres?|items?|washes?))\b|\/\s*(?:\d+(?:\.\d+)?\s*)?(?:kg|g|ml|l|litres?|items?|washes?)\b/i;
@@ -120,7 +121,7 @@ function assess(snapshot: PriceEvidenceSnapshot, product: KnownProduct | undefin
     const explicit = explicitMinor(line.text);
     const bare = decimal.exec(line.text);
     const marked = bare && contextual.some(other => !reference.test(other.text) && !unitRate.test(other.text) && namedPrice.test(other.text))
-      && contextual.some(other => currencyEvidence.test(other.text));
+      && contextual.some(other => gbpCode.test(other.text) || markedAmount.test(other.text));
     const minor = explicit ?? (marked ? pence(bare[1]) : undefined);
     return minor === undefined ? [] : [{ minor, line, contextual }];
   });
@@ -137,7 +138,7 @@ function assess(snapshot: PriceEvidenceSnapshot, product: KnownProduct | undefin
   if (contextual.some(other => foreignCurrency.test(other.text))) return { issue: 'foreign-currency', minor };
   if (contextual.some(other => offer.test(other.text))) return { issue: 'conditional-offer', minor };
   // OCR can put a role caption and its amount on different lines.
-  if (contextual.some(other => !currencyEvidence.test(other.text) && (reference.test(other.text) || unitRate.test(other.text)))) {
+  if (contextual.some(other => !markedAmount.test(other.text) && (reference.test(other.text) || unitRate.test(other.text)))) {
     return { issue: 'price-role', minor };
   }
   const associated = roleLines.filter(other => closeTo(line, other));

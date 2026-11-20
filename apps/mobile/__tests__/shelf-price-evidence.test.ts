@@ -49,6 +49,7 @@ test.each([
   ['unit rate', ['£2.50 / 100 g']], ['RRP', ['RRP £2.50']], ['saving', ['Save £2.50']],
   ['previous selling amount', ['Was £2.50']], ['detached reference', ['Was', '£2.50']],
   ['detached unit rate', ['Per 100 g', '£2.50']],
+  ['detached unit rate with a currency heading', ['Unit price GBP', '£2.50']],
 ])('does not confirm when old amount is printed only as %s', (_label, priceLines) => {
   const evidence = classifyShelfPrice(product, [view([...label, ...priceLines])]);
   expect(evidence).toMatchObject({ kind: 'uncertain', issue: 'price-role' });
