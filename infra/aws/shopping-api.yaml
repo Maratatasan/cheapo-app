@@ -30,6 +30,11 @@ Parameters:
     Type: String
     MinLength: 1
     Description: S3 version ID of the reviewed Lambda ZIP for release and rollback.
+  EvidenceBucket:
+    Type: String
+    Default: ''
+    AllowedPattern: '([a-z0-9][a-z0-9.-]{1,61}[a-z0-9])?'
+    Description: Optional existing private price evidence bucket in this AWS project.
   PublishRoute:
     Type: String
     AllowedValues: ['false', 'true']
@@ -38,6 +43,7 @@ Parameters:
 
 Conditions:
   ExposeRoute: !Equals [!Ref PublishRoute, 'true']
+  AllowEvidenceReads: !Not [!Equals [!Ref EvidenceBucket, '']]
 
 Resources:
   AccessLogs:
@@ -77,6 +83,15 @@ Resources:
               - Effect: Allow
                 Action: secretsmanager:GetSecretValue
                 Resource: !Sub 'arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${RuntimeSecretResource}'
+              - !If
+                - AllowEvidenceReads
+                - Effect: Allow
+                  Action: s3:GetObject
+                  Resource: !Sub 'arn:${AWS::Partition}:s3:::${EvidenceBucket}/shopping-import/*'
+                  Condition:
+                    StringEquals:
+                      aws:ResourceAccount: !Ref AWS::AccountId
+                - !Ref AWS::NoValue
               - Effect: Allow
                 Action:
                   - logs:CreateLogStream
@@ -96,6 +111,7 @@ Resources:
           CHEAPO_AWS_CLUSTER_ARN: !Sub 'arn:${AWS::Partition}:rds:${AWS::Region}:${AWS::AccountId}:cluster:${DatabaseClusterIdentifier}'
           CHEAPO_AWS_RUNTIME_SECRET_ARN: !Sub 'arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${RuntimeSecretResource}'
           CHEAPO_AWS_DB_NAME: !Ref DatabaseName
+          CHEAPO_AWS_PHOTO_BUCKET: !If [AllowEvidenceReads, !Ref EvidenceBucket, !Ref 'AWS::NoValue']
       Handler: index.handler
       LoggingConfig:
         LogGroup: !Ref RuntimeLogs

@@ -195,6 +195,19 @@ identical replay returns the same identity with `200`. A changed observation
 using an existing source ID returns `409 source_conflict`. A missing product
 or unauthorized saved-shop link returns `422 invalid_reference`.
 
+## Read restored price evidence
+
+Use `GET /v1/me/price-observations/{observationId}/photos/{role}` with the
+Cheapo bearer credential. The observation ID is the opaque API ID. The role
+is `original` or `crop`. The service checks household membership and permits
+draft recovery only for the originating shopper. Test-shop evidence stays
+outside this route.
+
+A successful response contains the role, SHA-256, byte count as text,
+dimensions, and a signed download URL with a 60-second lifetime. The URL
+authorizes the specific photo. Fetch it without the Cheapo bearer header
+and keep it out of logs. Missing or out-of-scope photos return `404`.
+
 ## Shopping history storage
 
 Migration `002` adds tables for the offline restore in
