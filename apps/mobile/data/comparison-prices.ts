@@ -4,7 +4,7 @@ import { knownUnitPrice, type PriceValues } from './observation';
 import type { ProductMetadata } from './product-metadata';
 
 export type ComparisonPrice = ProductMetadata & Omit<PriceValues, 'unit_price'> &
-  Partial<Pick<PriceValues, 'unit_price'>> & { id: string };
+  Partial<Pick<PriceValues, 'unit_price'>> & { id: string; productId?: string | null };
 export type ComparisonFilters = { sameVariety: boolean; sameBrand: boolean };
 
 type Unit = 'kg' | 'litre' | 'item';
@@ -44,6 +44,7 @@ export function comparePrices<T extends ComparisonPrice>(
   prices: readonly T[], reference?: ComparisonPrice,
   filters: ComparisonFilters = { sameVariety: false, sameBrand: false },
   catalogProduct?: ProductMetadata,
+  exactProductId?: string,
 ) {
   const selection = catalogProduct ?? reference;
   const type = matchName(selection?.productType);
@@ -51,7 +52,7 @@ export function comparePrices<T extends ComparisonPrice>(
   const brand = matchName(selection?.brand);
   const missing: string[] = [];
   if (selection) {
-    if (!type) missing.push('product type');
+    if (!type && !exactProductId) missing.push('product type');
     else {
       if (filters.sameVariety && !variety) missing.push('variety');
       if (filters.sameBrand && !brand) missing.push('brand');
@@ -65,7 +66,8 @@ export function comparePrices<T extends ComparisonPrice>(
 
   for (const row of prices) {
     if (reference && (row.id === reference.id || row.currency !== reference.currency)) continue;
-    if (selection && (matchName(row.productType) !== type ||
+    if (exactProductId && row.productId !== exactProductId) continue;
+    if (selection && ((!exactProductId && matchName(row.productType) !== type) ||
       (filters.sameVariety && matchName(row.variety) !== variety) || (filters.sameBrand && matchName(row.brand) !== brand))) continue;
     const unitPrice = normalizedUnitPrice(row.unit_price);
     if (!unitPrice || !row.currency || !/^[A-Z]{3}$/.test(row.currency) || (reference && !referenceUnit && !catalogProduct)) {

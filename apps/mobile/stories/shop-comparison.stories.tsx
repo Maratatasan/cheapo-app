@@ -131,7 +131,7 @@ const sharedHistoryOffers: ComparisonRow[] = [
   { ...sharedOats, id: 'legacy:other', shop: 'Local Market', product: 'Steel-cut oats', variety: 'Steel-cut', price: 2.60,
     unit_price: { amount: 5.2, unit: 'kg' } },
   { ...sharedOats, id: 'queued:old', shop: 'Example Corner Shop', product: 'Oats from this phone', price: 3.00,
-    unit_price: null, editable: false },
+    unit_price: null },
 ];
 
 export const SavedSharedComparison: Story = {
@@ -154,7 +154,7 @@ export const SharedComparisonFilters: Story = {
   play: async ({ args, canvas, userEvent }) => {
     await expect(canvas.getByText('Lowest unit price')).toBeVisible();
     await expect(canvas.getByText('Unit price unavailable')).toBeVisible();
-    await expect(canvas.queryByRole('button', { name: /Edit Oats from this phone/ })).not.toBeInTheDocument();
+    await expect(canvas.getByRole('button', { name: /Edit Oats from this phone/ })).toBeVisible();
     await userEvent.click(canvas.getByRole('checkbox', { name: 'Same brand' }));
     await expect(canvas.queryByText('Peer Market')).not.toBeInTheDocument();
     await expect(canvas.getByText('Local Market')).toBeVisible();
@@ -163,6 +163,23 @@ export const SharedComparisonFilters: Story = {
     await expect(canvas.queryByText('Local Market')).not.toBeInTheDocument();
     await userEvent.click(canvas.getByRole('button', { name: /Edit Thick-cut oats at Peer Market/ }));
     await expect(args.onEdit).toHaveBeenCalledWith('shared:peer');
+  },
+};
+
+export const ExactProductHistory: Story = {
+  ...SavedSharedComparison,
+  args: {
+    ...SavedSharedComparison.args,
+    exactProductId: 'example-oats',
+    reference: { ...sharedOats, id: 'shared:reference', productId: 'example-oats', productType: undefined,
+      shop: 'Example Market', product: 'Whole rolled oats', price: 3.05, unit_price: { amount: 0.61, unit: '100g' } },
+    comparisons: [{ ...sharedHistoryOffers[0], productId: 'example-oats', productType: undefined },
+      { ...sharedHistoryOffers[1], productId: 'another-product' }],
+  },
+  play: async ({ canvas }) => {
+    await expect(canvas.getByText('Prices for this exact product')).toBeVisible();
+    await expect(canvas.getByText('Peer Market')).toBeVisible();
+    await expect(canvas.queryByText('Local Market')).not.toBeInTheDocument();
   },
 };
 

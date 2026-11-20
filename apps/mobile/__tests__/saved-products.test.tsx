@@ -286,3 +286,69 @@ test('opens a shared comparison with corrected prices, leaves unrankable values 
   await fireEvent.press(screen.getByRole('button', { name: /^Edit Peer rice at Peer Market/ }));
   expect(mockPush).toHaveBeenLastCalledWith({ pathname: '/edit-price/[id]', params: { id: peer.id, source: 'shared' } });
 });
+
+test('replaces a linked phone reference with the newest shared version and its exact edit ID', async () => {
+  const canonical = { ...shared, version: 4, productName: 'Updated shared rice', priceAmount: '4.20',
+    review: { productType: 'Dry rice' }, unitPrice: { amount: 4.2, unit: 'kg' } };
+  const older: PendingHistoryChange = { operationId: 'older-local-edit', title: 'Earlier rice correction', resourceId: shared.id,
+    state: 'acknowledged', acceptedVersion: 3, change: { action: 'correct',
+      review: { productName: 'Earlier rice', price: '3.15', currency: 'GBP', productType: 'Dry rice' } } };
+  mockShoppingRuntime = { owner, priceQueue: { read: jest.fn().mockResolvedValue({ entries: [], recovery: [] }) }, loadPriceChanges: async () => [older] };
+  jest.mocked(loadSavedPriceRecords).mockResolvedValue([{ ...complete, review: { ...complete.review!, unitPrice: '0.125', unit: '100g' } }]);
+  const session = { assertCurrent: jest.fn(), loadPriceObservation: jest.fn(), loadPhoto: jest.fn(),
+    loadPriceHistory: jest.fn().mockResolvedValue(cached({ observations: [canonical, peer], nextCursor: null })) };
+  jest.mocked(openCheapoSavedPriceReads).mockResolvedValue(session);
+  await render(<SavedComparison />);
+
+  await fireEvent.press(await screen.findByRole('button', { name: 'Edit Updated shared rice at Shared branch' }));
+  expect(mockPush).toHaveBeenLastCalledWith({ pathname: '/edit-price/[id]', params: { id: canonical.id, source: 'shared' } });
+  expect(screen.getByText('£4.20')).toBeOnTheScreen();
+  expect(screen.queryByText('£1.25')).not.toBeOnTheScreen();
+  expect(screen.queryByText('Earlier rice')).not.toBeOnTheScreen();
+  expect(session.loadPriceObservation).not.toHaveBeenCalled();
+});
+
+test('uses exact product history when a shared price has no category and omits unrelated local products', async () => {
+  const reference = { ...shared, review: null, photos: [], selectedPhotoRole: null };
+  const exactPeer = { ...peer, review: null, shopDisplayName: 'Exact Product Market', productId: reference.productId };
+  const unrelated = { ...complete, id: 'different-rice', productId: 'different-product',
+    shop: { id: 'different-shop', displayName: 'Unrelated Market' },
+    review: { ...complete.review!, unitPrice: '0.10', unit: '100g' } };
+  mockCompareParams = { id: shared.id, source: 'shared' };
+  mockShoppingRuntime = { owner, priceQueue: { read: jest.fn().mockResolvedValue({ entries: [], recovery: [] }) }, loadPriceChanges: async () => [] };
+  jest.mocked(loadSavedPriceRecords).mockResolvedValue([unrelated]);
+  const session = { assertCurrent: jest.fn(), loadPriceObservation: jest.fn().mockResolvedValue(cached({ observation: reference })),
+    loadPriceHistory: jest.fn().mockResolvedValue(cached({ observations: [exactPeer], nextCursor: null })), loadPhoto: jest.fn() };
+  jest.mocked(openCheapoSavedPriceReads).mockResolvedValue(session);
+  await render(<SavedComparison />);
+
+  expect(await screen.findByText('Exact Product Market')).toBeOnTheScreen();
+  expect(screen.getByText('Prices for this exact product')).toBeOnTheScreen();
+  expect(session.loadPriceHistory).toHaveBeenCalledWith({ productId: reference.productId, currency: 'GBP' }, expect.anything());
+  expect(screen.queryByText('Unrelated Market')).not.toBeOnTheScreen();
+  expect(screen.queryByText('More product details needed')).not.toBeOnTheScreen();
+  session.loadPriceObservation.mockResolvedValue(cached({ observation: { ...reference, productId: null } }));
+  mockFocusRevision++;
+  await screen.rerender(<SavedComparison />);
+  expect(await screen.findByText('More product details needed')).toBeOnTheScreen();
+  expect(session.loadPriceHistory).toHaveBeenCalledTimes(1);
+});
+
+test('reopens an acknowledged queue item by its exact receipt before choosing an offer filter', async () => {
+  const queued = { ...complete, id: 'queued-rice' };
+  const receipt = { id: shared.id, sourceId: queued.id, version: 1 };
+  const canonical = { ...shared, sourceId: queued.id, productName: 'Current queued rice',
+    review: { productType: 'White rice' }, photos: [], selectedPhotoRole: null };
+  mockCompareParams = { id: queued.id, source: 'queued' };
+  mockShoppingRuntime = { owner, priceQueue: { read: jest.fn().mockResolvedValue({ entries: [{ record: queued, receipt }], recovery: [] }) },
+    loadPriceChanges: async () => [] };
+  jest.mocked(loadSavedPriceRecords).mockResolvedValue([]);
+  const session = { assertCurrent: jest.fn(), loadPriceObservation: jest.fn().mockResolvedValue(cached({ observation: canonical })),
+    loadPriceHistory: jest.fn().mockResolvedValue(cached({ observations: [], nextCursor: null })), loadPhoto: jest.fn() };
+  jest.mocked(openCheapoSavedPriceReads).mockResolvedValue(session);
+  await render(<SavedComparison />);
+
+  expect(await screen.findByText('Current queued rice')).toBeOnTheScreen();
+  expect(session.loadPriceObservation).toHaveBeenCalledWith(receipt.id, expect.anything());
+  expect(session.loadPriceHistory).toHaveBeenCalledWith({ productType: 'White rice', currency: 'GBP' }, expect.anything());
+});

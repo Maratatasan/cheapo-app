@@ -30,9 +30,46 @@ type ComparisonState = {
   next?: { reader: Reader; query: PriceHistoryQuery; cursor: string };
 };
 
-function displayedComparison(row: SavedPriceHistoryRow, changes: readonly PendingHistoryChange[]) {
-  const result = comparisonRowFromSavedHistory(row, changes);
-  return result ? { ...result, editable: row.source !== 'queued' } : null;
+function comparisonQuery(row: ReturnType<typeof comparisonRowFromSavedHistory>): PriceHistoryQuery | undefined {
+  if (!row) return;
+  const currency = row.currency ?? undefined;
+  if (row.productType) return { productType: row.productType, currency };
+  if (row.productId) return { productId: row.productId, currency };
+}
+
+function findReference(rows: SavedPriceHistoryRow[], reference?: SavedPriceHistoryRow) {
+  if (!reference) return undefined;
+  return rows.find(row => row.key === reference.key
+    || row.source === 'shared' && row.linkedLocal?.key === reference.key) ?? reference;
+}
+
+async function readOffers(reader: Reader, state: ComparisonState, initialQuery: PriceHistoryQuery | undefined,
+  signal: AbortSignal, latest: () => boolean, cursor?: string): Promise<ComparisonState> {
+  if (!initialQuery || !latest()) return state;
+  let query = initialQuery;
+  let page = await reader.loadPriceHistory({ ...query, ...(cursor ? { cursor } : {}) }, signal);
+  reader.assertCurrent();
+  if (!latest()) return state;
+  if (page.status === 'unavailable') return { ...state, unavailable: true };
+  let input = { ...state.input, shared: [...state.input.shared, ...page.value.observations] };
+  const reference = findReference(savedPriceHistoryRows(input), state.reference);
+  if (reference?.source === 'shared') {
+    const sharedQuery = comparisonQuery(comparisonRowFromSavedHistory(reference, state.changes));
+    if (JSON.stringify(sharedQuery) !== JSON.stringify(query)) {
+      input = { ...input, shared: [reference.observation] };
+      const reset = { ...state, input, reference, next: undefined };
+      if (!sharedQuery) return reset;
+      query = sharedQuery;
+      page = await reader.loadPriceHistory(query, signal);
+      reader.assertCurrent();
+      if (!latest()) return state;
+      if (page.status === 'unavailable') return { ...reset, unavailable: true };
+      input.shared.push(...page.value.observations);
+    }
+  }
+  return { ...state, input, reference, unavailable: false, lastSyncedAt: page.lastSyncedAt,
+    cached: page.status === 'cached' || Boolean(cursor && state.cached),
+    next: page.value.nextCursor ? { reader, query, cursor: page.value.nextCursor } : undefined };
 }
 
 export default function SavedComparison() {
@@ -65,36 +102,25 @@ export default function SavedComparison() {
 
       const reader = await openCheapoSavedPriceReads(shopping.owner);
       const [queue, changes] = await Promise.all([shopping.priceQueue.read(), shopping.loadPriceChanges()]);
-      const detail = source === 'shared' ? await reader.loadPriceObservation(id, signal) : undefined;
+      const localInput: LocalInputs = { legacy, queued: queue.entries, shared: [] };
+      const localReference = savedPriceHistoryRows(localInput).find(row => row.key === key);
+      const canonicalId = source === 'shared' ? id : localReference?.source === 'queued' ? localReference.receipt?.id : undefined;
+      const detail = canonicalId ? await reader.loadPriceObservation(canonicalId, signal) : undefined;
       reader.assertCurrent();
       if (!latest()) return;
       const cloudReference = detail && detail.status !== 'unavailable' ? detail.value.observation : null;
-      const input = { legacy, queued: queue.entries, shared: cloudReference ? [cloudReference] : [] };
-      const selected = savedPriceHistoryRows(input).find(row => row.key === key);
-      const display = selected && displayedComparison(selected, changes);
-      const currentState: ComparisonState = { key, runtime: shopping, input, reference: selected, changes,
-        photoUri: selected && selected.source !== 'shared' ? selected.record.selected?.uri : undefined };
-      if (!display || !selected) {
-        setState(currentState);
-        return;
-      }
-      setState(currentState);
-      if (display.productType) {
-        const query = { productType: display.productType, currency: display.currency ?? undefined };
-        const page = await reader.loadPriceHistory(query, signal);
-        reader.assertCurrent();
-        if (!latest()) return;
-        if (page.status === 'unavailable') {
-          setState({ ...currentState, unavailable: true });
-        } else {
-          setState({ ...currentState, input: { ...input, shared: [...input.shared, ...page.value.observations] },
-            lastSyncedAt: page.lastSyncedAt, cached: page.status === 'cached',
-            next: page.value.nextCursor ? { reader, query, cursor: page.value.nextCursor } : undefined });
-        }
-      }
+      const input: LocalInputs = { ...localInput, shared: cloudReference ? [cloudReference] : [] };
+      const selected = cloudReference ? savedPriceHistoryRows(input).find(row => row.key === `shared:${cloudReference.id}`) : localReference;
+      const query = selected && comparisonQuery(comparisonRowFromSavedHistory(selected, changes));
+      const selectedPhotoUri = localReference?.source !== 'shared' ? localReference?.record.selected?.uri : undefined;
+      const initial = { key, runtime: shopping, input, reference: selected, changes, photoUri: selectedPhotoUri };
+      setState(initial);
+      const offers = await readOffers(reader, initial, query, signal, latest);
+      if (!latest()) return;
+      setState(offers);
       const role = cloudReference?.selectedPhotoRole;
       if (role && cloudReference?.photos.some(photo => photo.role === role && photo.availability !== 'pending')) {
-        const photo = await reader.loadPhoto(id, role, signal).catch(error => {
+        const photo = await reader.loadPhoto(cloudReference.id, role, signal).catch(error => {
           if (error instanceof CheapoAccessError) throw error;
           return null;
         });
@@ -121,20 +147,16 @@ export default function SavedComparison() {
   async function loadMore() {
     const next = current?.next;
     const signal = focus.current?.signal;
-    if (!next || !signal || paging) return;
+    if (!current || !next || !signal || paging) return;
     const generation = request.current;
     const latest = () => generation === request.current && !signal.aborted;
     setPaging(true);
     try {
-      const page = await next.reader.loadPriceHistory({ ...next.query, cursor: next.cursor }, signal);
-      next.reader.assertCurrent();
+      const result = await readOffers(next.reader, current, next.query, signal, latest, next.cursor);
       if (!latest()) return;
       setState(previous => {
         if (!latest() || !previous || previous.next !== next) return previous;
-        if (page.status === 'unavailable') return { ...previous, unavailable: true };
-        return { ...previous, input: { ...previous.input, shared: [...previous.input.shared, ...page.value.observations] },
-          unavailable: false, cached: page.status === 'cached' || previous.cached, lastSyncedAt: page.lastSyncedAt,
-          next: page.value.nextCursor ? { ...next, cursor: page.value.nextCursor } : undefined };
+        return { ...result, photoUri: previous.photoUri };
       });
     } catch (failure) {
       if (!latest()) return;
@@ -146,10 +168,10 @@ export default function SavedComparison() {
   }
 
   const changes = current?.changes ?? [];
-  const rows = current ? savedPriceHistoryRows(current.input).filter(row => row.source !== 'shared' || row.linkedLocal?.key !== current.reference?.key) : [];
-  const referenceRow = current?.reference?.source === 'shared' ? rows.find(row => row.key === current.reference?.key) : current?.reference;
-  const reference = referenceRow && displayedComparison(referenceRow, changes);
-  const comparisons = rows.flatMap(row => displayedComparison(row, changes) ?? []);
+  const rows = current ? savedPriceHistoryRows(current.input) : [];
+  const referenceRow = findReference(rows, current?.reference);
+  const reference = referenceRow && comparisonRowFromSavedHistory(referenceRow, changes);
+  const comparisons = rows.flatMap(row => comparisonRowFromSavedHistory(row, changes) ?? []);
 
   return (
     <>
@@ -170,10 +192,11 @@ export default function SavedComparison() {
           ) : (
             <>
               <ShopComparison key={reference.id} reference={reference} comparisons={comparisons}
+                exactProductId={!reference.productType ? reference.productId ?? undefined : undefined}
                 product={{ name: reference.product, pack: reference.pack, photo: current.photoUri ? { uri: current.photoUri } : undefined }}
                 onEdit={recordId => {
                   const row = recordId === referenceRow.key ? referenceRow : rows.find(item => item.key === recordId);
-                  if (row?.source === 'legacy') router.push({ pathname: '/edit-price/[id]', params: { id: row.record.id } });
+                  if (row && row.source !== 'shared') router.push({ pathname: '/edit-price/[id]', params: { id: row.record.id } });
                   if (row?.source === 'shared') router.push({ pathname: '/edit-price/[id]', params: { id: row.observation.id, source: 'shared' } });
                 }} />
               {current.cached ? <Text style={ui.small}>Showing saved shared prices</Text> : null}
