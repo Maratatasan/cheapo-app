@@ -15,17 +15,19 @@ import { color, marketColor, radius, spacing, typography, ui } from "@/component
 import { matchShops } from "@/data/match-shops";
 
 export type ShopPickerProps = {
+  title?: string;
   shops: readonly Shop[];
   selectedShopId?: string;
   isLoading?: boolean;
   error?: string;
   onSelect: (shop: Shop) => void;
-  onAddShop: () => void;
+  onAddShop?: () => void;
   onEditShop?: (shop: Shop) => void;
   onCancel: () => void;
 };
 
 export function ShopPicker({
+  title = "Select current shop",
   shops,
   selectedShopId,
   isLoading = false,
@@ -49,7 +51,7 @@ export function ShopPicker({
       keyExtractor={(shop) => shop.id}
       ListHeaderComponent={
         <View style={styles.header}>
-          <Text accessibilityRole="header" style={ui.title}>Select current shop</Text>
+          <Text accessibilityRole="header" style={ui.title}>{title}</Text>
           <View style={styles.field}>
             <Text style={styles.label}>Search saved shops</Text>
             <TextInput
@@ -64,7 +66,7 @@ export function ShopPicker({
             />
           </View>
           <View style={styles.actions}>
-            <Pressable
+            {onAddShop ? <Pressable
               accessibilityRole="button"
               style={ui.button}
               onPress={() => {
@@ -73,7 +75,7 @@ export function ShopPicker({
               }}
             >
               <Text style={ui.buttonText}>Add a shop</Text>
-            </Pressable>
+            </Pressable> : null}
             <Pressable
               accessibilityRole="button"
               style={[ui.button, styles.cancel]}
