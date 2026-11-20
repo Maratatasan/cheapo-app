@@ -7,6 +7,7 @@ import { postgresPriceCorrection } from './postgres-price-correction.ts';
 import { postgresPriceHistory } from './postgres-price-history.ts';
 import { postgresPricePhoto } from './postgres-price-photo.ts';
 import { postgresCompletePhotoUpload, postgresPhotoUpload } from './postgres-price-photo-upload.ts';
+import { postgresProductPresentationPhotos } from './postgres-product-presentation-photo.ts';
 import { postgresSavedShops } from './postgres-saved-shops.ts';
 import type { ShoppingQuery, ShoppingTransaction } from './postgres-shopping.ts';
 import { postgresPreferences } from './postgres.ts';
@@ -14,6 +15,7 @@ import { createPreferencesHandler } from './preferences.ts';
 import { createPriceHistoryHandler, isPriceHistoryPath } from './price-history.ts';
 import { createPricePhotoHandler, isPricePhotoPath, type SignPricePhoto } from './price-photo.ts';
 import { createPricePhotoUploadHandler, isPricePhotoUploadPath, type SignPhotoUpload, type VerifyPhotoObject } from './price-photo-upload.ts';
+import { createProductPresentationPhotoHandler, isProductPresentationPhotoPath } from './product-presentation-photo.ts';
 import { createSavedShopHandler, isSavedShopPath } from './saved-shops.ts';
 import { createShoppingIdentityHandler } from './shopping-identity.ts';
 
@@ -49,11 +51,15 @@ export function createShoppingApi({ query, transaction }: {
   const photos = createPricePhotoHandler(postgresPricePhoto(transaction), evidence.read);
   const verify = evidence.verify ? postgresCompletePhotoUpload(transaction, evidence.verify) : undefined;
   const uploads = createPricePhotoUploadHandler(postgresPhotoUpload(transaction), evidence.upload, verify);
+  const presentationPhotos = createProductPresentationPhotoHandler(
+    evidence.verify && postgresProductPresentationPhotos(transaction, evidence.verify), evidence.read, evidence.upload,
+  );
   return (request: Request) => {
     const path = new URL(request.url).pathname;
     if (path === '/v1/me') return identity(request);
     if (isSavedShopPath(path)) return shops(request);
     if (isCatalogPath(path)) return catalog(request);
+    if (isProductPresentationPhotoPath(path)) return presentationPhotos(request);
     if (isPriceHistoryPath(path)) return prices(request);
     if (isPricePhotoPath(path)) return photos(request);
     if (isPricePhotoUploadPath(path)) return uploads(request);

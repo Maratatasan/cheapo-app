@@ -90,6 +90,7 @@ Resources:
                   Resource:
                     - !Sub 'arn:${AWS::Partition}:s3:::${EvidenceBucket}/shopping-import/*'
                     - !Sub 'arn:${AWS::Partition}:s3:::${EvidenceBucket}/price-evidence/*'
+                    - !Sub 'arn:${AWS::Partition}:s3:::${EvidenceBucket}/product-presentation/*'
                   Condition:
                     StringEquals:
                       aws:ResourceAccount: !Ref AWS::AccountId
@@ -98,7 +99,9 @@ Resources:
                 - AllowEvidenceReads
                 - Effect: Allow
                   Action: s3:PutObject
-                  Resource: !Sub 'arn:${AWS::Partition}:s3:::${EvidenceBucket}/price-evidence/*'
+                  Resource:
+                    - !Sub 'arn:${AWS::Partition}:s3:::${EvidenceBucket}/price-evidence/*'
+                    - !Sub 'arn:${AWS::Partition}:s3:::${EvidenceBucket}/product-presentation/*'
                   Condition:
                     StringEquals:
                       aws:ResourceAccount: !Ref AWS::AccountId
