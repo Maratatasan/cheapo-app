@@ -38,6 +38,13 @@ before(async () => {
     ('candidate-oats-multipack', 'Fixture Rolled Oats', 'Example', 'Fine', '{"quantity":500,"unit":"g","label":"2 × 250g"}', 'oats', NULL),
     ('candidate-oats-variety', 'Fixture Rolled Oats', 'Example', 'Coarse', '{"quantity":500,"unit":"g","label":"500g"}', 'oats', NULL),
     ('candidate-oats-brand', 'Fixture Rolled Oats', 'Other', 'Fine', '{"quantity":500,"unit":"g","label":"500g"}', 'oats', NULL)`);
+  await operator.query(`INSERT INTO cheapo.product (id, name, brand, variety, pack) VALUES
+    ('candidate-jerky-reviewed-name', 'Original Beef Jerky', 'Peperami', 'Original', '{"quantity":50,"unit":"g","label":"50g"}'),
+    ('candidate-jerky-legacy-name', 'Peperami Original', 'Peperami', 'Original', '{"quantity":50,"unit":"g","label":"50g"}'),
+    ('candidate-jerky-other-pack', 'Peperami Original Beef Jerky', 'Peperami', 'Original', '{"quantity":100,"unit":"g","label":"2x50g"}'),
+    ('candidate-jerky-other-variety', 'Peperami Original Beef Jerky', 'Peperami', 'Hot', '{"quantity":50,"unit":"g","label":"50g"}'),
+    ('candidate-jerky-generic-word', 'Jerky', 'Peperami', 'Original', '{"quantity":50,"unit":"g","label":"50g"}'),
+    ('candidate-jerky-fragment', 'Peperami Original Beef Jerk', 'Peperami', 'Original', '{"quantity":50,"unit":"g","label":"50g"}')`);
   await operator.query(`INSERT INTO cheapo.price_observation
     (household_id, shopper_id, id, resource_id, product_id, source_product_id, source_product_name,
      captured_at, status, source_test_shop, recorded_in_error_reason, review)
@@ -147,4 +154,17 @@ test('rejects malformed reads and reports service failure explicitly', async () 
   ));
   assert.equal(unavailable.status, 503);
   assert.deepEqual(await unavailable.json(), { error: 'catalog_unavailable' });
+});
+
+
+test('finds modest name extensions across review and catalog when an exact name is unavailable', async () => {
+  const query = '?name=Original%20Beef%20Jerky&brand=Peperami&variety=Original&packSize=50g';
+  const reply = await read(query);
+  assert.equal(reply.status, 200);
+  const result = await reply.json() as CandidateReply;
+  assert.equal(result.truncated, false);
+  assert.deepEqual(result.candidates.map(candidate => {
+    assert.equal(candidate.kind, 'catalog');
+    return candidate.product.id;
+  }), ['candidate-jerky-reviewed-name', 'candidate-jerky-legacy-name']);
 });

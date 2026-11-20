@@ -223,8 +223,11 @@ their original review and product links.
 `GET /v1/product-candidates?name=Rolled%20oats&brand=Example&packSize=500g`
 uses the enrolled Cheapo credential. Pass the reviewed name and optionally
 `brand`, `variety`, and `packSize` as single-valued query parameters. Name
-matching folds case, punctuation and spaces. Different known brands, varieties,
-pack sizes and inner-pack counts are excluded. Compatible mass and volume units
+matching folds case, punctuation and spaces. Exact names rank first. Modest
+whole-word extensions can also match, including names that keep the known
+brand in a separate field. A two-word shared phrase needs brand evidence. Different
+known brands, varieties, pack sizes and
+inner-pack counts are excluded. Compatible mass and volume units
 are normalized. Missing details stay visible for review.
 
 The reply contains `{ candidates, truncated }` with up to eight possibilities.
@@ -234,8 +237,9 @@ available comparison group. An `unlinked_observation` candidate has an
 credential's household. The reply contains no photo, price or shop fields.
 Catalog candidates appear before historical observations.
 
-An empty list with `truncated: false` is a checked miss. When the result or source
-scan is capped, `truncated: true` means there may be more matches. Invalid input
+An empty list with `truncated: false` is a checked miss. When the result or
+number of candidates checked reaches its cap, `truncated: true` means there
+may be more matches. An empty truncated result is incomplete. Invalid input
 gets `400 invalid_product_search`, and an unavailable catalog gets
 `503 catalog_unavailable`. The shopper still confirms any possible match.
 
