@@ -1,10 +1,14 @@
 import type { Meta, StoryObj } from '@storybook/react-native-web-vite';
 import { expect, fn } from 'storybook/test';
-import { View } from 'react-native';
+import { useState } from 'react';
+import { Text, TextInput, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { PendingProductPriceReview } from '../component/pending-product-price-review';
-import { emptyReview } from '../data/photo-review';
+import { PhotoReview } from '../component/photo-review';
+import { ui } from '../component/results/theme';
+import { emptyReview, type ManualReview } from '../data/photo-review';
+import type { ProductPriceDraft } from '../data/price-append-queue';
 
 const product = { id: 'saved-oats', name: 'Whole rolled oats', brand: 'Sample', productType: 'Oats', barcode: '00036000291452' };
 const asset = { uri: new URL('./fixtures/price-label-original.jpg', import.meta.url).href,
@@ -44,5 +48,28 @@ export const CatalogUnavailable: Story = {
   play: async ({ canvas }) => {
     await expect(canvas.getByRole('button', { name: 'Retry product check' })).toBeEnabled();
     await expect(canvas.queryByRole('button', { name: 'Add product' })).not.toBeInTheDocument();
+  },
+};
+
+function DraftDetails({ draft }: { draft: ProductPriceDraft }) {
+  const { record } = draft;
+  const [review, setReview] = useState<ManualReview>(() => ({ ...(record.review ?? emptyReview()), productType: '' }));
+  const [barcode, setBarcode] = useState(draft.barcode ?? '');
+  return <PhotoReview addingProduct updatingDraft review={review} photo={record.selected} selectedShopName={record.shop?.displayName}
+    saved={false} busy={false} onReviewChange={setReview} onSave={() => {}} onCancel={() => {}}
+    barcodeReview={<View style={ui.card}>
+      <Text style={ui.body}>Product barcode (optional)</Text>
+      <TextInput accessibilityLabel="Product barcode (optional)" value={barcode} onChangeText={setBarcode} style={ui.body} />
+    </View>} />;
+}
+
+export const EditDraftDetails: Story = {
+  render: ({ draft }) => <DraftDetails draft={draft} />,
+  play: async ({ canvas, userEvent }) => {
+    const type = canvas.getByLabelText('Product type');
+    await userEvent.type(type, 'Oats');
+    await expect(type).toHaveValue('Oats');
+    await expect(canvas.getByRole('button', { name: 'Save draft changes' })).toBeEnabled();
+    await expect(canvas.queryByRole('button', { name: 'Confirm current price' })).not.toBeInTheDocument();
   },
 };

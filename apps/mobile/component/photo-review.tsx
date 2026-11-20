@@ -27,10 +27,11 @@ type Props = {
   recordingPrice?: boolean;
   currentPriceConfirmation?: boolean;
   addingProduct?: boolean;
+  updatingDraft?: boolean;
   savedStatus?: string;
 };
 
-export function PhotoReview({ photo, review, selectedShopName, saved, savedStatus, busy, onReviewChange, onSave, onRetake, onCrop, onCancel, onOriginal, onImageError, galleryAction, children, leadContent, saveError, saveBlocked, recordingPrice, currentPriceConfirmation, addingProduct, suggestion, barcodeReview, savedBarcode, barcodeLinkSaved, barcodeLinkStatus }: Props) {
+export function PhotoReview({ photo, review, selectedShopName, saved, savedStatus, busy, onReviewChange, onSave, onRetake, onCrop, onCancel, onOriginal, onImageError, galleryAction, children, leadContent, saveError, saveBlocked, recordingPrice, currentPriceConfirmation, addingProduct, updatingDraft, suggestion, barcodeReview, savedBarcode, barcodeLinkSaved, barcodeLinkStatus }: Props) {
   const container = useRef<ComponentRef<typeof View>>(null);
   const scroll = useRef<ComponentRef<typeof ScrollView>>(null);
   const fieldViews = useRef<Partial<Record<keyof ManualReview, ComponentRef<typeof View> | null>>>({});
@@ -95,7 +96,8 @@ export function PhotoReview({ photo, review, selectedShopName, saved, savedStatu
   const invalidPack = !!review.packSize?.trim() && !calculatePackUnitPrice('1', review.packSize);
   const editable = !busy && (!addingProduct || !saved);
   const saveDisabled = busy || saved || Boolean(saveBlocked) || (requireComplete && !complete);
-  const saveLabel = busy ? 'Saving…' : editing ? 'Save changes' : (currentPriceConfirmation || addingProduct) ? 'Confirm current price'
+  const saveLabel = busy ? 'Saving…' : updatingDraft ? 'Save draft changes' : editing ? 'Save changes'
+    : (currentPriceConfirmation || addingProduct) ? 'Confirm current price'
     : recordingPrice || complete ? 'Save Price' : 'Save on this phone';
   return <View ref={container} style={styles.root} onLayout={() => container.current?.measureInWindow((_, y) => setHeaderOffset(y))}>
     <KeyboardAvoidingView style={styles.root} behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={headerOffset}>

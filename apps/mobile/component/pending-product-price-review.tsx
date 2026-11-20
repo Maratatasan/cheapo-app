@@ -9,7 +9,7 @@ import type { ProductPriceChoice, ProductPriceDraft } from '@/data/price-append-
 import { CameraActionButton } from './camera-actions';
 import { color, spacing, ui } from './results/theme';
 
-export function PendingProductPriceReview({ draft, check, busy, error, onRetry, onCompare, onConfirm, onBack }: {
+export function PendingProductPriceReview({ draft, check, busy, error, onRetry, onCompare, onConfirm, onEdit, onBack }: {
   draft: ProductPriceDraft;
   check?: ProductIdentityCheck;
   busy: boolean;
@@ -17,6 +17,7 @@ export function PendingProductPriceReview({ draft, check, busy, error, onRetry, 
   onRetry: () => void;
   onCompare: (candidate: ProductCandidate) => void;
   onConfirm: (choice: ProductPriceChoice) => void;
+  onEdit?: () => void;
   onBack: () => void;
 }) {
   const [showOriginal, setShowOriginal] = useState(false);
@@ -39,6 +40,7 @@ export function PendingProductPriceReview({ draft, check, busy, error, onRetry, 
         source={{ uri: photo.uri }} resizeMode="contain" style={styles.photo} /> : null}
       {record.original && record.original.uri !== record.selected.uri ?
         <CameraActionButton label={showOriginal ? 'View crop' : 'View original'} onPress={() => setShowOriginal(value => !value)} /> : null}
+      {onEdit ? <CameraActionButton label="Edit draft details" disabled={busy} onPress={onEdit} /> : null}
       {error ? <Text accessibilityRole="alert" style={ui.body}>{error}</Text> : null}
       {!check ? <Text accessibilityLiveRegion="polite" style={ui.body}>Checking the catalog…</Text> : null}
       {check?.kind === 'unavailable' ? <>
@@ -63,7 +65,7 @@ export function PendingProductPriceReview({ draft, check, busy, error, onRetry, 
           </View>;
         })}
         {!check.exact && !check.truncated ? <>
-          {needsProductType ? <Text style={ui.body}>A product type is needed before adding this barcode.</Text> : null}
+          {needsProductType ? <Text style={ui.body}>Edit the draft to enter the product type for this barcode.</Text> : null}
           <CameraActionButton label="Add product" primary busy={busy} disabled={needsProductType} onPress={() => onConfirm({ kind: 'add' })} />
         </> : null}
       </> : null}
