@@ -24,6 +24,14 @@ REVOKE CREATE ON SCHEMA cheapo FROM cheapo_scope_guard;
 GRANT SELECT ON cheapo.shop, cheapo.household_saved_shop, cheapo.shopper_current_shop,
   cheapo.comparison_preference, cheapo.price_observation, cheapo.price_photo TO cheapo_api_runtime;
 
+GRANT INSERT (
+  household_id, shopper_id, id, captured_at, product_id, source_product_id, shop_id, source_shop_id,
+  shop_display_name, source_product_name, price_amount, currency, review, unit_price, status, source_test_shop
+) ON cheapo.price_observation TO cheapo_api_runtime;
+GRANT SELECT (household_id, shopper_id, observation_id, resource_id, accepted_version, payload),
+  INSERT (household_id, shopper_id, observation_id, resource_id, accepted_version, payload)
+  ON cheapo.price_append_receipt TO cheapo_api_runtime;
+
 GRANT INSERT (id, name, address, location), UPDATE (name, address) ON cheapo.shop TO cheapo_api_runtime;
 GRANT INSERT (household_id, shop_id, nickname), UPDATE (nickname), DELETE
   ON cheapo.household_saved_shop TO cheapo_api_runtime;

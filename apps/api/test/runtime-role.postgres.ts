@@ -124,3 +124,23 @@ test('runtime cannot inspect credentials, write memberships, impersonate the gua
   `);
   assert.equal(visitor.can_resolve, false);
 });
+
+test('a restricted runtime can append and replay a price but cannot rewrite its receipt', async () => {
+  const shopId = 'runtime-price-branch';
+  assert.equal((await request(`/v1/me/saved-shops/${shopId}`, 'A', 'PUT', { name: 'Runtime market' })).status, 200);
+  const path = '/v1/me/price-observations';
+  const input = {
+    sourceId: 'runtime-price', capturedAt: '2026-11-01T03:04:05.123456Z', shopId,
+    shopDisplayName: 'Historic market', review: { productName: 'Oats', price: '3.50', currency: 'GBP' },
+  };
+  const initial = await request(path, 'A', 'POST', input);
+  assert.equal(initial.status, 201);
+  const identity = await initial.json() as { id: string; sourceId: string; version: number };
+  await operator.query('UPDATE cheapo.price_observation SET record_version = 2, price_amount = 4.25 WHERE resource_id = $1::uuid', [identity.id]);
+  const replayed = await request(path, 'A', 'POST', input);
+  assert.equal(replayed.status, 200);
+  assert.deepEqual(await replayed.json(), identity);
+  assert.equal((await request(path, 'B', 'POST', input)).status, 422);
+  await assert.rejects(runtime.query('UPDATE cheapo.price_append_receipt SET accepted_version = 2'), { code: '42501' });
+  await assert.rejects(runtime.query('DELETE FROM cheapo.price_append_receipt'), { code: '42501' });
+});
