@@ -7,7 +7,7 @@ import { HomeConnectionActions } from "@/component/home-connection-actions";
 import { ShopChooser, ShopLoadFeedback, ShopSyncFeedback } from "@/component/shop/shop-chooser";
 import { ShopHome } from "@/component/shop/shop-home";
 import { useSavedShops } from "@/hooks/use-saved-shops";
-import { configuredCheapoApiOrigin } from "@/lib/cheapo-access/config";
+import { fieldCheapoApiOrigin } from "@/lib/cheapo-access/config";
 
 export default function Index() {
   const router = useRouter();
@@ -15,7 +15,7 @@ export default function Index() {
   const [choosing, setChoosing] = useState(false);
   const { shopRepository, shops, setShops, readError, retry } = useSavedShops();
   const showDeveloperTools = Constants.expoConfig?.extra?.directAuthTest === true;
-  const showCheapoAccess = configuredCheapoApiOrigin() !== null;
+  const showCheapoAccess = fieldCheapoApiOrigin() !== null;
   const fieldTest = Platform.OS === "android" && Constants.expoConfig?.extra?.fieldTest === true;
 
   return (
