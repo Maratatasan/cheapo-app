@@ -65,11 +65,13 @@ export const priceHistoryQuery = z.strictObject({
   limit: z.int().min(1).max(50).optional(),
   cursor: cursor.optional(),
   productId: filterId.optional(),
+  sourceId: filterId.optional(),
   comparableGroupId: filterId.optional(),
   productType: z.string().trim().min(1).max(120).refine(value => !value.includes('\0')).optional(),
   currency: z.string().regex(/^[A-Z]{3}$/).optional(),
   includeRecordedInError: z.literal(true).optional(),
 }).refine(query => !query.productId || (!query.comparableGroupId && !query.productType))
+  .refine(query => !query.sourceId || !(query.cursor || query.productId || query.comparableGroupId || query.productType || query.currency))
   .refine(query => !query.includeRecordedInError
     || !(query.productId || query.comparableGroupId || query.productType || query.currency));
 

@@ -78,7 +78,7 @@ export function postgresPriceHistory(transaction: ShoppingTransaction): ExecuteP
       return observation ? { status: 'detail', observation } : { status: 'not_found' };
     }
 
-    const { limit, cursor, filters, includeRecordedInError } = read;
+    const { limit, cursor, filters, sourceId, includeRecordedInError } = read;
     const { rows } = await query<PriceRow>(`
       SELECT ${observationFields}, observation.shopper_id = $10::uuid AS "ownedByCurrentShopper"
       ${visibleObservations}
@@ -91,10 +91,11 @@ export function postgresPriceHistory(transaction: ShoppingTransaction): ExecuteP
       )
       AND ($8::text IS NULL OR observation.currency = $8)
       AND ($9::boolean OR observation.recorded_in_error_reason IS NULL)
+      AND ($11::text IS NULL OR (observation.shopper_id = $10::uuid AND observation.id = $11::text))
       ORDER BY observation.captured_at DESC, observation.resource_id DESC
       LIMIT $4::int
     `, [member.household_id, cursor?.[0] ?? null, cursor?.[1] ?? null, limit + 1,
-      filters.productId, filters.comparableGroupId, filters.productType, filters.currency, includeRecordedInError, member.shopper_id]);
+      filters.productId, filters.comparableGroupId, filters.productType, filters.currency, includeRecordedInError, member.shopper_id, sourceId ?? null]);
     return {
       status: 'ok',
       observations: rows.map(({ errorReason, ...observation }) => errorReason
