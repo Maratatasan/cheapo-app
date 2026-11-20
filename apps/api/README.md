@@ -108,6 +108,23 @@ household’s nickname stays private. Missing or expired credentials return
 `401`, inactive membership returns `403`, and editing or selecting a branch
 outside the caller’s saved list returns `404`.
 
+## Canonical product contract
+
+Send a Cheapo bearer credential with active household membership. Responses
+include canonical product fields and omit archive and observation details.
+
+| Method and route | Body and behavior |
+| --- | --- |
+| `GET /v1/products?gtin={barcode}` | Finds one exact product for a valid barcode, with equivalent UPC, EAN and GTIN values mapped to the same canonical key. |
+| `GET /v1/products/{id}` | Finds an exact product by stable ID. |
+| `PUT /v1/products/{id}` | Creates the product at the client’s stable ID. Send the barcode, name, product type and any reviewed catalog fields. Repeating identical details returns the saved product. |
+
+A successful response is `{ "product": {...} }`. A lookup miss returns
+`{ "product": null }`. The barcode is a 14-digit string when present. A
+conflicting ID, barcode, or review payload returns `409` with the existing
+canonical product for review. Use a separate correction operation to change
+saved details. No lookup or creation matches products by name.
+
 ## Shopping history storage
 
 Migration `002` adds tables for the offline restore in

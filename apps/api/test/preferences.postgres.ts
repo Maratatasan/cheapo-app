@@ -175,6 +175,66 @@ test('retains imported test-shop provenance across read and edit', async () => {
   assert.deepEqual(update.body.shops.find(shop => shop.id === id), record);
 });
 
+async function catalogRequest(letter: string, suffix: string, method = 'GET', product?: object) {
+  const address = server.address();
+  assert(address && typeof address !== 'string');
+  const response = await fetch(`http://127.0.0.1:${address.port}/v1/products${suffix}`, {
+    method,
+    headers: { Authorization: `Bearer ${token(letter)}`, 'Content-Type': 'application/json' },
+    body: product === undefined ? undefined : JSON.stringify(product),
+  });
+  return { status: response.status, body: await response.json() };
+}
+
+test('looks up the same canonical product from UPC, EAN, canonical GTIN and product ID', async () => {
+  const id = 'catalog-oats';
+  const input = { name: ' Oats ', productType: 'Cereal', barcode: '012345678905', pack: { quantity: 1, unit: 'kg' } };
+  const expected = { status: 200, body: { product: { ...input, id, name: 'Oats', barcode: '00012345678905' } } };
+  assert.deepEqual(await catalogRequest('A', '?gtin=012345678905'), { status: 200, body: { product: null } });
+  assert.deepEqual(await catalogRequest('A', `/${id}`, 'PUT', input), expected);
+  for (const code of ['012345678905', '0012345678905', '00012345678905']) {
+    assert.deepEqual(await catalogRequest('B', `?gtin=${code}`), expected);
+  }
+  assert.deepEqual(await catalogRequest('B', `/${id}`), expected);
+  assert.equal((await catalogRequest('E', `/${id}`)).status, 401);
+  assert.equal((await catalogRequest('D', '?gtin=012345678905')).status, 403);
+});
+
+test('replays only identical product creation and reports exact ID or barcode collisions', async () => {
+  const id = 'catalog-replay';
+  const input = { name: 'Same name', barcode: '96385074', productType: 'Cereal', pack: { quantity: 2, unit: 'kg' } };
+  const product = { ...input, id, barcode: '00000096385074' };
+  const exact = { status: 200, body: { product } };
+  const conflict = { status: 409, body: { error: 'product_conflict', product } };
+  assert.deepEqual(await Promise.all([
+    catalogRequest('A', `/${id}`, 'PUT', input),
+    catalogRequest('B', `/${id}`, 'PUT', { ...input, barcode: product.barcode, pack: { unit: 'kg', quantity: 2 } }),
+  ]), [exact, exact]);
+  assert.deepEqual(await catalogRequest('A', `/${id}`, 'PUT', { ...input, name: 'A corrected name' }), conflict);
+  assert.deepEqual(await catalogRequest('B', `/${id}`, 'PUT', { ...input, pack: { ...input.pack, quantity: 3 } }), conflict);
+  const otherBarcode = '4006381333931';
+  assert.deepEqual(await catalogRequest('B', `/${id}`, 'PUT', { ...input, barcode: otherBarcode }), conflict);
+  assert.deepEqual(await catalogRequest('B', '/other-catalog-id', 'PUT', input), conflict);
+
+  const other = await catalogRequest('B', '/another-product', 'PUT', { ...input, barcode: otherBarcode });
+  assert.deepEqual(other, {
+    status: 200, body: { product: { ...input, id: 'another-product', barcode: '04006381333931' } },
+  });
+  assert.deepEqual(await catalogRequest('B', `/${id}`), exact);
+});
+
+test('rejects invalid barcodes and omits private import fields from canonical product reads', async () => {
+  assert.equal((await catalogRequest('A', '?gtin=012345678906')).status, 400);
+  assert.equal((await catalogRequest('A', '/bad', 'PUT', { name: 'Oats', barcode: '012345678906', productType: 'Cereal' })).status, 400);
+  assert.equal((await catalogRequest('A', '/bad', 'PUT', { name: 'Oats', barcode: '012345678905' })).status, 400);
+  const id = 'catalog-imported';
+  await pool.query(`INSERT INTO cheapo.product (id, name, source_photo_ids)
+    VALUES ($1, 'Imported product', ARRAY['private-import-fixture'])`, [id]);
+  assert.deepEqual(await catalogRequest('C', `/${id}`), {
+    status: 200, body: { product: { id, name: 'Imported product' } },
+  });
+});
+
 const ok = (basis: string | null) => ({ status: 200, body: { basis } });
 
 test('reopens the shopper’s choice through a fresh API instance and second credential', async () => {

@@ -2,15 +2,14 @@ import { shopDisplayName, type Shop } from '@cheapo/domain';
 
 import type { ExecuteSavedShop, SavedShopState, ShopAction } from './saved-shops.ts';
 
-type Query = <Row extends object>(text: string, params: unknown[]) => Promise<{ rows: Row[] }>;
-export type ShopTransaction = <T>(execute: (query: Query) => Promise<T>) => Promise<T>;
-type Member = { household_id: string; shopper_id: string; active: boolean };
+import { readShoppingMember, type ShoppingMember, type ShoppingQuery, type ShoppingTransaction } from './postgres-shopping.ts';
+
 type ShopRow = Omit<Shop, 'name' | 'nickname' | 'address' | 'location'> & {
   name: string | null; nickname: string | null; address: string | null; location: Shop['location'] | null;
   selected: boolean; test_shop: boolean | null;
 };
 
-async function readSavedShops(query: Query, member: Member): Promise<SavedShopState> {
+async function readSavedShops(query: ShoppingQuery, member: ShoppingMember): Promise<SavedShopState> {
   const { rows } = await query<ShopRow>(`
     SELECT shop.id, shop.name, shop.address, shop.location, link.nickname,
       link.source_test_shop AS test_shop,
@@ -30,7 +29,7 @@ async function readSavedShops(query: Query, member: Member): Promise<SavedShopSt
   return currentShop ? { shops, currentShop } : { shops };
 }
 
-async function selectShop(query: Query, member: Member, shopId: string) {
+async function selectShop(query: ShoppingQuery, member: ShoppingMember, shopId: string) {
   await query(`
     INSERT INTO cheapo.shopper_current_shop (household_id, shopper_id, shop_id) VALUES ($1::uuid, $2::uuid, $3)
     ON CONFLICT (household_id, shopper_id) DO UPDATE SET shop_id = EXCLUDED.shop_id
@@ -39,7 +38,7 @@ async function selectShop(query: Query, member: Member, shopId: string) {
 
 type ShopChange = 'ok' | 'shop_not_saved' | 'invalid_shop';
 
-async function changeShop(query: Query, member: Member, action: Exclude<ShopAction, { kind: 'read' }>): Promise<ShopChange> {
+async function changeShop(query: ShoppingQuery, member: ShoppingMember, action: Exclude<ShopAction, { kind: 'read' }>): Promise<ShopChange> {
   const household = member.household_id;
   // The household's link and any affected selections change together.
   await query('SELECT id FROM cheapo.household WHERE id = $1::uuid FOR UPDATE', [household]);
@@ -98,16 +97,9 @@ async function changeShop(query: Query, member: Member, action: Exclude<ShopActi
   return 'ok';
 }
 
-export function postgresSavedShops(transaction: ShopTransaction): ExecuteSavedShop {
+export function postgresSavedShops(transaction: ShoppingTransaction): ExecuteSavedShop {
   return (digest, action) => transaction(async query => {
-    const { rows: [member] } = await query<Member>(`
-      SELECT credential.household_id, credential.shopper_id, membership.revoked_at IS NULL AS active
-      FROM cheapo.shopper_credential AS credential
-      JOIN cheapo.household_membership AS membership USING (household_id, shopper_id)
-      WHERE credential.token_digest = $1 AND credential.revoked_at IS NULL
-        AND credential.expires_at > statement_timestamp()
-      FOR SHARE OF credential, membership
-    `, [digest]);
+    const member = await readShoppingMember(query, digest);
     if (!member) return { status: 'unauthenticated' };
     if (!member.active) return { status: 'forbidden' };
     if (action.kind !== 'read') {
