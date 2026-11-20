@@ -95,6 +95,9 @@ test('reuse confirms the canonical product and selected shop without proposing a
   await fireEvent.press(screen.getByRole('button', { name: 'Check product' }));
   await fireEvent.press(await screen.findByRole('button', { name: 'Use Market Tea' }));
   expect(await screen.findByText('Last recorded at Sample Market · £2.35 · 16 Nov 2026')).toBeOnTheScreen();
+  expect(screen.queryByLabelText('Product name')).not.toBeOnTheScreen();
+  expect(screen.queryByLabelText('Brand')).not.toBeOnTheScreen();
+  expect(screen.queryByLabelText('Product type')).not.toBeOnTheScreen();
   expect(screen.getByLabelText('Pack size')).toHaveDisplayValue('80 g');
   expect(mockLoadPrices).toHaveBeenCalledWith(mockShopping, product, mockShop.id, expect.any(AbortSignal));
   await fireEvent.press(screen.getByRole('button', { name: 'Confirm current price' }));
