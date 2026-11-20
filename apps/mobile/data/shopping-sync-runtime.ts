@@ -4,7 +4,7 @@ import { z } from 'zod';
 
 import { CheapoAccessError, type CheapoAccess } from '../lib/cheapo-access/client';
 import type { DraftShop } from './local-photo';
-import { readPendingPrices, readPriceSaveStatus, type PendingPriceItem } from './pending-price-sync';
+import { readPendingPrices, readPriceSaveStatus, type PendingPriceItem, type PriceSaveStatus } from './pending-price-sync';
 import { openPriceAppendQueue, sameShoppingOwner, type PriceAppendQueue } from './price-append-queue';
 import { createPriceAppendSync } from './price-append-sync';
 import { createPriceEvidenceSync } from './price-evidence-sync';
@@ -151,6 +151,25 @@ export function createShoppingSync(access: SyncAccess, priceQueue: PriceAppendQu
     return changes;
   }
 
+  async function readPriceCorrectionStatus(operationId: string): Promise<PriceSaveStatus | undefined> {
+    const { entries, recovery } = await mutationQueue.read();
+    const visited = new Set<string>();
+    let id = operationId;
+    while (!visited.has(id)) {
+      visited.add(id);
+      if (recovery.some(item => item.operationId === id && item.reason === 'unreadable')) return 'recovery';
+      const entry = entries.find(({ intent }) => intent.operationId === id);
+      if (!entry || entry.intent.action.kind !== 'price') return undefined;
+      if (entry.superseded) return 'recovery';
+      if (entry.resolution?.kind === 'keep-cloud') return 'cloud';
+      if (entry.resolution?.kind === 'keep-phone') { id = entry.resolution.replacementId; continue; }
+      if (entry.outcome?.kind === 'applied') return 'synced';
+      if (entry.outcome?.kind === 'conflict') return 'conflict';
+      return entry.failure ? 'failed' : 'waiting';
+    }
+    return 'recovery';
+  }
+
   async function synchronize(): Promise<SyncSnapshot> {
     await assertOwner();
     let capturedSession: ReturnType<OpenSession> | undefined;
@@ -192,9 +211,9 @@ export function createShoppingSync(access: SyncAccess, priceQueue: PriceAppendQu
     },
     readPending,
     loadPriceChanges,
-    async readPriceSaveStatus(sourceId: string) {
+    async readPriceSaveStatus(sourceId: string, operationId?: string) {
       await assertOwner();
-      const status = await readPriceSaveStatus(priceQueue, sourceId);
+      const status = await (operationId ? readPriceCorrectionStatus(operationId) : readPriceSaveStatus(priceQueue, sourceId));
       await assertOwner();
       return status;
     },

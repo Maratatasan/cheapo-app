@@ -1,4 +1,6 @@
 import { useRef, useState, useEffect, type ReactNode } from "react";
+import type { PricePhotoSelection } from "@cheapo/domain/price-history";
+import { randomUUID } from 'expo-crypto';
 import {
   View,
   Text,
@@ -13,6 +15,8 @@ import { captureGuide, fittedCameraFrame, seedGuideCrop, fullPhoto, type CropBox
 import { CameraView, CameraType, useCameraPermissions } from "expo-camera";
 import { CameraActionButton, CameraCaptureActions, CameraPermissionActions, CameraSavedDraftActions } from "./camera-actions";
 import { useCheapoShopping } from "./cheapo-shopping-provider";
+import { DisplayState } from "./results/display-state";
+import { ui } from "./results/theme";
 import { GalleryCopy } from "./gallery-copy";
 import { PhotoReview, type ReviewSuggestion } from "./photo-review";
 import { PhotoCrop } from "./photo-crop";
@@ -28,8 +32,12 @@ import { addLocalProduct } from "@/data/local-products";
 import { decodePhotoBarcodes, type PhotoBarcodeResult } from "@/data/photo-barcode";
 import { canonicalProductBarcode } from "@/data/product-barcode";
 import { choosePhoto } from "@/lib/choose-photo";
+import { cropPhoto } from "@/lib/photo-crop";
+import { readOwnEnrolledPriceEdit } from "@/data/edit-enrolled-price-device";
+import { correctionFromReview, saveEnrolledPriceEdit, type PriceEditTarget } from "@/data/edit-enrolled-price";
 import type { PhotoSavePending } from "@/data/price-records";
 import { usePriceSaveNotice } from "@/hooks/use-price-save-notice";
+import { useEnrolledCatalog } from "@/hooks/use-enrolled-catalog";
 
 type LinkedPriceCapture = {
   productId: string;
@@ -54,6 +62,7 @@ export const CameraComponent = ({ currentShop, currentShopCountry, onScanBarcode
   barcodeCapture?: BarcodeCapture;
 }) => {
   const shopping = useCheapoShopping();
+  const enrolledCatalog = useEnrolledCatalog();
   const loadPhotos = shopping?.priceRecords.loadPhotos ?? loadLocalPhotos;
   const [captureStage, setCaptureStage] = useState(() => Dimensions.get("window"));
   const captureFrame = fittedCameraFrame(captureStage);
@@ -66,7 +75,10 @@ export const CameraComponent = ({ currentShop, currentShopCountry, onScanBarcode
   const [visitShop, setVisitShop] = useState("");
   const [saved, setSaved] = useState(false);
   const [pendingSaveStatus, setPendingSaveStatus] = useState<PhotoSavePending>();
-  const saveNotice = usePriceSaveNotice(shopping, saved ? draft?.id : undefined, pendingSaveStatus);
+  const [savedCorrection, setSavedCorrection] = useState<string>();
+  const [editingSaved, setEditingSaved] = useState<{ target?: PriceEditTarget; available: boolean; productId?: string }>();
+  const [editedSelection, setEditedSelection] = useState<PricePhotoSelection>();
+  const saveNotice = usePriceSaveNotice(shopping, saved ? draft?.id : undefined, pendingSaveStatus, savedCorrection);
   const [saving, setSaving] = useState(false);
   const [barcode, setBarcode] = useState<{ value: string; confirmed?: string; error?: string }>(() => {
     const value = barcodeCapture?.barcode.trim() ?? "";
@@ -78,6 +90,9 @@ export const CameraComponent = ({ currentShop, currentShopCountry, onScanBarcode
   const [savedPhotos, setSavedPhotos] = useState<LocalPhotoDraft[]>([]);
   const busy = saving;
   const savePending = useRef(false);
+  const pendingCatalog = useRef<{ sourceId: string; productId: string; operationId?: string } | undefined>(undefined);
+  const openSaved = useRef<AbortController | null>(null);
+  useEffect(() => () => openSaved.current?.abort(), [shopping]);
   useEffect(() => {
     if (linkedPrice || barcodeCapture) return;
     let active = true;
@@ -138,6 +153,10 @@ export const CameraComponent = ({ currentShop, currentShopCountry, onScanBarcode
     if (!barcodeCapture) changeBarcode("");
     setSaveError(undefined);
     setPendingSaveStatus(undefined);
+    setSavedCorrection(undefined);
+    setEditingSaved(undefined);
+    setEditedSelection(undefined);
+    pendingCatalog.current = undefined;
     setCropping(cropBox !== undefined);
     setDraft({ id: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`, capturedAt: new Date().toISOString(),
       original: photo, selected: photo, review: linkedPrice?.initialReview ?? barcodeCapture?.initialReview ?? emptyReview(currentShop?.displayName ?? visitShop),
@@ -159,6 +178,14 @@ export const CameraComponent = ({ currentShop, currentShopCountry, onScanBarcode
     let pendingDraft = draft;
     try {
       await shopping?.assertOwner();
+      if (editingSaved && !editingSaved.available) {
+        setSaveError('Cheapo could not match this saved price. Connect and open it again to save your changes.');
+        return;
+      }
+      if (editingSaved?.target && (!draft.review || !complete)) {
+        setSaveError('Enter complete price details before saving this correction.');
+        return;
+      }
       if (barcode.confirmed && !draft.productId) {
         const review = draft.review;
         if (!review || !complete || !review.productType?.trim()) {
@@ -166,16 +193,25 @@ export const CameraComponent = ({ currentShop, currentShopCountry, onScanBarcode
           return;
         }
         try {
-          const product = await addLocalProduct({
-            id: draft.id,
+          const details = {
             barcode: barcode.confirmed,
             name: review.productName,
             productType: review.productType,
             variety: review.variety?.trim() || undefined,
             brand: review.brand?.trim() || undefined,
             pack: productPackFromText(review.packSize ?? ''),
-          });
-          pendingDraft = { ...draft, productId: product.id };
+          };
+          let productId: string;
+          if (enrolledCatalog && (!editingSaved || editingSaved.target)) {
+            if (pendingCatalog.current?.sourceId !== draft.id) pendingCatalog.current = { sourceId: draft.id, productId: randomUUID() };
+            const candidate = pendingCatalog.current;
+            const product = await enrolledCatalog.findByBarcode(barcode.confirmed) ?? await enrolledCatalog.save({ ...details, id: candidate.productId });
+            candidate.operationId = product.catalogBase?.kind === 'operation' ? product.catalogBase.operationId : undefined;
+            productId = product.id;
+          } else {
+            productId = (await addLocalProduct({ ...details, id: draft.id })).id;
+          }
+          pendingDraft = { ...draft, productId };
           // Keep the catalog link if photo storage fails so retry can reuse the product.
           setDraft(pendingDraft);
         } catch (error) {
@@ -183,14 +219,27 @@ export const CameraComponent = ({ currentShop, currentShopCountry, onScanBarcode
           return;
         }
       }
-      const previous = shopping && complete ? await shopping.priceRecords.load(draft.id) : null;
-      const alreadyReviewed = !!previous && reviewComplete(previous.review, previous.shop?.displayName);
-      const result = shopping && !alreadyReviewed ? await shopping.priceRecords.saveNewPhoto(pendingDraft)
+      if (shopping && editingSaved?.target && pendingDraft.review) {
+        const dependency = pendingCatalog.current?.sourceId === draft.id ? pendingCatalog.current.operationId : undefined;
+        const operationId = await saveEnrolledPriceEdit(shopping, editingSaved.target, pendingDraft.review.productName,
+          { ...correctionFromReview(pendingDraft.review), ...(editedSelection ? { photoSelection: editedSelection } : {}),
+            ...(pendingDraft.productId && pendingDraft.productId !== editingSaved.productId ? { productId: pendingDraft.productId } : {}) },
+          dependency ? [dependency] : undefined);
+        setEditingSaved({ ...editingSaved, productId: pendingDraft.productId, target: { ...editingSaved.target, base: { kind: 'operation', operationId } } });
+        setEditedSelection(undefined);
+        setSavedCorrection(operationId);
+        setPendingSaveStatus('waiting');
+        setSaved(true);
+        return;
+      }
+      const result = shopping && !editingSaved ? await shopping.priceRecords.saveNewPhoto(pendingDraft)
         : { record: await saveLocalPhoto(pendingDraft), pending: undefined };
       await shopping?.assertOwner();
       setDraft(result.record);
       setSaved(true);
       setPendingSaveStatus(result.pending);
+      if (result.pending) setEditingSaved({ available: true, target: { priceKey: result.record.id,
+        base: { kind: 'append', sourceId: result.record.id } }, productId: result.record.productId });
       setSavedPhotos(current => [result.record, ...current.filter(item => item.id !== result.record.id)]);
       if (result.pending === 'waiting') void shopping?.retry().catch(() => { /* The reviewed photo remains pending. */ });
       (linkedPrice ?? barcodeCapture)?.onSaved(result.pending, result.pending ? result.record.id : undefined);
@@ -206,22 +255,67 @@ export const CameraComponent = ({ currentShop, currentShopCountry, onScanBarcode
     }
   }
   const [cameraReady, setCameraReady] = useState(false);
-  const [photoAction, setPhotoAction] = useState<"capture" | "choose" | null>(null);
+  const [photoAction, setPhotoAction] = useState<"capture" | "choose" | "review" | null>(null);
   const photoPending = useRef(false);
   const savedPhotoButtons = <CameraSavedDraftActions
     drafts={savedPhotos}
     disabled={photoAction !== null}
-    onReview={item => {
-      editedFields.current.clear();
-      changeBarcode("");
-      setDraft({ ...item, review: item.review ?? emptyReview() });
-      setVisitShop(item.review?.shop ?? "");
-      setSaved(true);
-      setPendingSaveStatus(undefined);
-      setCameraReady(false);
-    }}
+    onReview={item => { void openSavedPhoto(item); }}
   />;
 
+  async function openSavedPhoto(item: LocalPhotoDraft) {
+    if (photoPending.current) return;
+    const controller = new AbortController();
+    openSaved.current?.abort();
+    openSaved.current = controller;
+    photoPending.current = true;
+    setPhotoAction('review');
+    try {
+      let draft = item;
+      let target: typeof editingSaved;
+      let previewError: string | undefined;
+      if (shopping && reviewComplete(item.review, item.shop?.displayName)) {
+        const edit = await readOwnEnrolledPriceEdit(shopping, item, controller.signal);
+        if (controller.signal.aborted) return;
+        const { photoSelection } = edit;
+        let selected = item.selected;
+        if (photoSelection) {
+          selected = photoSelection.role === 'original' ? item.original : await cropPhoto(item.original, photoSelection.cropBox).catch(() => {
+            previewError = 'Could not preview the revised crop. The original photo is shown.';
+            return item.original;
+          });
+        }
+        draft = { ...item, review: edit.record.review, productId: edit.record.productId, shop: edit.record.shop, selected,
+          cropBox: photoSelection ? (photoSelection.role === 'crop' ? photoSelection.cropBox : fullPhoto) : item.cropBox };
+        if (edit.target || !edit.available) target = { target: edit.target, available: edit.available, productId: edit.record.productId };
+      }
+      if (controller.signal.aborted) return;
+      setSaveError(previewError);
+      editedFields.current.clear();
+      changeBarcode("");
+      setDraft({ ...draft, review: draft.review ?? emptyReview() });
+      setVisitShop(draft.review?.shop ?? "");
+      setSaved(true);
+      setPendingSaveStatus(undefined);
+      setSavedCorrection(undefined);
+      setEditingSaved(target);
+      setEditedSelection(undefined);
+      pendingCatalog.current = undefined;
+      setCameraReady(false);
+    } catch {
+      if (!controller.signal.aborted) Alert.alert('Saved price unavailable', 'Your saved photo is still on this phone. Try opening it again.');
+    } finally {
+      if (openSaved.current === controller) {
+        photoPending.current = false;
+        if (!controller.signal.aborted) setPhotoAction(null);
+      }
+    }
+  }
+
+  if (photoAction === 'review') return <View style={ui.page}><View style={ui.content}>
+    <DisplayState kind="loading" title="Opening saved price" description="Reading its latest details." />
+  </View>
+  </View>;
   if (!permission) return <View key="loading" style={styles.container} />;
 
   const useTestPhoto = () => {
@@ -316,6 +410,7 @@ export const CameraComponent = ({ currentShop, currentShopCountry, onScanBarcode
         onCancel={() => setCropping(false)}
         onApply={(photo, cropBox) => {
           setDraft({ ...draft, selected: photo, cropBox });
+          if (editingSaved?.target) setEditedSelection({ role: 'crop', cropBox });
           setSaved(false);
           setCropping(false);
         }}
@@ -355,7 +450,11 @@ export const CameraComponent = ({ currentShop, currentShopCountry, onScanBarcode
         onCancel={captureContext?.onCancel}
         onRetake={barcodeCapture && draft.productId ? undefined : retakePhoto}
         onCrop={() => setCropping(true)}
-        onOriginal={draft.selected.uri !== draft.original.uri ? () => { setDraft({ ...draft, selected: draft.original, cropBox: fullPhoto }); setSaved(false); } : undefined}
+        onOriginal={draft.selected.uri !== draft.original.uri ? () => {
+          setDraft({ ...draft, selected: draft.original, cropBox: fullPhoto });
+          if (editingSaved?.target) setEditedSelection({ role: 'original' });
+          setSaved(false);
+        } : undefined}
         onImageError={() => {
           if (draft.selected.uri === process.env.EXPO_PUBLIC_CHEAPO_TEST_PHOTO_URL) setDraft(null);
           Alert.alert('Photo unavailable', 'The photo could not be loaded. For the test photo, check the local fixture server and try again.');

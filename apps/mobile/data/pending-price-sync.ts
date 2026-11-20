@@ -2,7 +2,7 @@ import type { PriceAppendQueue } from './price-append-queue';
 
 type PendingPriceState = 'waiting' | 'failed' | 'photo-pending' | 'photo-failed' | 'needs-shop' | 'recovery';
 export type PendingPriceItem = { id: string; sourceId: string; title: string; state: PendingPriceState };
-export type PriceSaveStatus = PendingPriceState | 'synced';
+export type PriceSaveStatus = PendingPriceState | 'synced' | 'conflict' | 'cloud';
 
 async function pendingPriceItems(queue: PriceAppendQueue, { entries, recovery }: Awaited<ReturnType<PriceAppendQueue['read']>>): Promise<PendingPriceItem[]> {
   const rows: PendingPriceItem[] = [];
