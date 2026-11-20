@@ -25,31 +25,64 @@ bucket in the assigned Region. Keep the previous key and version available
 for rollback. Record the reviewed artifact key, version ID, and SHA-256
 together in the release record.
 
-## Review before activating
+## Enable the Data API
 
-- Verify the assigned Region and project before any live step. Supply the
-  existing cluster identifier and database name through approved private
-  deployment settings. The template derives the relevant AWS ARNs from the
-  stack Region and project.
-- Prepare a restricted PostgreSQL login and a separate secret using the AWS
-  managed Secrets Manager key. Supply only the secret's ARN resource segment
-  after `secret:` as `RuntimeSecretResource`. Verify it includes the six
-  character suffix and denotes the scoped login. Verify the runtime login
-  cannot create, revoke, or alter shopper credentials or memberships. Leave the
-  database administrator secret with the operator. Confirm the restored database's
-  applied migrations and apply only new reviewed migrations in order. Record
-  each applied revision and reconcile the existing observation IDs, photo hashes,
-  and row counts. Then apply the [runtime role grants](../../apps/api/operator/runtime-role.sql)
-  using an operator login with schema ownership and role creation rights.
-  Grant `cheapo_api_runtime` to the separate login. Keep the internal
-  `cheapo_scope_guard` role unavailable for login or runtime assumption.
-  The SQL grants cover the current API routes. Review grants again when a
-  route adds a database operation.
-- The cluster must have its Data API endpoint enabled for this stack. Obtain
-  approval for that change separately. Keep the database private and preserve
-  its existing capacity and 15-minute idle pause settings. Confirm the role
-  setup and route migrations before activating. The stack does not modify the
-  storage stack or provision a database.
+Verify the assigned Region, project, and existing storage stack before any
+live step. With approval, use the [storage template](shopping-storage.yaml)
+to create an `UPDATE` change set for that stack. Set `EnableDataApi=true`
+explicitly and use previous values for all other parameters. New storage
+stacks default to `false`. On later updates preserve the stored value unless
+changing it intentionally.
+
+The expected change is an in-place update of `Database.EnableHttpEndpoint`.
+Check for replacement, removals or other property changes before execution.
+Confirm the endpoint is enabled after the update, the writer remains private,
+and the capacity range, 15-minute idle pause, backups, and deletion protection
+still match the approved storage baseline. This step leaves the phone-facing
+API closed. The hosting stack does not provision or update the database.
+
+## Reconcile the schema and restricted login
+
+1. Identify the reviewed release commit and the existing database. Compare its
+   schema and applied migration record with that release. The restored database
+   already has migrations `001`–`004`. Capture counts and a private comparison
+   of restored source observation keys and evidence hashes before applying new
+   migrations. Keep the device routes closed while doing this work.
+2. Apply only missing [reviewed migrations](../../apps/api/migrations), in
+   numeric order, through the approved operator connection. For the Data API,
+   use the existing administrator secret ARN. Map each file's transaction to
+   `BeginTransaction` and `CommitTransaction`, and send one complete SQL
+   statement per `ExecuteStatement` in that transaction. Keep a dollar-quoted
+   function body together. For a statement error roll back the transaction.
+   After an uncertain commit, reconcile catalog state and the migration record
+   before retrying. Record the release commit, migration filename and hash,
+   and verified commit outcome privately. Recheck restored keys, counts and
+   hashes, plus the new resource IDs and migration-specific backfills.
+3. After the migrations, reconcile the roles and function ownership. On the
+   first setup run [runtime-role.sql](../../apps/api/operator/runtime-role.sql)
+   once as the PostgreSQL project operator with schema ownership and role
+   creation rights. It is transactional and creates `cheapo_api_runtime` and
+   `cheapo_scope_guard`. If those roles exist, verify the prior bootstrap and
+   apply only the reviewed grant changes required by the release. Leave both
+   roles without login and the guard role unavailable for runtime assumption.
+4. Provision a separate PostgreSQL login that inherits only
+   `cheapo_api_runtime` and store its `username` and `password` in its own
+   secret using the AWS managed Secrets Manager key. Keep credentials in the
+   approved secret-handling workflow and keep password values out of SQL
+   files, command histories, and logs. If resuming incomplete setup, reconcile
+   role and secret existence first, then verify that the intended secret can
+   log in before reusing it. Check `current_user` through the scoped secret.
+   Verify that login has the route permissions and cannot read credential
+   digests, write memberships, or assume the guard role. Record the secret
+   ARN and verification outcome privately.
+
+## Review before publishing the HTTPS route
+
+- Supply the existing cluster identifier and database name through approved
+  private deployment settings. Supply the scoped login secret's ARN resource
+  segment after `secret:` as `RuntimeSecretResource`, including its six-character
+  suffix. The template derives the relevant AWS ARNs from the stack Region and
+  project. Keep the administrator secret with the operator.
 - Confirm the private evidence bucket and account ownership before setting
   `EvidenceBucket`. When configured, the runtime may sign reads within the
   restored `shopping-import/` prefix, sign conditional JPEG uploads in
@@ -59,7 +92,10 @@ together in the release record.
 - Validate the template with a change set and inspect the scoped role and rate
   limits. Keep `PublishRoute=false` for the first approved stack change set.
   This leaves the endpoint available as an origin and does not grant API
-  Gateway permission to invoke Lambda. Record `ApiOrigin` only after review.
+  Gateway permission to invoke Lambda. Before publishing, use an authorized
+  direct Lambda invocation with synthetic request data to check that the
+  function can use its runtime secret and the deployed schema. Record
+  `ApiOrigin` only after review.
 - After activation approval, verify with synthetic actors before using
   restored data. Check missing, invalid, expired, and revoked credentials.
   Check two authorized shoppers and one out-of-household case. Check a cold
@@ -69,8 +105,9 @@ together in the release record.
 - Set `PublishRoute=false` to remove invocation permission and suspend API
   calls while keeping the endpoint origin. To restore a prior compatible code
   release, set the previous reviewed artifact key and version in a change
-  set. Check schema compatibility before rollback. Do not remove the private
-  database or photo bucket as part of API rollback.
+  set. Check schema compatibility before rollback. If suspending the Data API
+  as well, close the phone route first and use a reviewed storage update with
+  `EnableDataApi=false` after operator work and other dependent calls finish.
 
 Migrations, deployed Data API behavior, restored records, and the Pixel
 connection each require their own verification. Local proxy tests and

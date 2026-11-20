@@ -43,6 +43,11 @@ cheapo_aws() {
 Validation checks project identity and both templates. Rerun the setup block
 after changing the local settings.
 
+New storage stacks default to `EnableDataApi=false`. For an existing stack,
+follow the [hosting activation procedure](shopping-api.md#enable-the-data-api)
+to review a storage update. Preserve the deployed parameter on later storage
+updates unless changing the endpoint is part of the review.
+
 ## Deploy approved stacks
 
 Confirm spend settings before creating changes. In the local file, set
