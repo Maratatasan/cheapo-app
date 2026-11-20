@@ -1,7 +1,7 @@
 // @ts-check
 
 /** @param {unknown} value @returns {string | null} */
-function parseCheapoApiOrigin(value) {
+export function parseCheapoApiOrigin(value) {
   if (typeof value !== "string" || !/^https:\/\/[^/?#\\\s]+\/?$/i.test(value)) return null;
   try {
     const url = new URL(value);
@@ -10,5 +10,3 @@ function parseCheapoApiOrigin(value) {
     return null;
   }
 }
-
-module.exports = { parseCheapoApiOrigin };
