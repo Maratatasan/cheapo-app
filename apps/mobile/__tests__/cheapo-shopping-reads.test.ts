@@ -167,3 +167,76 @@ test("rejects overflowing queries and untrustworthy observation identity or owne
   await expect(reads.loadPriceObservation("5353588d-923b-4f09-903d-f72adeaded5a")).rejects.toThrow("unreadable");
   expect(cache.size).toBe(0);
 });
+
+test.each(["fetch", "body"])("falls back to the saved result when the %s stalls and ignores a late success", async stage => {
+  jest.useFakeTimers();
+  try {
+    const { cache, download, start } = setup();
+    const reads = start();
+    const firstPage = { observations: [observed], nextCursor: null };
+    const latePage = { observations: [{ ...observed, version: 99 }], nextCursor: null };
+    download.mockResolvedValueOnce(Response.json(firstPage));
+    const saved = await reads.loadPriceHistory();
+    const before = [...cache];
+    let settle!: () => void;
+    if (stage === "fetch") {
+      download.mockImplementationOnce(() => new Promise(resolve => { settle = () => resolve(Response.json(latePage)); }));
+    } else {
+      const response = new Response(null);
+      jest.spyOn(response, "json").mockImplementation(() => new Promise(resolve => { settle = () => resolve(latePage); }));
+      download.mockResolvedValueOnce(response);
+    }
+    const pending = reads.loadPriceHistory();
+    await jest.advanceTimersByTimeAsync(35_000);
+    expect(await pending).toEqual({ ...saved, status: "cached" });
+    expect(download.mock.calls[1][1].signal?.aborted).toBe(true);
+    settle();
+    await jest.advanceTimersByTimeAsync(0);
+    expect([...cache]).toEqual(before);
+    expect(jest.getTimerCount()).toBe(0);
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
+test("rejects caller cancellation while a response body is still pending", async () => {
+  const { cache, download, start } = setup();
+  const reads = start();
+  const controller = new AbortController();
+  download.mockResolvedValueOnce(Response.json({ observations: [observed], nextCursor: null }));
+  await reads.loadPriceHistory();
+  const before = [...cache];
+  const response = new Response(null);
+  jest.spyOn(response, "json").mockImplementation(() => {
+    controller.abort();
+    return new Promise(() => {});
+  });
+  download.mockResolvedValueOnce(response);
+  await expect(reads.loadPriceHistory({}, controller.signal)).rejects.toThrow("interrupted");
+  expect(download.mock.calls[1][1].signal?.aborted).toBe(true);
+  expect([...cache]).toEqual(before);
+});
+
+test("rejects a timed-out read after enrollment changes even when its old cache exists", async () => {
+  jest.useFakeTimers();
+  try {
+    const { access, cache, download, start } = setup();
+    const reads = start();
+    download.mockResolvedValueOnce(Response.json({ observations: [observed], nextCursor: null }));
+    await reads.loadPriceHistory();
+    const before = [...cache];
+    let markStarted!: () => void;
+    const started = new Promise<void>(resolve => { markStarted = resolve; });
+    download.mockImplementationOnce(() => { markStarted(); return new Promise(() => {}); });
+    const pending = expect(reads.loadPriceHistory()).rejects.toThrow("Cheapo access changed");
+    await started;
+    download.mockResolvedValueOnce(Response.json(identity));
+    await access.enroll(second);
+    await jest.advanceTimersByTimeAsync(35_000);
+    await pending;
+    expect([...cache]).toEqual(before);
+    expect(jest.getTimerCount()).toBe(0);
+  } finally {
+    jest.useRealTimers();
+  }
+});
