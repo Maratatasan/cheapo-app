@@ -12,6 +12,7 @@ import { loadSavedPriceRecords, reviewComplete, type SavedPriceRecord } from '@/
 import type { PriceQueueOwner } from '@/data/price-append-queue';
 import { projectLocalPrice, savedPriceHistoryRows, type PendingHistoryChange } from '@/data/saved-price-history';
 import { useSavedPriceReads, type SavedPriceQueueRead } from '@/data/use-saved-price-reads';
+import { useProductPhotoSource } from '@/hooks/use-product-presentation-photo';
 import { exportSavedShopping } from '@/lib/saved-shopping-export';
 
 export default function SavedProducts() {
@@ -25,6 +26,7 @@ export function SavedProductsScreen({ priceQueue = null, loadPriceChanges, expor
   exportOwner?: PriceQueueOwner;
 }) {
   const router = useRouter();
+  const productPhotos = useProductPhotoSource(exportOwner);
   const [drafts, setDrafts] = useState<SavedPriceRecord[]>();
   const [error, setError] = useState(false);
   const focus = useRef<AbortController | null>(null);
@@ -135,7 +137,8 @@ export function SavedProductsScreen({ priceQueue = null, loadPriceChanges, expor
 
   return <>
     <Stack.Screen options={{ title: 'Saved products and photos' }} />
-    <SavedPriceHistoryPane detail={detailView} rows={rows} changes={changes} loadSharedThumbnail={priceQueue ? loadThumbnail : undefined} onOpen={item => {
+    <SavedPriceHistoryPane detail={detailView} rows={rows} changes={changes} productPhotos={productPhotos}
+      loadSharedThumbnail={priceQueue ? loadThumbnail : undefined} onOpen={item => {
       if (item.source === 'shared') {
         setOpenedId(undefined);
         void openShared(item.observation.id);

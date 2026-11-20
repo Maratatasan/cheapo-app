@@ -8,6 +8,7 @@ import type { PriceHistoryQuery, PriceObservationDetail } from '@cheapo/domain/p
 
 const mockPush = jest.fn();
 const mockUseCheapoShopping = jest.fn();
+const mockReadProductPhoto = jest.fn();
 const mockCatalog = jest.fn();
 const mockOpenHistory = jest.fn();
 const mockComparisonPreference = jest.fn();
@@ -32,6 +33,9 @@ jest.mock('@/hooks/use-comparison-preference', () => ({
   useComparisonPreference: (...args: unknown[]) => mockComparisonPreference(...args),
 }));
 jest.mock('@/data/cheapo-shopping-read-device', () => ({ openCheapoSavedPriceReads: () => mockOpenHistory() }));
+jest.mock('@/data/product-presentation-photos-device', () => ({
+  openProductPresentationPhotos: () => ({ read: mockReadProductPhoto }),
+}));
 jest.mock('@/data/cheapo-shopping-read-cache', () => ({ cheapoShoppingReadCache: {
   subscribeClear: (listener: () => void) => { mockCacheClear.add(listener); return () => mockCacheClear.delete(listener); },
 } }));
@@ -62,6 +66,7 @@ const row = (id: string, shop: string, variety: string, brand: string, price: st
 beforeEach(() => {
   jest.resetAllMocks();
   mockUseCheapoShopping.mockReturnValue(null);
+  mockReadProductPhoto.mockResolvedValue({ status: 'unavailable' });
   mockCatalog.mockReturnValue(null);
   mockComparisonPreference.mockReturnValue(undefined);
   mockOpenHistory.mockResolvedValue({ loadPriceHistory: jest.fn(async () => ({ status: 'unavailable' })), assertCurrent: jest.fn() });
@@ -514,6 +519,9 @@ test('clears shared pages and an in-flight photo while keeping an already saved 
     productId: product.id, review: { ...emptyReview(currentShop.displayName), productName: product.name,
       productType: product.productType, price: '1.75', packSize: '500 g' } };
   const transfer = Promise.withResolvers<{ status: 'fresh'; value: { uri: string } }>();
+  const productTransfer = Promise.withResolvers<{ status: 'fresh'; photo: { uri: string } }>();
+  mockReadProductPhoto.mockResolvedValueOnce({ status: 'cached', photo: { uri: 'file:///product-cache.jpg' } })
+    .mockImplementationOnce(() => productTransfer.promise);
   let photoSignal: AbortSignal | undefined;
   const loadSelectedPhoto = jest.fn((_observation, _role, signal: AbortSignal) => {
     photoSignal = signal;
@@ -532,14 +540,20 @@ test('clears shared pages and an in-flight photo while keeping an already saved 
   jest.mocked(loadSavedPriceRecords).mockResolvedValue([]);
   await render(<BarcodeScan currentShop={currentShop} onScanLabel={jest.fn()} />);
   await scan();
+  const productLabel = `Product photo for ${product.name}`;
+  expect(await screen.findByLabelText(productLabel)).toHaveProp('source', { uri: 'file:///product-cache.jpg' });
+  expect(mockReadProductPhoto).toHaveBeenCalledWith(product.id, expect.any(AbortSignal), 'cache-only');
   expect(screen.getByText('£3.00 pack')).toBeOnTheScreen();
   expect(loadSelectedPhoto).toHaveBeenCalledTimes(1);
   await act(() => { for (const listener of mockCacheClear) listener(); });
   expect(photoSignal?.aborted).toBe(true);
+  expect(mockReadProductPhoto.mock.calls[1][1].aborted).toBe(true);
   expect(screen.queryByText(/Last synced/)).not.toBeOnTheScreen();
   expect(screen.queryByText('£3.00 pack')).not.toBeOnTheScreen();
   expect(screen.getByText('£1.75 pack')).toBeOnTheScreen();
   await act(() => transfer.resolve({ status: 'fresh', value: { uri: photo.uri } }));
+  await act(() => productTransfer.resolve({ status: 'fresh', photo: { uri: 'file:///late-product.jpg' } }));
   expect(screen.queryByLabelText(`Scan photo for ${product.name}`)).not.toBeOnTheScreen();
+  expect(screen.queryByLabelText(productLabel)).not.toBeOnTheScreen();
   expect(loadPriceHistory).toHaveBeenCalledTimes(2);
 });

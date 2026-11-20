@@ -13,7 +13,7 @@ import { marketColor as color, spacing, typography } from "./theme";
 export type ComparisonRow = ComparisonPrice & Pick<ShopCardProps, "shop" | "product" | "area" | "capturedOn">;
 
 export type ShopComparisonProps = {
-  product: { name: string; pack?: string; photo?: ImageSourcePropType };
+  product: { name: string; pack?: string; photo?: ImageSourcePropType; photoLabel?: string };
   comparisons: readonly ComparisonRow[];
   reference?: ComparisonRow;
   catalogProduct?: ProductMetadata;
@@ -112,7 +112,7 @@ export function ShopComparison({
       <View style={[styles.reference, referenceLowest && styles.lowest]}>
         {photo && photo !== failedPhoto ? (
           <Image
-            accessibilityLabel={`Scan photo for ${product.name}`}
+            accessibilityLabel={product.photoLabel ?? `Scan photo for ${product.name}`}
             accessibilityRole="image"
             source={photo}
             resizeMode="contain"

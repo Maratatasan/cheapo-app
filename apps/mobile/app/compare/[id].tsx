@@ -15,6 +15,8 @@ import { loadSavedPriceRecords } from '@/data/local-photo';
 import { comparisonRowFromSavedHistory, keptSharedPrice, projectSharedPrice, savedPriceHistoryRows, type PendingHistoryChange, type SavedPriceHistoryRow } from '@/data/saved-price-history';
 import { viewedPricePhotoRoles } from '@/data/selected-price-photo-read';
 import { useComparisonPreference, useSavedPriceComparisonGroup } from '@/hooks/use-comparison-preference';
+import { useProductPhotoSource } from '@/hooks/use-product-presentation-photo';
+import { useProductPhotoUri } from '@/hooks/use-product-photo-uri';
 import { CheapoAccessError } from '@/lib/cheapo-access/client';
 
 type Runtime = ReturnType<typeof useCheapoShopping>;
@@ -219,6 +221,8 @@ export default function SavedComparison() {
   const comparisons = rows.flatMap(row => comparisonRowFromSavedHistory(row, changes) ?? []);
   const group = useSavedPriceComparisonGroup(shopping, reference?.productId, reference?.productType);
   const preference = useComparisonPreference(shopping, group);
+  const productPhotos = useProductPhotoSource(shopping?.owner);
+  const productPhoto = useProductPhotoUri(productPhotos, reference?.productId);
 
   return (
     <>
@@ -241,7 +245,9 @@ export default function SavedComparison() {
               <ShopComparison key={reference.id} reference={reference} comparisons={comparisons}
                 exactProductId={!reference.productType ? reference.productId ?? undefined : undefined}
                 preference={preference}
-                product={{ name: reference.product, pack: reference.pack, photo: current.photoUri ? { uri: current.photoUri } : undefined }}
+                product={{ name: reference.product, pack: reference.pack,
+                  photo: productPhoto ? { uri: productPhoto } : current.photoUri ? { uri: current.photoUri } : undefined,
+                  photoLabel: productPhoto ? `Product photo for ${reference.product}` : undefined }}
                 onEdit={recordId => {
                   const row = recordId === referenceRow.key ? referenceRow : rows.find(item => item.key === recordId);
                   if (row && row.source !== 'shared') router.push({ pathname: '/edit-price/[id]', params: { id: row.record.id } });

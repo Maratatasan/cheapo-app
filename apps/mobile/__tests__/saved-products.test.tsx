@@ -33,6 +33,7 @@ let mockFocusRevision = 0;
 let mockListVisibility: FlatListProps<unknown>['onViewableItemsChanged'];
 let mockCacheRevision = 0;
 const mockCacheClearListeners = new Set<() => void>();
+const mockReadProductPhoto = jest.fn();
 function clearDownloadedFixture() {
   mockCacheRevision++;
   mockCacheClearListeners.forEach(listener => listener());
@@ -77,6 +78,9 @@ jest.mock('../data/cheapo-shopping-read-cache', () => ({
   },
 }));
 jest.mock('../lib/saved-shopping-export', () => ({ exportSavedShopping: jest.fn() }));
+jest.mock('../data/product-presentation-photos-device', () => ({
+  openProductPresentationPhotos: () => ({ read: mockReadProductPhoto }),
+}));
 jest.mock('expo-crypto', () => ({ randomUUID: () => 'comparison-preference' }));
 jest.mock('../data/cheapo-shopping-read-device', () => ({
   openCheapoSavedPriceReads: jest.fn(),
@@ -120,6 +124,7 @@ function mockSavedReads(session: Omit<BoundReads, 'cached'> & Partial<Pick<Bound
 
 
 beforeEach(() => {
+  mockReadProductPhoto.mockReset().mockResolvedValue({ status: 'unavailable' });
   mockPreferenceProduct.mockReset().mockResolvedValue({ status: 'unavailable' });
   mockPreferenceRead.mockReset().mockResolvedValue({ status: 'unavailable' });
   mockPreferenceQueue.enqueue.mockClear();
@@ -217,6 +222,33 @@ test('shows the selected private photo on a visible shared card without opening 
   expect(loadPriceObservation).toHaveBeenCalledWith(shared.id, expect.any(AbortSignal));
   expect(loadSelectedPhoto).toHaveBeenCalledWith(shared, 'crop', expect.any(AbortSignal));
   expect(screen.getByRole('button', { name: 'Open Original shared rice' })).toBeOnTheScreen();
+});
+
+test('reuses one exact product photo across shops and keeps the original evidence in price detail', async () => {
+  jest.mocked(loadSavedPriceRecords).mockResolvedValue([]);
+  const queue = { owner, read: jest.fn().mockResolvedValue({ entries: [], recovery: [] }) };
+  const otherShop = { ...peer, shopDisplayName: 'Other branch' };
+  const noLink = { ...peer, id: 'no-linked-product', productId: null, photos: [], productName: 'Unlinked review' };
+  mockReadProductPhoto.mockResolvedValue({ status: 'fresh', photo: { uri: 'file:///canonical-rice.jpg' } });
+  mockSavedReads({ assertCurrent: jest.fn(), loadPriceObservation: jest.fn().mockResolvedValue(cached({ observation: shared })),
+    loadPhoto: jest.fn(), loadSelectedPhoto: jest.fn().mockResolvedValue(cached({ uri: 'file:///private-evidence.jpg' })),
+    loadPriceHistory: jest.fn().mockResolvedValue(cached({ observations: [shared, otherShop, noLink], nextCursor: null })) });
+
+  await render(<SafeAreaProvider initialMetrics={safeArea}><SavedProductsScreen priceQueue={queue} exportOwner={owner} /></SafeAreaProvider>);
+  await screen.findByRole('button', { name: 'Open Original shared rice' });
+  await act(() => mockListVisibility?.({
+    viewableItems: [shared, otherShop, noLink].map((item, index) => ({ key: `shared:${item.id}`, item, isViewable: true, index })),
+    changed: [],
+  }));
+  await waitFor(() => expect(screen.getAllByLabelText('Product photo')).toHaveLength(2));
+  for (const image of screen.getAllByLabelText('Product photo')) {
+    expect(image).toHaveProp('source', { uri: 'file:///canonical-rice.jpg' });
+  }
+  expect(mockReadProductPhoto.mock.calls.map(([id, , mode]) => [id, mode])).toEqual([
+    [shared.productId, 'cache-only'], [shared.productId, undefined],
+  ]);
+  await fireEvent.press(screen.getByRole('button', { name: 'Open Original shared rice' }));
+  await waitFor(() => expect(screen.getByLabelText('Cropped price photo')).toHaveProp('source', { uri: 'file:///private-evidence.jpg' }));
 });
 
 test('uses a queued photo selection in the shared list and cancels a read when its card scrolls away', async () => {
