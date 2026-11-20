@@ -14,6 +14,8 @@ const mockOpenHistory = jest.fn();
 const mockComparisonPreference = jest.fn();
 const mockCacheClear = new Set<() => void>();
 const mockCameraProps = jest.fn<unknown, [Parameters<typeof CameraComponent>[0]]>();
+const mockReadPhotoText = jest.fn();
+jest.mock('@/data/photo-text', () => ({ readPhotoText: (...args: unknown[]) => mockReadPhotoText(...args) }));
 jest.mock('expo-router', () => ({
   useRouter: () => ({ push: mockPush }),
   useFocusEffect: (callback: () => void) => require('react').useEffect(callback, [callback]),
@@ -66,6 +68,7 @@ const row = (id: string, shop: string, variety: string, brand: string, price: st
 beforeEach(() => {
   jest.resetAllMocks();
   mockUseCheapoShopping.mockReturnValue(null);
+  mockReadPhotoText.mockResolvedValue({ status: 'empty' });
   mockReadProductPhoto.mockResolvedValue({ status: 'unavailable' });
   mockCatalog.mockReturnValue(null);
   mockComparisonPreference.mockReturnValue(undefined);
@@ -75,6 +78,32 @@ beforeEach(() => {
 async function scan(data = '012345678905') {
   await fireEvent(screen.getByTestId('barcode-preview'), 'barcodeScanned', { data });
 }
+
+test('hunts for price cues from a matching lookup photo and opens review with the same photo', async () => {
+  jest.mocked(findLocalProductByBarcode).mockResolvedValue(product);
+  jest.mocked(loadSavedPriceRecords).mockResolvedValue([]);
+  mockReadPhotoText.mockResolvedValue({ status: 'found', evidence: { width: 100, height: 100, blocks: [{ lines: [{ text: 'Example rice 500 g', elements: [] }] }] } });
+  const source = { original: photo, selected: photo, capturedAt: '2026-11-20T12:00:00Z' };
+  await render(<BarcodeScan currentShop={currentShop} initialBarcode="012345678905" onScanLabel={jest.fn()}
+    photoSource={{ productId: product.id, owner: null, source }} />);
+
+  expect(await screen.findByText('No shelf price found in the photo.')).toBeOnTheScreen();
+  expect(mockReadPhotoText).toHaveBeenCalledWith(photo.uri);
+  await fireEvent.press(screen.getByRole('button', { name: 'Review price from photo' }));
+  expect(mockCameraProps).toHaveBeenCalledWith(expect.objectContaining({ currentShop, linkedPrice: expect.objectContaining({ product, sourcePhoto: source }) }));
+  expect(saveManualPrice).not.toHaveBeenCalled();
+});
+
+test('keeps a mismatched photo source out of comparison and local OCR', async () => {
+  jest.mocked(findLocalProductByBarcode).mockResolvedValue(product);
+  jest.mocked(loadSavedPriceRecords).mockResolvedValue([]);
+  const source = { original: photo, selected: photo, capturedAt: '2026-11-20T12:00:00Z' };
+  await render(<BarcodeScan currentShop={currentShop} initialBarcode="012345678905" onScanLabel={jest.fn()}
+    photoSource={{ productId: 'different-product', owner: null, source }} />);
+  expect(await screen.findByRole('header', { name: product.name })).toBeOnTheScreen();
+  expect(screen.queryByRole('button', { name: 'Review price from photo' })).not.toBeOnTheScreen();
+  expect(mockReadPhotoText).not.toHaveBeenCalled();
+});
 
 test('opens a chosen saved product by its stable ID even when it has no barcode', async () => {
   const findById = jest.fn(async () => product);

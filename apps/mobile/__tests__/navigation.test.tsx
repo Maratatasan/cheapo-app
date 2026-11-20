@@ -8,13 +8,17 @@ import ScanScreen from "../app/scan";
 import FindProductScreen from "../app/find-product";
 import { ShopRepositoryProvider } from "../component/shop/shop-repository-provider";
 import type { ShopRepository } from "../data/shop-repository";
+import type { BarcodeScan } from "../component/barcode-scan";
+import { productPhotoPriceSources } from "../data/photo-price-source";
 
 const mockPush = jest.fn();
 const mockReplace = jest.fn();
 const mockProductLookup = jest.fn();
+const mockBarcodeProps = jest.fn();
 const mockSearchProductCandidates = jest.fn();
 let mockEnrolled = false;
-let mockScanParams: { mode?: string } = {};
+const mockEnrolledRuntime = { owner: {}, subscribeSync: jest.fn() };
+let mockScanParams: { mode?: string; barcode?: string; photoSource?: string } = {};
 const mockExtra = { directAuthTest: false, fieldTest: false, cheapoApiOrigin: "" };
 const testShopRepository = {
   loadSavedShops: jest.fn<ReturnType<ShopRepository["loadSavedShops"]>, []>(),
@@ -42,7 +46,9 @@ jest.mock("expo-router", () => ({
 }));
 
 jest.mock("../component/barcode-scan", () => ({
-  BarcodeScan: ({ currentShop, onScanLabel }: { currentShop?: { displayName: string }; onScanLabel: () => void }) => {
+  BarcodeScan: (props: Parameters<typeof BarcodeScan>[0]) => {
+    mockBarcodeProps(props);
+    const { currentShop, onScanLabel } = props;
     const { Button, Text, View } = require("react-native");
     return <View><Text>{currentShop ? `Barcode lookup · ${currentShop.displayName}` : "Barcode lookup"}</Text>
       <Button title="Scan label" onPress={onScanLabel} /></View>;
@@ -50,7 +56,7 @@ jest.mock("../component/barcode-scan", () => ({
 }));
 
 jest.mock("expo-constants", () => ({ expoConfig: { get extra() { return mockExtra; } } }));
-jest.mock("../component/cheapo-shopping-provider", () => ({ useCheapoShopping: () => mockEnrolled ? { owner: {} } : null }));
+jest.mock("../component/cheapo-shopping-provider", () => ({ useCheapoShopping: () => mockEnrolled ? mockEnrolledRuntime : null }));
 jest.mock("../data/cheapo-shopping-read-device", () => ({ createOwnerShoppingReads: () => ({
   searchProductCandidates: mockSearchProductCandidates,
 }) }));
@@ -66,6 +72,7 @@ beforeEach(() => {
   mockPush.mockReset();
   mockReplace.mockReset();
   mockProductLookup.mockReset();
+  mockBarcodeProps.mockReset();
   mockSearchProductCandidates.mockReset();
   mockEnrolled = false;
   mockScanParams = {};
@@ -145,6 +152,39 @@ test("opens comparison only from a chosen packaging match and keeps the two ID t
   expect(mockPush).toHaveBeenLastCalledWith({ pathname: "/find-product", params: { productId: "canonical-oats" } });
   candidateLookup.onCompare(observation);
   expect(mockPush).toHaveBeenLastCalledWith({ pathname: "/compare/[id]", params: { id: observation.observationId, source: "shared" } });
+});
+
+test("passes only an opaque intent through navigation and hides its photo from another owner", async () => {
+  mockScanParams = { mode: "lookup" };
+  const capture = await render(<ScanScreen />);
+  const { onCompare, onRetake } = mockProductLookup.mock.lastCall?.[0];
+  const asset = { uri: "file:///private.jpg", width: 200, height: 200, mimeType: "image/jpeg" };
+  const draft = { id: "draft", capturedAt: "2026-11-20T11:00:00Z", original: asset, selected: asset };
+  const product = { id: "catalog", name: "Oats" };
+  onCompare("012345678905", product, draft);
+  expect(mockPush).toHaveBeenLastCalledWith({ pathname: "/find-product", params: {
+    barcode: "012345678905", photoSource: draft.id,
+  } });
+
+  mockScanParams = { barcode: "012345678905", photoSource: draft.id };
+  mockEnrolled = true;
+  const wrongOwner = await render(<FindProductScreen />);
+  expect(await screen.findByText("Barcode lookup")).toBeOnTheScreen();
+  expect(mockBarcodeProps.mock.lastCall?.[0].photoSource).toBeUndefined();
+  await wrongOwner.unmount();
+
+  mockEnrolled = false;
+  const comparison = await render(<FindProductScreen />);
+  expect(await screen.findByText("Barcode lookup")).toBeOnTheScreen();
+  expect(mockBarcodeProps.mock.lastCall?.[0].photoSource).toEqual({ productId: product.id, owner: null, source: {
+    original: asset, selected: asset, capturedAt: draft.capturedAt,
+  } });
+  await comparison.unmount();
+  expect(productPhotoPriceSources.has(draft.id)).toBe(false);
+  onCompare("012345678905", product, draft);
+  onRetake();
+  expect(productPhotoPriceSources.has(draft.id)).toBe(false);
+  await capture.unmount();
 });
 
 test("Home opens barcode lookup with no selected shop and keeps label scan available", async () => {

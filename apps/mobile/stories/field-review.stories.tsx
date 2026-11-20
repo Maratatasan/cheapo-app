@@ -6,6 +6,7 @@ import type { Meta, StoryObj } from '@storybook/react-native-web-vite';
 import { expect, fireEvent, waitFor } from 'storybook/test';
 import { PhotoAnalysisControls } from '../component/photo-analysis-review';
 import { PhotoReview } from '../component/photo-review';
+import { PhotoPriceReviewAction } from '../component/photo-price-review-action';
 import { CurrentShopPrice } from '../component/results/current-shop-price';
 import { applyPhotoSuggestion, emptyReview, type ManualReview } from '../data/photo-review';
 import cropLabel from './fixtures/price-label-crop.jpg';
@@ -14,6 +15,45 @@ import originalLabel from './fixtures/price-label-original.jpg';
 const meta = { title: 'Screens/Field review', component: PhotoReview } satisfies Meta<typeof PhotoReview>;
 export default meta;
 type Story = StoryObj<Pick<Meta<typeof PhotoReview>, 'title'>>;
+
+function ShelfPhotoReviewExample({ noPrice = false }: { noPrice?: boolean }) {
+  const shop = 'Example Market';
+  const [open, setOpen] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [review, setReview] = useState<ManualReview>({ ...emptyReview(shop), productName: 'Whole rolled oats', packSize: '500 g', price: noPrice ? '' : '3.19' });
+  const photo = { uri: cropLabel, width: 600, height: 400, mimeType: 'image/jpeg' as const };
+  return <View style={{ height: 750, width: 390, maxWidth: '100%' }}>
+    <SafeAreaProvider initialMetrics={{ frame: { x: 0, y: 0, width: 390, height: 750 }, insets: { top: 0, bottom: 0, left: 0, right: 0 } }}>
+      {open ? <PhotoReview photo={noPrice ? undefined : photo} review={review} selectedShopName={shop} recordingPrice currentPriceConfirmation
+        saved={saved} busy={false} onReviewChange={setReview}
+        onSave={() => setSaved(true)} onCancel={() => setOpen(false)}>
+        {noPrice ? <PhotoAnalysisControls label="Analyse anyway" onPress={() => {}} /> : null}
+      </PhotoReview> : <View style={{ padding: 18, gap: 12 }}>
+        <Text accessibilityRole="header">Whole rolled oats</Text>
+        <PhotoPriceReviewAction status={noPrice ? 'no-price' : 'clear'} onReview={() => setOpen(true)} />
+      </View>}
+    </SafeAreaProvider>
+  </View>;
+}
+
+export const LocalShelfPriceReview: Story = {
+  render: () => <ShelfPhotoReviewExample />,
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole('button', { name: 'Review price from photo' }));
+    await expect(canvas.getByLabelText('Pack price')).toHaveValue('3.19');
+    await expect(canvas.getByRole('button', { name: 'Confirm current price' })).toBeEnabled();
+  },
+};
+
+export const PhotoWithoutShelfPrice: Story = {
+  render: () => <ShelfPhotoReviewExample noPrice />,
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole('button', { name: 'Review price from photo' }));
+    await expect(canvas.getByLabelText('Pack price')).toHaveValue('');
+    await expect(canvas.getByRole('button', { name: 'Confirm current price' })).toBeDisabled();
+    await expect(canvas.getByRole('button', { name: 'Analyse anyway' })).toBeVisible();
+  },
+};
 
 function ReviewExample({ productName = 'Rooster potatoes', packSize = '2 kg', price = '2.50' }: Partial<ManualReview>) {
   const photo = import.meta.env.DEV ? import.meta.env.VITE_COMPARISON_SAMPLE_PHOTO : undefined;

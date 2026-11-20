@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState, useEffect, type ReactNode } from "react";
 import type { PricePhotoSelection } from "@cheapo/domain/price-history";
+import type { Product } from "@cheapo/domain";
 import { randomUUID } from 'expo-crypto';
 import {
   View,
@@ -39,14 +40,17 @@ import { cropPhoto } from "@/lib/photo-crop";
 import { readOwnEnrolledPriceEdit } from "@/data/edit-enrolled-price-device";
 import { correctionFromReview, saveEnrolledPriceEdit, type PriceEditTarget } from "@/data/edit-enrolled-price";
 import type { PhotoSavePending } from "@/data/price-records";
+import type { PhotoPriceSource } from "@/data/photo-price-source";
 import { usePriceSaveNotice } from "@/hooks/use-price-save-notice";
 import { useEnrolledCatalog } from "@/hooks/use-enrolled-catalog";
-import { useSelectedPhotoText } from "./use-selected-photo-text";
+import { useShelfPhotoEvidence } from "./use-shelf-photo-evidence";
 
 type LinkedPriceCapture = {
   productId: string;
   barcode?: string;
   initialReview: ManualReview;
+  sourcePhoto?: PhotoPriceSource;
+  product?: Product;
   onCancel: () => void;
   onSaved: (pending?: PhotoSavePending, sourceId?: string) => void;
 };
@@ -83,7 +87,10 @@ export const CameraComponent = ({ currentShop, currentShopCountry, onScanBarcode
   onCompareBarcode?: (code: string) => void;
   linkedPrice?: LinkedPriceCapture;
   barcodeCapture?: BarcodeCapture;
-  productLookup?: Pick<ProductPhotoLookupProps, 'onCompare' | 'candidateLookup'>;
+  productLookup?: Pick<ProductPhotoLookupProps, 'candidateLookup'> & {
+    onCompare: (barcode: string, product: Parameters<ProductPhotoLookupProps['onCompare']>[1], draft: LocalPhotoDraft) => void;
+    onRetake?: () => void;
+  };
 }) => {
   const shopping = useCheapoShopping();
   const enrolledCatalog = useEnrolledCatalog();
@@ -97,9 +104,11 @@ export const CameraComponent = ({ currentShop, currentShopCountry, onScanBarcode
   const [permission, requestPermission] = useCameraPermissions();
   const cameraRef = useRef<CameraView>(null);
   const editedFields = useRef(new Set<keyof ManualReview>());
-  const [draft, setDraft] = useState<LocalPhotoDraft | null>(null);
+  const [draft, setDraft] = useState<LocalPhotoDraft | null>(() => linkedPrice?.sourcePhoto && currentShop ? {
+    ...linkedPrice.sourcePhoto, id: randomUUID(), shop: currentShop, productId: linkedPrice.productId,
+    review: linkedPrice.initialReview,
+  } : null);
   const [cropping, setCropping] = useState(false);
-  const pricePhotoText = useSelectedPhotoText(!lookingUp && !cropping ? draft?.selected : undefined);
   const [visitShop, setVisitShop] = useState("");
   const [saved, setSaved] = useState(false);
   const [pendingSaveStatus, setPendingSaveStatus] = useState<PhotoSavePending>();
@@ -122,6 +131,13 @@ export const CameraComponent = ({ currentShop, currentShopCountry, onScanBarcode
   const barcodeRequest = useRef<AbortController | null>(null);
   const photoCatalog = (!editingSaved || editingSaved.target) ? enrolledCatalog : null;
   const matchedProduct = barcode.used ? barcode.product : undefined;
+  const knownProduct = linkedPrice?.product ?? matchedProduct;
+  const { photoText: pricePhotoText, shelfEvidence } = useShelfPhotoEvidence(!lookingUp && !cropping ? draft ?? undefined : undefined,
+    saved || editingSaved ? undefined : knownProduct);
+  const baseReview = reviewWithProduct(draft?.review ?? emptyReview(), matchedProduct);
+  const shelfPrice = shelfEvidence?.kind === 'clear' && draft?.shop && !saved && !editingSaved && !baseReview.price.trim() &&
+    !editedFields.current.has('price') && !editedFields.current.has('currency') && !editedFields.current.has('packSize') ? shelfEvidence.selling : undefined;
+  const currentReview = shelfPrice ? { ...baseReview, price: (shelfPrice.minor / 100).toFixed(2), currency: shelfPrice.currency } : baseReview;
   const checkedCode = barcode.confirmed;
   const openSaved = useRef<AbortController | null>(null);
   useEffect(() => () => openSaved.current?.abort(), [shopping]);
@@ -214,7 +230,7 @@ export const CameraComponent = ({ currentShop, currentShopCountry, onScanBarcode
   }
   async function savePhoto() {
     if (!draft || savePending.current || barcode.checking || barcode.failed || (barcode.product && !matchedProduct)) return;
-    const review = draft.review && reviewWithProduct(draft.review, matchedProduct);
+    const review = draft.review && currentReview;
     const complete = reviewComplete(review, draft.shop?.displayName);
     if ((linkedPrice || matchedProduct || (draft.productId && barcode.confirmed)) && !complete) return;
     if (!barcode.confirmed && barcode.value.trim()) {
@@ -225,7 +241,7 @@ export const CameraComponent = ({ currentShop, currentShopCountry, onScanBarcode
     savePending.current = true;
     setSaving(true);
     setSaveError(undefined);
-    let pendingDraft = matchedProduct ? { ...draft, review, productId: matchedProduct.id } : draft;
+    let pendingDraft: LocalPhotoDraft = { ...draft, review, productId: matchedProduct?.id ?? draft.productId };
     try {
       await shopping?.assertOwner();
       if (editingSaved && !editingSaved.available) {
@@ -457,13 +473,14 @@ export const CameraComponent = ({ currentShop, currentShopCountry, onScanBarcode
   };
 
   const retakePhoto = () => {
+    productLookup?.onRetake?.();
     changeBarcode(barcodeCapture ? barcode.value : "");
     setDraft(null); setSaved(false); setCropping(false);
   };
 
   if (draft && productLookup) return <PhotoProductLookup key={draft.id} photo={draft.original}
     decoded={decodedBarcodes?.draftId === draft.id ? decodedBarcodes.result : undefined}
-    findProduct={findLookupProduct} onCompare={productLookup.onCompare} onRetake={retakePhoto}
+    findProduct={findLookupProduct} onCompare={(code, product) => productLookup.onCompare(code, product, draft)} onRetake={retakePhoto}
     candidateLookup={productLookup.candidateLookup ? {
       ...productLookup.candidateLookup,
       renderIdentitySuggestions: fieldPhotoAnalysisEnabled ? (onApply, busy) =>
@@ -489,14 +506,14 @@ export const CameraComponent = ({ currentShop, currentShopCountry, onScanBarcode
     const renderReview = (controls: ReactNode, suggestion?: ReviewSuggestion) => (
       <PhotoReview
         photo={draft.selected}
-        review={reviewWithProduct(draft.review ?? emptyReview(), matchedProduct)}
+        review={currentReview}
         selectedShopName={draft.shop?.displayName}
         saved={saved}
         savedStatus={saveNotice}
         busy={busy}
         onReviewChange={(review, field) => {
           editedFields.current.add(field);
-          setDraft({ ...draft, review: matchedProduct ? { ...(draft.review ?? emptyReview()), [field]: review[field] } : review });
+          setDraft({ ...draft, review: { ...(draft.review ?? emptyReview()), [field]: review[field] } });
           setSaved(false);
           setVisitShop(review.shop);
           setSaveError(undefined);
@@ -505,6 +522,7 @@ export const CameraComponent = ({ currentShop, currentShopCountry, onScanBarcode
         onSave={savePhoto}
         suggestion={suggestion}
         recordingPrice={Boolean(linkedPrice || matchedProduct || (draft.productId && barcode.confirmed))}
+        currentPriceConfirmation={Boolean(linkedPrice?.sourcePhoto || shelfPrice)}
         saveError={saveError}
         saveBlocked={barcode.checking ? 'Finish checking the barcode before saving.'
           : barcode.failed ? 'Retry the barcode lookup, or remove the entry to save without it.'
@@ -543,7 +561,7 @@ export const CameraComponent = ({ currentShop, currentShopCountry, onScanBarcode
 
     return <View key="review" collapsable={false} style={styles.container}>
       {fieldPhotoAnalysisEnabled ? (
-        <DirectPhotoAnalysis key={draft.selected.uri} photo={draft.selected} photoText={pricePhotoText}
+        <DirectPhotoAnalysis key={draft.selected.uri} photo={draft.selected} photoText={pricePhotoText} noPriceFound={shelfEvidence?.kind === 'no-price'}
           shopCountry={draft.shop && draft.shop.id === currentShop?.id ? currentShopCountry : undefined}
           busy={busy} onApply={(suggestion) => {
           const review = draft.review ?? emptyReview(draft.shop?.displayName);

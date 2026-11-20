@@ -28,7 +28,7 @@ async function photoDataUrl(photo: PhotoAsset, packaging: boolean): Promise<stri
 
 type PhotoRequest = Parameters<typeof requestProductIdentityDraft>[0];
 
-function useDirectPhotoAnalysis<Draft>(photo: PhotoAsset, photoText: SelectedPhotoText | undefined, busy: boolean, packaging: boolean,
+function useDirectPhotoAnalysis<Draft>(photo: PhotoAsset, photoText: SelectedPhotoText | undefined, busy: boolean, packaging: boolean, noPriceFound: boolean,
   requestDraft: (request: PhotoRequest) => Promise<Draft>) {
   const router = useRouter();
   const [authState, setAuthState] = useState(phoneAuth?.getState);
@@ -87,7 +87,7 @@ function useDirectPhotoAnalysis<Draft>(photo: PhotoAsset, photoText: SelectedPho
 
   const controls = <PhotoAnalysisControls
     packaging={packaging}
-    label={authState?.planAllowed ? working ? 'Analysing…' : packaging ? 'Analyse packaging photo' : 'Analyse photo' : 'Connect ChatGPT'}
+    label={authState?.planAllowed ? working ? 'Analysing…' : packaging ? 'Analyse packaging photo' : noPriceFound ? 'Analyse anyway' : 'Analyse photo' : 'Connect ChatGPT'}
     status={status}
     disabled={authState?.planAllowed ? busy || working || authState.busy : authState?.busy}
     onPress={() => {
@@ -103,15 +103,16 @@ function useDirectPhotoAnalysis<Draft>(photo: PhotoAsset, photoText: SelectedPho
   return { controls, draft, applied, working };
 }
 
-export function DirectPhotoAnalysis({ photo, photoText, shopCountry, busy, onApply, children }: {
+export function DirectPhotoAnalysis({ photo, photoText, noPriceFound = false, shopCountry, busy, onApply, children }: {
   photo: PhotoAsset;
   photoText?: SelectedPhotoText;
+  noPriceFound?: boolean;
   shopCountry?: PhotoShopCountry;
   busy: boolean;
   onApply: (draft: AiPriceDraft) => void;
   children: (controls: ReactNode, suggestion?: ReviewSuggestion) => ReactNode;
 }) {
-  const { controls, draft, applied } = useDirectPhotoAnalysis(photo, photoText, busy, false,
+  const { controls, draft, applied } = useDirectPhotoAnalysis(photo, photoText, busy, false, noPriceFound,
     request => requestPhotoDraft({ ...request, shopCountry }));
   return children(controls, draft ? {
     draft,
@@ -128,7 +129,7 @@ export function DirectProductIdentityAnalysis({ photo, busy, onApply }: {
   onApply: (draft: ProductIdentityDraft) => void;
 }) {
   const photoText = useSelectedPhotoText(photo);
-  const { controls, draft, applied, working } = useDirectPhotoAnalysis(photo, photoText, busy, true, requestProductIdentityDraft);
+  const { controls, draft, applied, working } = useDirectPhotoAnalysis(photo, photoText, busy, true, false, requestProductIdentityDraft);
   return <>{controls}{draft ? <ProductIdentitySuggestion draft={draft} disabled={busy || working} onApply={selected => {
     onApply(selected);
     applied('Suggestions added. Check the details before searching.');

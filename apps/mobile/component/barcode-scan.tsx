@@ -15,6 +15,8 @@ import { BarcodePriceSaveNotice } from '@/component/barcode-price-save-notice';
 import { useCheapoShopping } from './cheapo-shopping-provider';
 import { ProductBarcodeCamera } from './product-barcode-camera';
 import { PhotoReview } from './photo-review';
+import { PhotoPriceReviewAction } from './photo-price-review-action';
+import { useShelfPhotoEvidence } from './use-shelf-photo-evidence';
 import { ui } from './results/theme';
 import { CameraActionButton, CameraPermissionActions } from './camera-actions';
 import { loadSavedPriceRecords, saveManualPrice, type DraftShop, type ManualPriceRecord } from '@/data/local-photo';
@@ -33,6 +35,8 @@ import { useProductPhotoSource } from '@/hooks/use-product-presentation-photo';
 import { useProductPhotoUri } from '@/hooks/use-product-photo-uri';
 import type { PhotoSavePending } from '@/data/price-records';
 import type { CheapoShoppingRuntime } from '@/data/shopping-sync-runtime';
+import type { PhotoPriceSource, ProductPhotoPriceSource } from '@/data/photo-price-source';
+import type { PhotoShopCountry } from '@/lib/direct-auth/shop-country';
 
 type ScanResult =
   | { kind: 'loading' }
@@ -44,7 +48,7 @@ type ScanResult =
 
 type ScanEntry =
   | { kind: 'product'; id: string; barcode: string }
-  | { kind: 'price'; record: ManualPriceRecord; barcode?: string };
+  | { kind: 'price'; record: ManualPriceRecord; product: Product; barcode?: string };
 
 type BarcodeEdit = { current: string; target?: Product; proposed?: string; mode: 'choose' | 'scan' | 'manual'; error?: string };
 type LookupKey = { barcode: string } | { productId: string };
@@ -72,8 +76,9 @@ async function loadComparison(
     reference: linked?.row, currentPrice: current?.row, photo: linked?.draft.selected?.uri };
 }
 
-export function BarcodeScan({ currentShop, onScanLabel, initialBarcode, initialProductId }: {
+export function BarcodeScan({ currentShop, currentShopCountry, onScanLabel, initialBarcode, initialProductId, photoSource, onChooseShop }: {
   currentShop?: DraftShop; onScanLabel: () => void; initialBarcode?: string; initialProductId?: string;
+  currentShopCountry?: PhotoShopCountry; photoSource?: ProductPhotoPriceSource; onChooseShop?: () => void;
 }) {
   const router = useRouter();
   const shopping = useCheapoShopping();
@@ -84,13 +89,16 @@ export function BarcodeScan({ currentShop, onScanLabel, initialBarcode, initialP
   const [result, setResult] = useState<ScanResult | undefined>(() => initialBarcode || initialProductId ? { kind: 'loading' } : undefined);
   const [entry, setEntry] = useState<ScanEntry>();
   const [barcodeEdit, setBarcodeEdit] = useState<BarcodeEdit>();
-  const [capture, setCapture] = useState(false);
+  const [capture, setCapture] = useState<boolean | PhotoPriceSource>(false);
   const [productPhoto, setProductPhoto] = useState<{ shop: DraftShop; review: ManualReview }>();
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string>();
   const [saved, setSaved] = useState<{ sourceId: string; pending: PhotoSavePending }>();
   const [paging, setPaging] = useState(false);
   const [sharedPhoto, setSharedPhoto] = useState<{ owner: CheapoShoppingRuntime; id: string; version: number; uri: string }>();
+  const matchedPhoto = result?.kind === 'known' && photoSource?.productId === result.product.id && photoSource.owner === shopping
+    ? photoSource.source : undefined;
+  const { shelfEvidence } = useShelfPhotoEvidence(matchedPhoto, result?.kind === 'known' ? result.product : undefined);
   const saveNotice = usePriceSaveNotice(shopping, saved?.sourceId, saved?.pending);
   const active = useRef<AbortController | null>(null);
   const reads = useRef<AbortController | null>(null);
@@ -304,13 +312,14 @@ export function BarcodeScan({ currentShop, onScanLabel, initialBarcode, initialP
     }
   }
 
-  function startPrice(product: Product, shop: DraftShop) {
+  function startPrice(product: Product, shop: DraftShop, source?: PhotoPriceSource) {
     const pack = packLabel(product.pack);
-    setEntry({ kind: 'price', barcode: product.barcode, record: {
+    setEntry({ kind: 'price', product, barcode: product.barcode, record: {
       id: randomUUID(), capturedAt: new Date().toISOString(), productId: product.id, shop,
       review: { ...emptyReview(shop.displayName), productName: product.name, productType: product.productType,
         variety: product.variety, brand: product.brand, packSize: pack && calculatePackUnitPrice('1', pack) ? pack : undefined },
     } });
+    setCapture(source ?? false);
     setSaveError(undefined);
   }
 
@@ -358,10 +367,13 @@ export function BarcodeScan({ currentShop, onScanLabel, initialBarcode, initialP
   );
 
   if (entry?.kind === 'price') {
-    const { barcode, record } = entry;
+    const { barcode, record, product } = entry;
     if (capture) return (
-      <CameraComponent currentShop={record.shop} linkedPrice={{ productId: record.productId, barcode,
-        initialReview: record.review, onCancel: () => setCapture(false), onSaved: photoSaved }} />
+      <CameraComponent currentShop={record.shop} currentShopCountry={currentShopCountry}
+        linkedPrice={{ productId: record.productId, barcode, product,
+          sourcePhoto: capture === true ? undefined : capture,
+          initialReview: record.review,
+          onCancel: () => { if (capture !== true) setEntry(undefined); setCapture(false); }, onSaved: photoSaved }} />
     );
     return (
       <PhotoReview review={record.review} selectedShopName={record.shop.displayName} recordingPrice savedBarcode={barcode}
@@ -381,6 +393,8 @@ export function BarcodeScan({ currentShop, onScanLabel, initialBarcode, initialP
             {checkedBarcode ? <BarcodeResultActions barcode={checkedBarcode}
               onLookup={() => setBarcodeEdit({ current: checkedBarcode, mode: 'choose' })}
               onEdit={() => setBarcodeEdit({ current: checkedBarcode, target: result.product, mode: 'choose' })} /> : null}
+            {matchedPhoto ? <PhotoPriceReviewAction status={shelfEvidence?.kind} onChooseShop={onChooseShop}
+              onReview={currentShop ? () => startPrice(result.product, currentShop, matchedPhoto) : undefined} /> : null}
             <BarcodePriceComparison currentShop={currentShop} currentPrice={result.currentPrice} history={result.history} paging={paging}
               onRecord={() => { if (currentShop) startPrice(result.product, currentShop); }} onMore={() => { void loadMore(); }}
               comparison={{ catalogProduct: result.product, comparisons: result.comparisons, reference: result.reference,
