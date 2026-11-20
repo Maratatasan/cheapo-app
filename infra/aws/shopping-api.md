@@ -70,6 +70,11 @@ API closed. The hosting stack does not provision or update the database.
    after migration `016` and the runtime role bootstrap. Verify the scoped
    login can publish a verified revision and cannot overwrite its metadata or
    delete its receipt.
+   Before deploying the handler with comparison group reads, apply migration
+   `017`, then [price-observation-group-role.sql](../../apps/api/operator/price-observation-group-role.sql).
+   Verify the scoped login can read the membership table and cannot write to it.
+   The previous handler works with both changes applied. The new handler needs
+   the table and its SELECT grant for price history reads.
 4. Provision a separate PostgreSQL login that inherits only
    `cheapo_api_runtime` and store its `username` and `password` in its own
    secret using the AWS managed Secrets Manager key. Keep credentials in the
