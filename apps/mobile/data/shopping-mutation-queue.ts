@@ -4,11 +4,13 @@ import { z } from 'zod';
 
 import { parseCheapoApiOrigin } from '../lib/cheapo-access/origin';
 import type { PriceAppendReceipt, PriceQueueOwner } from './price-append-queue';
+import { readQueueBackupFiles } from './queue-backup-files';
 import {
   mutationOperationId, mutationReceipt, mutationResource, mutationVersion, requestForMutation, shoppingMutation,
   type MutationRequest, type ShoppingMutation, type ShoppingMutationInput,
 } from './shopping-mutations';
 
+const phaseFileName = /^([\w-]{1,128})\.(intent|request|outcome|failure|resolution)\.json(?:\.[\w-]+\.(pending))?$/;
 const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 const storedRequest = z.strictObject({
   path: z.string().regex(/^\/v1\/(?:products\/[^/?#]+|me\/(?:saved-shops\/[^/?#]+|current-shop|comparison-preferences\/[^/?#]+|price-observations\/[^/?#]+))$/),
@@ -130,12 +132,16 @@ function validateOutcome(intent: ShoppingMutation, request: MutationRequest, res
   }
 }
 
+export function shoppingMutationRoot() {
+  return new Directory(Paths.document, 'cheapo-shopping-mutations-v1');
+}
+
 export async function openShoppingMutationQueue(input: PriceQueueOwner) {
   const origin = parseCheapoApiOrigin(input.origin);
   if (!origin || !uuid.test(input.householdId) || !uuid.test(input.shopperId)) throw Error('Invalid shopping queue owner.');
   const owner = Object.freeze({ origin, householdId: input.householdId, shopperId: input.shopperId });
   const scope = await digestStringAsync(CryptoDigestAlgorithm.SHA256, JSON.stringify([origin, owner.householdId, owner.shopperId]));
-  const directory = new Directory(new Directory(Paths.document, 'cheapo-shopping-mutations-v1'), scope);
+  const directory = new Directory(shoppingMutationRoot(), scope);
   const phaseFile = (operationId: string, phase: Phase) => new File(directory, `${mutationOperationId.parse(operationId)}.${phase}.json`);
 
   async function publish(file: File, text: string) {
@@ -193,7 +199,7 @@ export async function openShoppingMutationQueue(input: PriceQueueOwner) {
     const recovery: Recovery[] = [];
     if (directory.exists) {
       for (const file of directory.list()) {
-        const match = /^([\w-]{1,128})\.(intent|request|outcome|failure|resolution)\.json(?:\.[\w-]+\.(pending))?$/.exec(file.name);
+        const match = phaseFileName.exec(file.name);
         if (!match) continue;
         const [, operationId, phase, pending] = match;
         if (pending) {
@@ -236,6 +242,9 @@ export async function openShoppingMutationQueue(input: PriceQueueOwner) {
 
   return {
     owner,
+    backupFiles() {
+      return serializePublication(() => readQueueBackupFiles(directory, phaseFileName));
+    },
     enqueue(input: ShoppingMutationInput) {
       const intent = shoppingMutation.parse(input);
       const { operationId } = intent;

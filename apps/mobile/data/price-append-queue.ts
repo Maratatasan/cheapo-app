@@ -4,6 +4,7 @@ import { Directory, File, Paths } from 'expo-file-system';
 
 import { parseCheapoApiOrigin } from '../lib/cheapo-access/origin';
 import { type PhotoAsset, type SavedPriceRecord, isSavedPriceRecord, savedPhotoDirectory } from './local-photo';
+import { readQueueBackupFiles } from './queue-backup-files';
 import { reviewComplete, reviewUnitPrice } from './photo-review';
 import { createPriceEvidenceStore } from './price-evidence-queue';
 
@@ -12,6 +13,7 @@ export type PriceAppendReceipt = { id: string; sourceId: string; version: number
 type PriceQueueEntry = { record: SavedPriceRecord; body?: string; receipt?: PriceAppendReceipt };
 type RecoveryEntry = { sourceId: string; reason: 'unfinished' | 'unreadable' };
 type FailurePhase = 'price' | 'photo';
+const backupFileName = /^[A-Za-z0-9_-]{1,128}\.(?:(?:price|receipt|evidence|(?:original|crop)\.evidence-available)\.json|(?:price|photo)\.sync-failed)(?:\.[\w-]+\.pending)?$/;
 const localId = /^[A-Za-z0-9_-]{1,128}$/;
 const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 
@@ -96,13 +98,17 @@ function serializePublication<T>(operation: () => Promise<T>) {
   return result;
 }
 
+export function priceQueueRoot() {
+  return new Directory(Paths.document, 'cheapo-price-outbox-v1');
+}
+
 export async function openPriceAppendQueue(input: PriceQueueOwner) {
   const origin = parseCheapoApiOrigin(input.origin);
   if (!origin || typeof input.householdId !== 'string' || typeof input.shopperId !== 'string'
     || !uuid.test(input.householdId) || !uuid.test(input.shopperId)) throw Error('Invalid price queue owner.');
   const owner = Object.freeze({ origin, householdId: input.householdId, shopperId: input.shopperId });
   const scope = await digestStringAsync(CryptoDigestAlgorithm.SHA256, ownerKey(owner));
-  const directory = new Directory(new Directory(Paths.document, 'cheapo-price-outbox-v1'), scope);
+  const directory = new Directory(priceQueueRoot(), scope);
   const priceFile = (id: string) => new File(directory, `${id}.price.json`);
   const receiptFile = (id: string) => new File(directory, `${id}.receipt.json`);
 
@@ -134,6 +140,48 @@ export async function openPriceAppendQueue(input: PriceQueueOwner) {
       // A valid saved price remains available even if its request is damaged.
     }
     return { record };
+  }
+
+  async function readEntries() {
+    const entries: PriceQueueEntry[] = [];
+    const recovery: RecoveryEntry[] = [];
+    if (!directory.exists) return { entries, recovery };
+    for (const file of directory.list()) {
+      const price = /^([A-Za-z0-9_-]{1,128})\.price\.json$/.exec(file.name);
+      const receipt = /^([A-Za-z0-9_-]{1,128})\.receipt\.json$/.exec(file.name);
+      const staged = /^(([A-Za-z0-9_-]{1,128})\.(?:price|receipt)\.json)\.[\w-]+\.pending$/.exec(file.name);
+      if (staged) {
+        try {
+          const committed = new File(directory, staged[1]);
+          if (file instanceof File && committed.exists && await file.text() === await committed.text()) continue;
+        } catch {
+          // Report the unfinished file and keep its contents available for recovery.
+        }
+        recovery.push({ sourceId: staged[2], reason: 'unfinished' });
+      } else if (receipt && !priceFile(receipt[1]).exists) {
+        recovery.push({ sourceId: receipt[1], reason: 'unreadable' });
+      } else if (price) {
+        const sourceId = price[1];
+        let record: SavedPriceRecord | undefined;
+        try {
+          if (!(file instanceof File)) throw Error('The queued price is not a file.');
+          const pending = await readPrice(file, sourceId);
+          record = pending.record;
+          if (!pending.body) throw Error('Unreadable price request.');
+          const accepted = receiptFile(sourceId);
+          if (!accepted.exists) entries.push(pending);
+          else {
+            const receiptValue = await readFile(accepted);
+            if (!validReceipt(receiptValue, sourceId)) throw Error('Unreadable price acknowledgement.');
+            entries.push({ ...pending, receipt: receiptValue });
+          }
+        } catch {
+          if (record) entries.push({ record });
+          recovery.push({ sourceId, reason: 'unreadable' });
+        }
+      }
+    }
+    return { entries, recovery };
   }
 
   return {
@@ -170,45 +218,13 @@ export async function openPriceAppendQueue(input: PriceQueueOwner) {
     },
     async read() {
       await pendingPublication;
-      const entries: PriceQueueEntry[] = [];
-      const recovery: RecoveryEntry[] = [];
-      if (!directory.exists) return { entries, recovery };
-      for (const file of directory.list()) {
-        const price = /^([A-Za-z0-9_-]{1,128})\.price\.json$/.exec(file.name);
-        const receipt = /^([A-Za-z0-9_-]{1,128})\.receipt\.json$/.exec(file.name);
-        const staged = /^(([A-Za-z0-9_-]{1,128})\.(?:price|receipt)\.json)\.[\w-]+\.pending$/.exec(file.name);
-        if (staged) {
-          try {
-            const committed = new File(directory, staged[1]);
-            if (file instanceof File && committed.exists && await file.text() === await committed.text()) continue;
-          } catch {
-            // Report the unfinished file and keep its contents available for recovery.
-          }
-          recovery.push({ sourceId: staged[2], reason: 'unfinished' });
-        } else if (receipt && !priceFile(receipt[1]).exists) {
-          recovery.push({ sourceId: receipt[1], reason: 'unreadable' });
-        } else if (price) {
-          const sourceId = price[1];
-          let record: SavedPriceRecord | undefined;
-          try {
-            if (!(file instanceof File)) throw Error('The queued price is not a file.');
-            const pending = await readPrice(file, sourceId);
-            record = pending.record;
-            if (!pending.body) throw Error('Unreadable price request.');
-            const accepted = receiptFile(sourceId);
-            if (!accepted.exists) entries.push(pending);
-            else {
-              const receiptValue = await readFile(accepted);
-              if (!validReceipt(receiptValue, sourceId)) throw Error('Unreadable price acknowledgement.');
-              entries.push({ ...pending, receipt: receiptValue });
-            }
-          } catch {
-            if (record) entries.push({ record });
-            recovery.push({ sourceId, reason: 'unreadable' });
-          }
-        }
-      }
-      return { entries, recovery };
+      return readEntries();
+    },
+    backup() {
+      return serializePublication(async () => ({
+        ...await readEntries(),
+        files: await readQueueBackupFiles(directory, backupFileName),
+      }));
     },
     acknowledge(sourceId: string, receipt: unknown) {
       if (!localId.test(sourceId) || !validReceipt(receipt, sourceId)) throw Error('Invalid price acknowledgement.');
