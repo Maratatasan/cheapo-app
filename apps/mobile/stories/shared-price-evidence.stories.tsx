@@ -1,12 +1,15 @@
 import type { PriceObservationDetail } from '@cheapo/domain/price-history';
 import type { Meta, StoryObj } from '@storybook/react-native-web-vite';
 import { useState } from 'react';
-import { View } from 'react-native';
+import { Text, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { expect } from 'storybook/test';
 
 import { SharedPriceEvidence, type EvidenceView } from '../component/shared-price-evidence';
+import { SavedPriceHistoryList } from '../component/saved-price-history-list';
+import { ui } from '../component/results/theme';
 import type { PriceEvidenceRole } from '../data/cheapo-price-photo-read';
+import { projectSharedPrice, savedPriceHistoryRows, type PendingHistoryChange } from '../data/saved-price-history';
 
 const observation: PriceObservationDetail = {
   id: 'fa91641f-d265-4a3b-9695-4ff553ab5138', sourceId: 'example-oats', ownedByCurrentShopper: true, version: 1,
@@ -67,5 +70,42 @@ export const SwitchAndRefresh: Story = {
     await userEvent.click(canvas.getByRole('button', { name: 'Check for photo' }));
     await expect(canvas.getByLabelText('Cropped price photo')).toBeVisible();
     await expect(canvas.getByRole('button', { name: 'Back to saved products' })).toBeVisible();
+  },
+};
+
+function HistoryPreview() {
+  const historyFrame = { ...frame, height: 720 };
+  const [opened, setOpened] = useState<PriceObservationDetail>();
+  const [role, setRole] = useState<PriceEvidenceRole>('crop');
+  const changes: PendingHistoryChange[] = [{ operationId: 'example-correction', title: 'Correct whole rolled oats', resourceId: observation.id, state: 'waiting', change: {
+    action: 'correct', review: { productName: 'Whole rolled oats', price: '3.05', currency: 'GBP', brand: 'Example Mill', packSize: '500 g' },
+    unitPrice: { amount: 0.61, unit: '100g' },
+  } }];
+  const peer = { ...observation, id: '5353588d-923b-4f09-903d-f72adeaded5a', ownedByCurrentShopper: false,
+    productName: 'Thick-cut oats', shopDisplayName: 'Peer Market' };
+  const rows = savedPriceHistoryRows({ legacy: [], queued: [], shared: [observation, peer] });
+  const detail = opened && projectSharedPrice(opened, changes);
+  return <View style={{ width: '100%', maxWidth: historyFrame.width, height: historyFrame.height }}>
+    <SafeAreaProvider initialMetrics={{ frame: historyFrame, insets }}>
+      {detail ? <SharedPriceEvidence observation={detail.display} lastSyncedAt="2026-01-02T10:00:00.000Z" cached
+        activeRole={role} photo={{ role, status: 'cached', uri: images[role] }} pendingChange={detail.pending}
+        onPhotoRole={setRole} onRetryPhoto={() => {}} onBack={() => setOpened(undefined)} />
+        : <SavedPriceHistoryList rows={rows} changes={changes} onOpen={row => {
+          if (row.source === 'shared') setOpened(row.observation.id === observation.id ? observation : peer);
+        }} header={<View><Text accessibilityRole="header" style={ui.title}>Saved products</Text>
+          <Text style={ui.small}>Last synced 2 Jan 2026, 10:00</Text><Text style={ui.small}>Showing saved shared prices</Text></View>} />}
+    </SafeAreaProvider>
+  </View>;
+}
+
+export const SavedHistory: Story = { render: () => <HistoryPreview /> };
+export const OpenPendingHistory: Story = {
+  render: () => <HistoryPreview />,
+  play: async ({ canvas, userEvent }) => {
+    await expect(canvas.getByRole('button', { name: 'Open Thick-cut oats' })).toBeVisible();
+    await userEvent.click(canvas.getByRole('button', { name: 'Open Whole rolled oats' }));
+    await expect(canvas.getByText('Saved on this phone · Waiting to sync')).toBeVisible();
+    await expect(canvas.getByText('£3.05')).toBeVisible();
+    await expect(canvas.getByLabelText('Cropped price photo')).toBeVisible();
   },
 };

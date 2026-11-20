@@ -1,9 +1,14 @@
-import { fireEvent, render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, renderHook, screen } from '@testing-library/react-native';
+import type { PriceObservationDetail } from '@cheapo/domain/price-history';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ShopRepositoryProvider } from '../component/shop/shop-repository-provider';
 import type { ShopRepository } from '../data/shop-repository';
-import SavedProducts from '../app/saved-products';
+import SavedProducts, { SavedProductsScreen } from '../app/saved-products';
 import SavedComparison from '../app/compare/[id]';
 import { emptyReview, loadSavedPriceRecords, type LocalPhotoDraft, type ManualPriceRecord } from '../data/local-photo';
+import { openCheapoSavedPriceReads } from '../data/cheapo-shopping-read-device';
+import type { PendingHistoryChange } from '../data/saved-price-history';
+import { useSavedPriceReads } from '../data/use-saved-price-reads';
 
 const mockPush = jest.fn();
 let mockFocusRevision = 0;
@@ -23,6 +28,7 @@ jest.mock('expo-router', () => ({
 }));
 
 jest.mock('expo-file-system', () => ({}));
+jest.mock('../data/cheapo-shopping-read-device', () => ({ openCheapoSavedPriceReads: jest.fn() }));
 jest.mock('../data/local-photo', () => ({
   ...jest.requireActual('../data/local-photo'),
   loadSavedPriceRecords: jest.fn(),
@@ -38,6 +44,98 @@ const complete: LocalPhotoDraft = {
   shop: { id: 'lidl-1', displayName: 'Tandem Centre Lidl' },
   review: { ...emptyReview('Tandem Centre Lidl'), productName: 'Basmati rice', price: '1.25', productType: 'Dry rice', variety: 'Basmati', brand: 'Example brand' },
 };
+
+const owner = { origin: 'https://cheapo.example', householdId: '93b93988-a027-483e-8c4d-ed58a163fbfa', shopperId: 'd002d3a7-2744-4414-8336-afc644ec6878' };
+const shared: PriceObservationDetail = {
+  id: 'fa91641f-d265-4a3b-9695-4ff553ab5138', sourceId: 'rice', ownedByCurrentShopper: true, version: 2,
+  capturedAt: '2026-11-12T12:00:00.000000Z', productId: 'rice-product', sourceProductId: null,
+  productName: 'Original shared rice', shopId: 'shared-shop', sourceShopId: null, shopDisplayName: 'Shared branch',
+  priceAmount: '2.10', currency: 'GBP', review: { productType: 'Dry rice' }, unitPrice: { amount: 0.21, unit: '100g' },
+  cropBox: null, photos: [{ role: 'original', width: 1000, height: 500 }, { role: 'crop', width: 400, height: 300 }], selectedPhotoRole: 'crop',
+};
+const peer = { ...shared, id: '5353588d-923b-4f09-903d-f72adeaded5a', ownedByCurrentShopper: false, productName: 'Peer rice' };
+const lastSyncedAt = '2026-11-12T13:00:00Z';
+const safeArea = { frame: { x: 0, y: 0, width: 425, height: 680 }, insets: { top: 0, left: 0, bottom: 0, right: 0 } };
+const cached = <T,>(value: T) => ({ status: 'cached' as const, value, lastSyncedAt });
+
+test('opens shared history and only the selected photo, applying the current owner’s pending correction', async () => {
+  jest.mocked(loadSavedPriceRecords).mockResolvedValue([complete]);
+  const queue = { owner, read: jest.fn().mockResolvedValue({ entries: [], recovery: [] }) };
+  const correction: PendingHistoryChange = { operationId: 'rice-correction', title: 'Correct shared rice', resourceId: shared.id, state: 'waiting', change: { action: 'correct',
+    review: { productName: 'Corrected shared rice', price: '3.40', currency: 'GBP', productType: 'Dry rice' } } };
+  const session = {
+    assertCurrent: jest.fn(),
+    loadPriceHistory: jest.fn().mockResolvedValueOnce(cached({ observations: [shared], nextCursor: 'next-page' }))
+      .mockResolvedValueOnce(cached({ observations: [peer], nextCursor: null })),
+    loadPriceObservation: jest.fn().mockResolvedValue(cached({ observation: shared })),
+    loadPhoto: jest.fn().mockResolvedValue(cached({ uri: 'file:///cache/verified.jpg' })),
+  };
+  jest.mocked(openCheapoSavedPriceReads).mockResolvedValue(session);
+  await render(<SafeAreaProvider initialMetrics={safeArea}><SavedProductsScreen priceQueue={queue}
+    loadPriceChanges={async () => [correction]} /></SafeAreaProvider>);
+
+  const card = await screen.findByRole('button', { name: 'Open Corrected shared rice' });
+  expect(screen.getByText('Showing saved shared prices')).toBeOnTheScreen();
+  expect(session.loadPhoto).not.toHaveBeenCalled();
+  await fireEvent.press(screen.getByRole('button', { name: 'Load more saved prices' }));
+  expect(await screen.findByRole('button', { name: 'Open Peer rice' })).toBeOnTheScreen();
+  await fireEvent.press(card);
+  expect(await screen.findByLabelText('Cropped price photo')).toBeOnTheScreen();
+  expect(screen.getByText('£3.40')).toBeOnTheScreen();
+  expect(screen.getByText('Saved on this phone · Waiting to sync')).toBeOnTheScreen();
+  expect(session.loadPriceObservation).toHaveBeenCalledWith(shared.id, expect.anything());
+  expect(session.loadPhoto).toHaveBeenCalledTimes(1);
+  expect(session.loadPhoto).toHaveBeenCalledWith(shared.id, 'crop', expect.anything());
+  await fireEvent.press(screen.getByRole('button', { name: 'Original' }));
+  expect(await screen.findByLabelText('Original price photo')).toBeOnTheScreen();
+  await fireEvent.press(screen.getByRole('button', { name: 'Open this phone’s copy' }));
+  expect(await screen.findByRole('button', { name: 'Edit Basmati rice' })).toBeOnTheScreen();
+  expect(screen.getByLabelText('Saved photo')).toHaveProp('source', { uri: selected.uri });
+});
+
+test('keeps the local list when a former owner’s shared detail resolves after the provider is cleared', async () => {
+  jest.mocked(loadSavedPriceRecords).mockResolvedValue([complete]);
+  const queue = { owner, read: jest.fn().mockResolvedValue({ entries: [], recovery: [] }) };
+  let completeRead!: (value: ReturnType<typeof cached<{ observation: PriceObservationDetail }>>) => void;
+  const session = {
+    assertCurrent: jest.fn(), loadPriceHistory: jest.fn().mockResolvedValue(cached({ observations: [peer], nextCursor: null })),
+    loadPriceObservation: jest.fn().mockImplementation(() => new Promise(resolve => { completeRead = resolve; })), loadPhoto: jest.fn(),
+  };
+  jest.mocked(openCheapoSavedPriceReads).mockResolvedValue(session);
+  await render(<SafeAreaProvider initialMetrics={safeArea}><SavedProductsScreen priceQueue={queue} /></SafeAreaProvider>);
+  await fireEvent.press(await screen.findByRole('button', { name: 'Open Peer rice' }));
+  expect(await screen.findByText('Loading saved price…')).toBeOnTheScreen();
+  await screen.rerender(<SafeAreaProvider initialMetrics={safeArea}><SavedProductsScreen /></SafeAreaProvider>);
+  completeRead(cached({ observation: peer }));
+  expect(await screen.findByRole('button', { name: 'Open Basmati rice' })).toBeOnTheScreen();
+  expect(screen.queryByText('Peer rice')).not.toBeOnTheScreen();
+  expect(session.loadPhoto).not.toHaveBeenCalled();
+});
+
+test('keeps a newer history refresh when an older page resolves under the same focus', async () => {
+  const queue = { owner, read: jest.fn().mockResolvedValue({ entries: [], recovery: [] }) };
+  type Page = ReturnType<typeof cached<{ observations: PriceObservationDetail[]; nextCursor: string | null }>>;
+  let resolveOlder!: (value: Page) => void;
+  let markOlderStarted!: () => void;
+  const olderStarted = new Promise<void>(resolve => { markOlderStarted = resolve; });
+  const latest = { ...shared, productName: 'Refreshed rice' };
+  const session = {
+    assertCurrent: jest.fn(), loadPriceObservation: jest.fn(), loadPhoto: jest.fn(),
+    loadPriceHistory: jest.fn().mockResolvedValueOnce(cached({ observations: [shared], nextCursor: 'older-page' }))
+      .mockImplementationOnce(() => new Promise<Page>(resolve => { resolveOlder = resolve; markOlderStarted(); }))
+      .mockResolvedValueOnce({ ...cached({ observations: [latest], nextCursor: null }), status: 'fresh' }),
+  };
+  jest.mocked(openCheapoSavedPriceReads).mockResolvedValue(session);
+  const { result } = await renderHook(() => useSavedPriceReads(queue));
+  const signal = new AbortController().signal;
+  await act(async () => { await result.current.refresh(signal); });
+  let older!: Promise<void>;
+  await act(async () => { older = result.current.refresh(signal, 'older-page'); await olderStarted; });
+  await act(async () => { await result.current.refresh(signal); });
+  expect(session.loadPriceHistory.mock.calls[1][1].aborted).toBe(true);
+  await act(async () => { resolveOlder(cached({ observations: [peer], nextCursor: 'still-older' })); await older; });
+  expect(result.current.history).toMatchObject({ status: 'fresh', observations: [latest], nextCursor: null });
+});
 
 test('reopens a saved product with its shop, price, and original photo', async () => {
   jest.mocked(loadSavedPriceRecords).mockResolvedValue([complete]);
