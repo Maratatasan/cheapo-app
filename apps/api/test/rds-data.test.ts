@@ -156,8 +156,11 @@ test('serves the authenticated saved-shop route through the same transaction bou
     if (command instanceof BeginTransactionCommand) return { transactionId: 'test-transaction' };
     if (!(command instanceof ExecuteStatementCommand)) return {};
     const sql = command.input.sql ?? '';
-    if (sql.includes('FROM cheapo.shopper_credential')) {
-      assert.deepEqual(command.input.parameters, [{ name: 'p1', value: { stringValue: 'f631f9f66ea227a56a513a872b6b16872365191cafaa27dd47b7852562e65ef5' } }]);
+    if (sql.includes('FROM cheapo.resolve_shopping_member')) {
+      assert.deepEqual(command.input.parameters, [
+        { name: 'p1', value: { stringValue: 'f631f9f66ea227a56a513a872b6b16872365191cafaa27dd47b7852562e65ef5' } },
+        { name: 'p2', value: { booleanValue: false } },
+      ]);
       return {
         columnMetadata: [
           { label: 'household_id', typeName: 'uuid' },

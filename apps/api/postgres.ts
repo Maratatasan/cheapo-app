@@ -25,12 +25,9 @@ export function postgresPreferences(database: { query: ShoppingQuery }): Execute
     // Check the credential and membership in the same statement as the read or write.
     const { rows } = await database.query<PreferenceResult>(`
       WITH credential AS (
-        SELECT household_id, shopper_id FROM cheapo.shopper_credential
-        WHERE token_digest = $1 AND revoked_at IS NULL AND expires_at > statement_timestamp()
+        SELECT shopper_id, active FROM cheapo.resolve_shopping_member($1, false)
       ), member AS (
-        SELECT shopper_id FROM credential
-        JOIN cheapo.household_membership AS membership USING (household_id, shopper_id)
-        WHERE membership.revoked_at IS NULL
+        SELECT shopper_id FROM credential WHERE active
       ), preference AS (${operationSql[operation]})
       SELECT CASE
         WHEN EXISTS (SELECT 1 FROM member) THEN 'authorized'
