@@ -1,13 +1,13 @@
 import { useState } from "react";
-import { Button, Platform, View } from "react-native";
+import { Button, Platform } from "react-native";
 import { Stack, useRouter } from "expo-router";
 import Constants from "expo-constants";
 import { useCheapoShopping } from "@/component/cheapo-shopping-provider";
+import { HomeConnectionActions } from "@/component/home-connection-actions";
 import { ShopChooser, ShopLoadFeedback, ShopSyncFeedback } from "@/component/shop/shop-chooser";
 import { ShopHome } from "@/component/shop/shop-home";
 import { useSavedShops } from "@/hooks/use-saved-shops";
 import { fieldCheapoApiOrigin } from "@/lib/cheapo-access/config";
-import { ui } from "@/component/results/theme";
 
 export default function Index() {
   const router = useRouter();
@@ -26,12 +26,12 @@ export default function Index() {
           headerTransparent: { ios: false },
           headerRight: showDeveloperTools
             ? () => <Button title="Developer tools" onPress={() => router.push("/developer-tools")} />
-            : fieldTest ? () => (
-                <View style={ui.row}>
-                  <Button title="ChatGPT" onPress={() => router.push("/direct-auth")} />
-                  {showCheapoAccess ? <Button title="Cheapo access" onPress={() => router.push("/cheapo-access")} /> : null}
-                </View>
-              )
+            : fieldTest || showCheapoAccess ? () => (
+              <HomeConnectionActions
+                onChatGPT={fieldTest ? () => router.push("/direct-auth") : undefined}
+                onCheapoAccess={showCheapoAccess ? () => router.push("/cheapo-access") : undefined}
+              />
+            )
             : undefined,
         }}
       />

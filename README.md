@@ -72,6 +72,13 @@ photo objects. Completed prices commit on the phone before syncing, and **Pendin
 sync** shows waiting uploads, failed changes and record conflicts. The separate
 ChatGPT connection serves optional photo analysis.
 
+For a standalone iPhone shared-shopping build, set `CHEAPO_IOS_SHARED=1` and
+provide the approved plain HTTPS origin as `CHEAPO_API_ORIGIN` when building.
+This keeps the existing iPhone app identity and shows **Cheapo access** on Home.
+Enter the separately issued phone credential on the iPhone. Expo SecureStore
+keeps it in the device Keychain. The build configuration contains the origin
+and the opt-in flag.
+
 Use the [Field build guide](docs/local-photo-review.md#standalone-field-test-build),
 [device enrollment guide](apps/api/README.md#issue-or-revoke-beta-phone-access),
 and [app map](docs/app-map.md) for the current routes and storage boundaries.
