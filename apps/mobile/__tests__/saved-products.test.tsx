@@ -271,6 +271,30 @@ test('opens shared history and only the selected photo, applying the current own
   expect(screen.getByLabelText('Saved photo')).toHaveProp('source', { uri: selected.uri });
 });
 
+test('returns from a price on the loaded second page to the original native list', async () => {
+  jest.mocked(loadSavedPriceRecords).mockResolvedValue([]);
+  const queue = { owner, read: jest.fn().mockResolvedValue({ entries: [], recovery: [] }) };
+  const session = {
+    assertCurrent: jest.fn(),
+    loadPriceHistory: jest.fn().mockResolvedValueOnce(cached({ observations: [shared], nextCursor: 'next-page' }))
+      .mockResolvedValueOnce(cached({ observations: [peer], nextCursor: null })),
+    loadPriceObservation: jest.fn().mockResolvedValue(cached({ observation: peer })),
+    loadPhoto: jest.fn(), loadSelectedPhoto: jest.fn().mockResolvedValue(cached({ uri: 'file:///cache/verified.jpg' })),
+  };
+  jest.mocked(openCheapoSavedPriceReads).mockResolvedValue(session);
+  await render(<SafeAreaProvider initialMetrics={safeArea}><SavedProductsScreen priceQueue={queue} /></SafeAreaProvider>);
+
+  await fireEvent.press(await screen.findByRole('button', { name: 'Load more saved prices' }));
+  const card = await screen.findByRole('button', { name: 'Open Peer rice' });
+  await fireEvent.press(card);
+  expect(await screen.findByLabelText('Cropped price photo')).toBeOnTheScreen();
+  expect(screen.queryByRole('button', { name: 'Open Peer rice' })).not.toBeOnTheScreen();
+  await fireEvent.press(screen.getByRole('button', { name: 'Back to saved products' }));
+
+  expect(screen.getByRole('button', { name: 'Open Peer rice' }) === card).toBe(true);
+  expect(session.loadPriceHistory).toHaveBeenCalledTimes(2);
+});
+
 test('reopens a kept cloud record offline without an old detail cache and hides it after access denial', async () => {
   jest.mocked(loadSavedPriceRecords).mockResolvedValue([]);
   const queue = { owner, read: jest.fn().mockResolvedValue({ entries: [], recovery: [] }) };

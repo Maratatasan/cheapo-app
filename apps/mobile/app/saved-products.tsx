@@ -6,7 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useCheapoShopping } from '@/component/cheapo-shopping-provider';
 import { EditPriceButton } from '@/component/results/edit-price-button';
 import { color, spacing, ui } from '@/component/results/theme';
-import { SavedPriceDetails, SavedPriceHistoryList } from '@/component/saved-price-history-list';
+import { SavedPriceDetails, SavedPriceHistoryPane } from '@/component/saved-price-history-list';
 import { PendingPriceNotice, SharedPriceEvidence } from '@/component/shared-price-evidence';
 import { loadSavedPriceRecords, reviewComplete, type SavedPriceRecord } from '@/data/local-photo';
 import type { PriceQueueOwner } from '@/data/price-append-queue';
@@ -77,107 +77,105 @@ export function SavedProductsScreen({ priceQueue = null, loadPriceChanges, expor
     }
   }
 
-  return (
-    <>
-      <Stack.Screen options={{ title: 'Saved products and photos' }} />
-      {detail && 'observation' in detail ? (
-        <SharedPriceEvidence observation={detail.observation} lastSyncedAt={detail.lastSyncedAt}
-          cached={detail.status === 'cached'} activeRole={detail.role} photo={detail.photo} pendingChange={detail.pending}
-          onPhotoRole={role => { void openShared(detail.id, role); }}
-          onRetryPhoto={() => { void openShared(detail.id, detail.role ?? undefined); }} onBack={closeShared}
-          onCompare={() => router.push({ pathname: '/compare/[id]', params: { id: detail.id, source: 'shared' } })}
-          onEdit={() => router.push({ pathname: '/edit-price/[id]', params: { id: detail.id, source: 'shared' } })}
-          onOpenLocal={linkedLocal?.source === 'shared' && linkedLocal.linkedLocal ? () => {
-            closeShared();
-            setOriginal(false);
-            setOpenedId(linkedLocal.linkedLocal?.key);
-          } : undefined} />
-      ) : detail ? (
-        <View style={ui.page}>
-          <View style={[ui.content, styles.fill]}>
-            <Text accessibilityLiveRegion="polite" style={ui.body}>
-              {detail.status === 'loading' ? 'Loading saved price…' : 'Shared details unavailable'}
-            </Text>
-            {detail.status === 'unavailable' ? (
-              <Button title="Try again" onPress={() => { void openShared(detail.id); }} />
-            ) : null}
-          </View>
-          <SafeAreaView edges={['bottom']} style={styles.footer}>
-            <Pressable accessibilityRole="button" style={ui.button} onPress={closeShared}>
-              <Text style={ui.buttonText}>Back to saved products</Text>
-            </Pressable>
-          </SafeAreaView>
+  const detailView = detail && 'observation' in detail ? (
+    <SharedPriceEvidence observation={detail.observation} lastSyncedAt={detail.lastSyncedAt}
+      cached={detail.status === 'cached'} activeRole={detail.role} photo={detail.photo} pendingChange={detail.pending}
+      onPhotoRole={role => { void openShared(detail.id, role); }}
+      onRetryPhoto={() => { void openShared(detail.id, detail.role ?? undefined); }} onBack={closeShared}
+      onCompare={() => router.push({ pathname: '/compare/[id]', params: { id: detail.id, source: 'shared' } })}
+      onEdit={() => router.push({ pathname: '/edit-price/[id]', params: { id: detail.id, source: 'shared' } })}
+      onOpenLocal={linkedLocal?.source === 'shared' && linkedLocal.linkedLocal ? () => {
+        closeShared();
+        setOriginal(false);
+        setOpenedId(linkedLocal.linkedLocal?.key);
+      } : undefined} />
+  ) : detail ? (
+    <View style={ui.page}>
+      <View style={[ui.content, styles.fill]}>
+        <Text accessibilityLiveRegion="polite" style={ui.body}>
+          {detail.status === 'loading' ? 'Loading saved price…' : 'Shared details unavailable'}
+        </Text>
+        {detail.status === 'unavailable' ? (
+          <Button title="Try again" onPress={() => { void openShared(detail.id); }} />
+        ) : null}
+      </View>
+      <SafeAreaView edges={['bottom']} style={styles.footer}>
+        <Pressable accessibilityRole="button" style={ui.button} onPress={closeShared}>
+          <Text style={ui.buttonText}>Back to saved products</Text>
+        </Pressable>
+      </SafeAreaView>
+    </View>
+  ) : opened ? (
+    <ScrollView style={ui.page} contentContainerStyle={ui.content}>
+      <Button title="Back to saved products" onPress={() => setOpenedId(undefined)} />
+      <SavedPriceDetails draft={opened} />
+      <PendingPriceNotice state={openedView.pending} />
+      {openedView.recordedInErrorReason ? <Text style={ui.body}>Recorded in error · {openedView.recordedInErrorReason}</Text> : null}
+      {reviewComplete(opened.review, opened.shop?.displayName) ? (
+        <View style={styles.actions}>
+          {!openedView.recordedInErrorReason ? (
+            <Button title="Compare saved prices" onPress={() => router.push({ pathname: '/compare/[id]', params: {
+              id: opened.id, ...(openedRow?.source === 'queued' ? { source: 'queued' } : {}),
+            } })} />
+          ) : null}
+          <EditPriceButton label={`Edit ${opened.review?.productName.trim()}`} onPress={() => router.push({ pathname: '/edit-price/[id]', params: { id: opened.id } })} />
         </View>
-      ) : opened ? (
-        <ScrollView style={ui.page} contentContainerStyle={ui.content}>
-          <Button title="Back to saved products" onPress={() => setOpenedId(undefined)} />
-          <SavedPriceDetails draft={opened} />
-          <PendingPriceNotice state={openedView.pending} />
-          {openedView.recordedInErrorReason ? <Text style={ui.body}>Recorded in error · {openedView.recordedInErrorReason}</Text> : null}
-          {reviewComplete(opened.review, opened.shop?.displayName) ? (
-            <View style={styles.actions}>
-              {!openedView.recordedInErrorReason ? (
-                <Button title="Compare saved prices" onPress={() => router.push({ pathname: '/compare/[id]', params: {
-                  id: opened.id, ...(openedRow?.source === 'queued' ? { source: 'queued' } : {}),
-                } })} />
-              ) : null}
-              <EditPriceButton label={`Edit ${opened.review?.productName.trim()}`} onPress={() => router.push({ pathname: '/edit-price/[id]', params: { id: opened.id } })} />
+      ) : null}
+      {opened.original && <Image
+        accessibilityLabel="Saved photo"
+        resizeMode="contain"
+        source={{ uri: (original ? opened.original : opened.selected).uri }}
+        style={styles.preview}
+      />}
+      {opened.original && opened.original.uri !== opened.selected.uri ? (
+        <Button title={original ? 'View crop' : 'View original'} onPress={() => setOriginal(!original)} />
+      ) : null}
+    </ScrollView>
+  ) : undefined;
+
+  return <>
+    <Stack.Screen options={{ title: 'Saved products and photos' }} />
+    <SavedPriceHistoryPane detail={detailView} rows={rows} changes={changes} loadSharedThumbnail={priceQueue ? loadThumbnail : undefined} onOpen={item => {
+      if (item.source === 'shared') {
+        setOpenedId(undefined);
+        void openShared(item.observation.id);
+      } else {
+        setOriginal(false);
+        setOpenedId(item.key);
+      }
+    }} header={error || history || (Platform.OS === 'android' && drafts) ? (
+        <View style={styles.details}>
+          {error ? <>
+            <Text accessibilityRole="alert" style={ui.body}>Could not read saved products and photos.</Text>
+            <Button title="Try again" onPress={() => { if (focus.current) refresh(focus.current.signal); }} />
+          </> : Platform.OS === 'android' && drafts ? <>
+            <Button title={exporting ? 'Preparing ZIP…' : 'Export saved products and photos'} disabled={exporting} onPress={exportSaved} />
+            {exportError ? <Text accessibilityRole="alert" style={ui.body}>{exportError}</Text> : null}
+          </> : null}
+          {history?.lastSyncedAt ? <Text style={ui.small}>Last synced {new Date(history.lastSyncedAt).toLocaleString()}</Text> : null}
+          {history?.status === 'cached' ? <Text style={ui.small}>Showing saved shared prices</Text> : null}
+          {history?.status === 'loading' ? <Text accessibilityLiveRegion="polite" style={ui.small}>Loading shared prices…</Text> : null}
+          {history?.status === 'unavailable' ? (
+            <View>
+              <Text style={ui.small}>Shared prices unavailable</Text>
+              <Button title="Try shared prices again" onPress={() => { if (focus.current) void refreshShared(focus.current.signal); }} />
             </View>
           ) : null}
-          {opened.original && <Image
-            accessibilityLabel="Saved photo"
-            resizeMode="contain"
-            source={{ uri: (original ? opened.original : opened.selected).uri }}
-            style={styles.preview}
-          />}
-          {opened.original && opened.original.uri !== opened.selected.uri ? (
-            <Button title={original ? 'View crop' : 'View original'} onPress={() => setOriginal(!original)} />
-          ) : null}
-        </ScrollView>
-      ) : (
-        <SavedPriceHistoryList rows={rows} changes={changes} loadSharedThumbnail={priceQueue ? loadThumbnail : undefined} onOpen={item => {
-          if (item.source === 'shared') {
-            setOpenedId(undefined);
-            void openShared(item.observation.id);
-          } else {
-            setOriginal(false);
-            setOpenedId(item.key);
-          }
-        }} header={error || history || (Platform.OS === 'android' && drafts) ? (
-            <View style={styles.details}>
-              {error ? <>
-                <Text accessibilityRole="alert" style={ui.body}>Could not read saved products and photos.</Text>
-                <Button title="Try again" onPress={() => { if (focus.current) refresh(focus.current.signal); }} />
-              </> : Platform.OS === 'android' && drafts ? <>
-                <Button title={exporting ? 'Preparing ZIP…' : 'Export saved products and photos'} disabled={exporting} onPress={exportSaved} />
-                {exportError ? <Text accessibilityRole="alert" style={ui.body}>{exportError}</Text> : null}
-              </> : null}
-              {history?.lastSyncedAt ? <Text style={ui.small}>Last synced {new Date(history.lastSyncedAt).toLocaleString()}</Text> : null}
-              {history?.status === 'cached' ? <Text style={ui.small}>Showing saved shared prices</Text> : null}
-              {history?.status === 'loading' ? <Text accessibilityLiveRegion="polite" style={ui.small}>Loading shared prices…</Text> : null}
-              {history?.status === 'unavailable' ? (
-                <View>
-                  <Text style={ui.small}>Shared prices unavailable</Text>
-                  <Button title="Try shared prices again" onPress={() => { if (focus.current) void refreshShared(focus.current.signal); }} />
-                </View>
-              ) : null}
-            </View>
-          ) : undefined}
-          empty={error || history?.status === 'loading' ? undefined : (
-            <Text style={ui.body} accessibilityLiveRegion="polite">
-              {Platform.OS === 'web' ? 'Saved products and photos are available in the phone app.'
-                : drafts ? 'Saved items and photo drafts will appear here.' : 'Loading saved products and photos…'}
-            </Text>
-          )}
-          footer={history?.nextCursor ? (
-            <Button title="Load more saved prices" disabled={history.status === 'loading'} onPress={() => {
-              if (focus.current && history.nextCursor) void refreshShared(focus.current.signal, history.nextCursor);
-            }} />
-          ) : undefined}
-        />
+        </View>
+      ) : undefined}
+      empty={error || history?.status === 'loading' ? undefined : (
+        <Text style={ui.body} accessibilityLiveRegion="polite">
+          {Platform.OS === 'web' ? 'Saved products and photos are available in the phone app.'
+            : drafts ? 'Saved items and photo drafts will appear here.' : 'Loading saved products and photos…'}
+        </Text>
       )}
-    </>
-  );
+      footer={history?.nextCursor ? (
+        <Button title="Load more saved prices" disabled={history.status === 'loading'} onPress={() => {
+          if (focus.current && history.nextCursor) void refreshShared(focus.current.signal, history.nextCursor);
+        }} />
+      ) : undefined}
+    />
+  </>;
 }
 
 const styles = StyleSheet.create({

@@ -59,7 +59,7 @@ function SharedPriceThumbnail({ observation, changes, visible, load }: {
     : <View style={styles.thumbnail} />;
 }
 
-export function SavedPriceHistoryList({ rows, changes, onOpen, loadSharedThumbnail, header, empty, footer }: {
+type SavedPriceHistoryListProps = {
   rows: SavedPriceHistoryRow[];
   changes: readonly PendingHistoryChange[];
   onOpen(row: SavedPriceHistoryRow): void;
@@ -67,7 +67,13 @@ export function SavedPriceHistoryList({ rows, changes, onOpen, loadSharedThumbna
   header?: ReactElement;
   empty?: ReactElement;
   footer?: ReactElement;
-}) {
+};
+
+export function SavedPriceHistoryPane({ detail, ...list }: SavedPriceHistoryListProps & { detail?: ReactElement }) {
+  return detail ?? <SavedPriceHistoryList {...list} />;
+}
+
+export function SavedPriceHistoryList({ rows, changes, onOpen, loadSharedThumbnail, header, empty, footer }: SavedPriceHistoryListProps) {
   const [visibleKeys, setVisibleKeys] = useState<ReadonlySet<string>>(new Set());
   const onViewableItemsChanged = useCallback(({ viewableItems }: { viewableItems: readonly { key: string }[] }) => {
     setVisibleKeys(new Set(viewableItems.map(item => item.key)));
