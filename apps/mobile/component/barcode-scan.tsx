@@ -11,6 +11,8 @@ import { DisplayState } from './results/display-state';
 import { ShopComparison, type ComparisonRow } from './results/shop-comparison';
 import { CurrentShopPrice } from './results/current-shop-price';
 import { CameraComponent } from './camera';
+import { BarcodePriceSaveNotice } from '@/component/barcode-price-save-notice';
+import { useCheapoShopping } from './cheapo-shopping-provider';
 import { ProductBarcodeCamera } from './product-barcode-camera';
 import { PhotoReview } from './photo-review';
 import { ui } from './results/theme';
@@ -37,8 +39,10 @@ function packLabel(pack: Product['pack']) {
   return pack && (pack.label ?? `${pack.quantity} ${pack.unit}`);
 }
 
-async function loadComparison(product: Product, shopId: string | undefined, barcode: string): Promise<Extract<ScanResult, { kind: 'known' }>> {
-  const drafts = await loadSavedPriceRecords();
+async function loadComparison(
+  product: Product, shopId: string | undefined, barcode: string, loadPrices: typeof loadSavedPriceRecords,
+): Promise<Extract<ScanResult, { kind: 'known' }>> {
+  const drafts = await loadPrices();
   const rows = drafts.flatMap(draft => {
     const row = comparisonRowFromDraft(draft);
     return row ? [{ row, draft }] : [];
@@ -51,6 +55,8 @@ async function loadComparison(product: Product, shopId: string | undefined, barc
 
 export function BarcodeScan({ currentShop, onScanLabel }: { currentShop?: DraftShop; onScanLabel: () => void }) {
   const router = useRouter();
+  const shopping = useCheapoShopping();
+  const loadPrices = shopping?.priceRecords.loadAll ?? loadSavedPriceRecords;
   const shopId = currentShop?.id;
   const [permission, requestPermission] = useCameraPermissions();
   const [focused, setFocused] = useState(false);
@@ -61,6 +67,7 @@ export function BarcodeScan({ currentShop, onScanLabel }: { currentShop?: DraftS
   const [productPhoto, setProductPhoto] = useState<{ shop: DraftShop; review: ManualReview }>();
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string>();
+  const [savedOnPhone, setSavedOnPhone] = useState(false);
   const active = useRef<AbortController | null>(null);
   const reading = useRef(false);
   const selected = useRef<{ product: Product; barcode: string } | undefined>(undefined);
@@ -70,7 +77,7 @@ export function BarcodeScan({ currentShop, onScanLabel }: { currentShop?: DraftS
     active.current = controller;
     setFocused(true);
     if (selected.current) {
-      loadComparison(selected.current.product, shopId, selected.current.barcode).then(next => {
+      loadComparison(selected.current.product, shopId, selected.current.barcode, loadPrices).then(next => {
         if (!controller.signal.aborted) setResult(next);
       }).catch(() => {
         if (!controller.signal.aborted) setResult({ kind: 'error' });
@@ -85,12 +92,13 @@ export function BarcodeScan({ currentShop, onScanLabel }: { currentShop?: DraftS
         setResult(current => current?.kind === 'loading' ? undefined : current);
       }
     };
-  }, [shopId]));
+  }, [loadPrices, shopId]));
 
   async function lookup(barcode: string) {
     const signal = active.current?.signal;
     if (!signal || reading.current) return;
     reading.current = true;
+    setSavedOnPhone(false);
     setResult({ kind: 'loading' });
     try {
       const product = await findLocalProductByBarcode(barcode);
@@ -99,7 +107,7 @@ export function BarcodeScan({ currentShop, onScanLabel }: { currentShop?: DraftS
         setResult({ kind: 'unknown', barcode });
         return;
       }
-      const comparison = await loadComparison(product, shopId, barcode);
+      const comparison = await loadComparison(product, shopId, barcode, loadPrices);
       if (signal.aborted) return;
       selected.current = { product, barcode };
       setResult(comparison);
@@ -203,8 +211,16 @@ export function BarcodeScan({ currentShop, onScanLabel }: { currentShop?: DraftS
     setSaving(true);
     setSaveError(undefined);
     try {
-      await saveManualPrice({ ...record, capturedAt: new Date().toISOString() });
-      if (!signal.aborted) scanAgain();
+      if (shopping) {
+        await shopping.priceRecords.saveManual(record);
+        void shopping.retry().catch(() => { /* The saved price remains pending. */ });
+      } else {
+        await saveManualPrice({ ...record, capturedAt: new Date().toISOString() });
+      }
+      if (!signal.aborted) {
+        scanAgain();
+        setSavedOnPhone(Boolean(shopping));
+      }
     } catch {
       if (!signal.aborted) setSaveError('Could not save this price. Your entries are still here. Try again.');
     } finally {
@@ -289,6 +305,7 @@ export function BarcodeScan({ currentShop, onScanLabel }: { currentShop?: DraftS
     <View style={styles.camera}>
       {focused ? <ProductBarcodeCamera onRead={(_, barcode) => onBarcodeScanned(barcode)} /> : <View style={styles.camera} />}
       <SafeAreaView edges={['bottom']} style={styles.actions}>
+        {savedOnPhone ? <BarcodePriceSaveNotice /> : null}
         <Text style={styles.guide}>Point the camera at the product barcode.</Text>
         <CameraActionButton label={returnFromScan ? 'Back to barcode editor' : 'Scan label'} onPress={returnFromScan ?? onScanLabel} />
       </SafeAreaView>
