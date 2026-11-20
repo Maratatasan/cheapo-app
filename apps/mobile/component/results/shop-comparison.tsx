@@ -8,7 +8,7 @@ import { SampleNotice } from "./sample-notice";
 import type { ShopCardProps } from "./shop-card";
 import { marketColor as color, spacing, typography } from "./theme";
 
-export type ComparisonRow = ComparisonPrice & Pick<ShopCardProps, "shop" | "product" | "area" | "capturedOn">;
+export type ComparisonRow = ComparisonPrice & Pick<ShopCardProps, "shop" | "product" | "area" | "capturedOn"> & { editable?: boolean };
 
 export type ShopComparisonProps = {
   product: { name: string; pack?: string; photo?: ImageSourcePropType };
@@ -58,7 +58,7 @@ function OfferRow({ row, unitPrice, cheapest, onEdit }: {
         {row.product ? <Text style={styles.small}>{row.product}</Text> : null}
         {row.area ? <Text style={styles.small}>{row.area}</Text> : null}
       </View>
-      {onEdit ? <ComparisonEdit label={label} onPress={() => onEdit(row.id)} /> : null}
+      {onEdit && row.editable !== false ? <ComparisonEdit label={label} onPress={() => onEdit(row.id)} /> : null}
     </View>
   );
 }
@@ -126,7 +126,7 @@ export function ShopComparison({
               <View style={styles.referenceActions}>
                 <ComparisonPrices prices={{ price: reference.price, currency: reference.currency, unit_price: referenceUnitPrice ?? reference.unit_price ?? null }}
                   savedUnit={reference.unit_price?.unit} cheapest={referenceLowest} />
-                {onEdit ? <ComparisonEdit label={`Edit ${product.name} at ${referenceShop}`} onPress={() => onEdit(reference.id)} /> : null}
+                {onEdit && reference.editable !== false ? <ComparisonEdit label={`Edit ${product.name} at ${referenceShop}`} onPress={() => onEdit(reference.id)} /> : null}
               </View>
             </>
           ) : null}
