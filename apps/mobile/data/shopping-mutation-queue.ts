@@ -4,7 +4,7 @@ import { z } from 'zod';
 
 import { parseCheapoApiOrigin } from '../lib/cheapo-access/origin';
 import type { PriceAppendReceipt, PriceQueueOwner } from './price-append-queue';
-import { readQueueBackupFiles } from './queue-backup-files';
+import { readQueueBackupFiles, type QueueBackupFile } from './queue-backup-files';
 import {
   mutationOperationId, mutationReceipt, mutationResource, mutationVersion, requestForMutation, shoppingMutation,
   type MutationRequest, type ShoppingMutation, type ShoppingMutationInput,
@@ -242,8 +242,11 @@ export async function openShoppingMutationQueue(input: PriceQueueOwner) {
 
   return {
     owner,
-    backupFiles() {
-      return serializePublication(() => readQueueBackupFiles(directory, phaseFileName));
+    backup<T>(capture: (snapshot: { files: QueueBackupFile[]; entries: QueuedShoppingMutation[]; recovery: Recovery[] }) => Promise<T>) {
+      return serializePublication(async () => capture({
+        ...await readAll(),
+        files: await readQueueBackupFiles(directory, phaseFileName),
+      }));
     },
     enqueue(input: ShoppingMutationInput) {
       const intent = shoppingMutation.parse(input);

@@ -36,16 +36,16 @@ their own design and tests under [#107](https://github.com/Maratatasan/cheapo-ap
 
 ## Offline shopping backup
 
-The export in **Saved products and photos** writes a version 3 manifest and the
-original bytes of every referenced JPEG. The manifest preserves draft and price
+Before enrollment, **Saved products and photos** exports a version 3 ZIP
+with the original bytes of every referenced JPEG. The manifest preserves draft and price
 IDs, stored review values, observation shop snapshots, saved shops and their
 nicknames, the current shop ID, and the catalog's legacy products, original
 barcode mappings, and ordered corrections. `source` records runtime app metadata
 when available. Build revision can be recorded separately from the verified APK.
 
 The backup reads the current committed local state, including the local shop
-selection. Hosted read snapshots are outside this export. If a price record's primary file
-is interrupted, the last valid recovery copy supplies that record. Old recovery
+selection. Hosted read snapshots are outside this export. If a price record's
+primary file is interrupted, the last valid recovery copy supplies that record. Old recovery
 copies and temporary files do not become additional observations. Credentials,
 provider sessions, and unrelated files are outside the backup. Comparison-basis
 preferences currently have PostgreSQL storage and no local mobile store.
@@ -54,6 +54,18 @@ Keep the ZIP private and verify its CRCs, record references, and SHA-256 hashes
 of the transferred ZIP and its entries before using it for migration. Keep
 version 1 and 2 archives as earlier snapshots. They lack the full catalog and
 current selection.
+
+An enrolled phone writes a version 4 recovery ZIP. It retains the local
+catalog, branch list, selection and price files from the version 3 snapshot.
+It also includes the current verified owner's queued records and their
+original and crop bytes, with separate paths for enrolled evidence. The raw
+price, evidence and shopping queue files preserve the exact reviewed request,
+acknowledgement, conflict, resolution and interrupted data. Exports check
+queue dependencies and confirm the owner again before sharing.
+
+Keep the recovery ZIP private. Version 4 is a device recovery format. The
+operator shopping importer accepts versions 1 through 3. Recovery retains
+pending work for review and cannot replay it by importing a price snapshot.
 
 ## Replaceable Cheapo read snapshots
 

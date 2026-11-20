@@ -10,6 +10,8 @@ import { loadLocalShoppingBackup, reviewComplete, savedPhotoDirectory, type Save
 import { reviewUnitPrice } from '@/data/photo-review';
 import type { ShopRepository } from '@/data/shop-repository';
 
+import { EnrolledBackupError, loadEnrolledShoppingBackup } from './enrolled-shopping-backup';
+
 const CHUNK_BYTES = 128 * 1024;
 const ZIP32_LIMIT = 0xffffffff;
 const ZIP32_MAX_ENTRIES = 65534;
@@ -29,10 +31,10 @@ function describePhoto(asset: PhotoAsset, path: string) {
   return { path, width: asset.width, height: asset.height, mimeType: asset.mimeType };
 }
 
-function describeRecord(draft: SavedPriceRecord, index: number) {
+function describeRecord(draft: SavedPriceRecord, index: number, photoRoot = 'photos') {
   const { review, shop, cropBox, original, selected, productId } = draft;
   const shopName = shop?.displayName ?? normalizeName(review?.shop) ?? null;
-  const prefix = `photos/${index + 1}`;
+  const prefix = `${photoRoot}/${index + 1}`;
   const originalPath = `${prefix}/original.jpg`;
   const cropPath = original && original.uri !== selected.uri ? `${prefix}/crop.jpg` : null;
   return {
@@ -58,8 +60,10 @@ function describeRecord(draft: SavedPriceRecord, index: number) {
   };
 }
 
+type ArchiveFile = { path: string; source: File | Uint8Array };
+
 async function writeArchive(
-  output: FileHandle, manifest: Uint8Array, photos: { path: string; source: File }[], signal: AbortSignal,
+  output: FileHandle, manifest: Uint8Array, files: ArchiveFile[], signal: AbortSignal,
 ) {
   const chunks: Uint8Array[] = [];
   let totalBytes = 0;
@@ -82,8 +86,16 @@ async function writeArchive(
     zip.add(entry);
     entry.push(manifest, true);
     await flush();
-    for (const { path, source } of photos) {
+    for (const { path, source } of files) {
       ensureActive(signal);
+      if (source instanceof Uint8Array) {
+        if (totalBytes + source.byteLength >= ZIP32_LIMIT) throw new ExportError('The collection is too large for one ZIP.');
+        const copy = new ZipPassThrough(path);
+        zip.add(copy);
+        copy.push(source, true);
+        await flush();
+        continue;
+      }
       const input = source.open(FileMode.ReadOnly);
       try {
         const expectedSize = input.size;
@@ -112,7 +124,9 @@ async function writeArchive(
   }
 }
 
-export async function exportShoppingData(signal: AbortSignal, shopRepository: Pick<ShopRepository, 'loadSavedShops'>): Promise<void> {
+export async function exportShoppingData(
+  signal: AbortSignal, shopRepository: Pick<ShopRepository, 'loadSavedShops'>, loadEnrolled = loadEnrolledShoppingBackup,
+): Promise<void> {
   let archive: File | undefined;
   let created = false;
   try {
@@ -122,18 +136,22 @@ export async function exportShoppingData(signal: AbortSignal, shopRepository: Pi
       throw new ExportError('A saved record, photo or catalog entry is unreadable. The full collection could not be exported.');
     });
     const { shops, currentShop } = await shopRepository.loadSavedShops();
+    const enrolled = await loadEnrolled();
     const productIds = new Set([
       ...catalog.legacyProducts.map(product => product.id),
       ...catalog.originalProducts.map(product => product.id),
       ...catalog.corrections.map(({ product }) => product.id),
     ]);
-    if (!drafts.length && !shops.length && !productIds.size) throw new ExportError('There is no saved shopping data to export.');
+    if (!drafts.length && !shops.length && !productIds.size && !enrolled?.records.length && !enrolled?.files.length) {
+      throw new ExportError('There is no saved shopping data to export.');
+    }
     if (drafts.some(draft => draft.productId && !productIds.has(draft.productId))) {
       throw new ExportError('A saved price refers to a missing product. The full collection could not be exported.');
     }
     ensureActive(signal);
     const exportedAt = new Date().toISOString();
-    const records = drafts.map(describeRecord);
+    const records = drafts.map((record, index) => describeRecord(record, index));
+    const enrolledRecords = enrolled?.records.map((record, index) => describeRecord(record, index, 'enrolled-photos')) ?? [];
     const photoDirectory = savedPhotoDirectory();
     function savedPhoto(asset: PhotoAsset, path: string) {
       const source = new File(asset.uri);
@@ -143,16 +161,20 @@ export async function exportShoppingData(signal: AbortSignal, shopRepository: Pi
       }
       return { path, source };
     }
-    const photos = drafts.flatMap((draft, index) => {
-      const paths = records[index].photos;
-      if (!draft.original || !paths) return [];
-      const { original, crop } = paths;
-      const source = savedPhoto(draft.original, original.path);
-      return crop ? [source, savedPhoto(draft.selected, crop.path)] : [source];
-    });
-    if (photos.length + 1 > ZIP32_MAX_ENTRIES) throw new ExportError('The collection has too many files for one ZIP.');
+    function photoFiles(sourceRecords: SavedPriceRecord[], described: ReturnType<typeof describeRecord>[]) {
+      return sourceRecords.flatMap((draft, index) => {
+        const paths = described[index].photos;
+        if (!draft.original || !paths) return [];
+        const { original, crop } = paths;
+        const source = savedPhoto(draft.original, original.path);
+        return crop ? [source, savedPhoto(draft.selected, crop.path)] : [source];
+      });
+    }
+    const recoveryFiles = enrolled?.files.map(({ path, bytes }) => ({ path, source: bytes })) ?? [];
+    const files = [...photoFiles(drafts, records), ...photoFiles(enrolled?.records ?? [], enrolledRecords), ...recoveryFiles];
+    if (files.length + 1 > ZIP32_MAX_ENTRIES) throw new ExportError('The collection has too many files for one ZIP.');
     const manifest = new TextEncoder().encode(JSON.stringify({
-      version: 3,
+      version: enrolled ? 4 : 3,
       exportedAt,
       source: {
         appName: Constants.expoConfig?.name ?? null,
@@ -172,6 +194,14 @@ export async function exportShoppingData(signal: AbortSignal, shopRepository: Pi
         };
       }),
       catalog,
+      ...(enrolled ? { recovery: {
+        owner: enrolled.owner,
+        records: enrolledRecords,
+        queueFiles: recoveryFiles.map(({ path }) => path),
+        interruptedFiles: recoveryFiles.filter(({ path }) => path.endsWith('.pending')).map(({ path }) => path),
+        priceRecovery: enrolled.priceRecovery,
+        mutationRecovery: enrolled.mutationRecovery,
+      } } : {}),
     }, null, 2));
 
     const directory = new Directory(Paths.cache, 'cheapo-shopping-exports');
@@ -181,10 +211,11 @@ export async function exportShoppingData(signal: AbortSignal, shopRepository: Pi
     created = true;
     const output = archive.open(FileMode.WriteOnly);
     try {
-      await writeArchive(output, manifest, photos, signal);
+      await writeArchive(output, manifest, files, signal);
     } finally {
       output.close();
     }
+    await enrolled?.assertCurrentOwner();
     ensureActive(signal);
     await shareAsync(archive.uri, { mimeType: ZIP_TYPE, dialogTitle: 'Export saved products and photos' });
     // Android recipients may still read the shared file after the chooser returns.
@@ -193,7 +224,7 @@ export async function exportShoppingData(signal: AbortSignal, shopRepository: Pi
     if (created && archive) {
       try { archive.delete(); } catch { /* Leave failed temporary files to the cache. */ }
     }
-    if (error instanceof ExportError) throw error;
+    if (error instanceof ExportError || error instanceof EnrolledBackupError) throw error;
     throw new ExportError('Could not export saved products and photos. Try again.');
   }
 }
