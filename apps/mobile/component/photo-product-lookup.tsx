@@ -72,6 +72,7 @@ export function PhotoProductLookup({ photo, decoded, findProduct, onCompare, onR
 
   const error = check.kind === 'invalid' ? 'Enter a valid product barcode.'
     : check.kind === 'unavailable' ? 'Could not check this barcode. Try again.' : undefined;
+  const showCandidateLookup = check.kind !== 'known' && check.kind !== 'checking';
 
   return <View style={ui.page}>
     <ScrollView style={ui.page} contentContainerStyle={ui.content} automaticallyAdjustKeyboardInsets keyboardShouldPersistTaps="handled">
@@ -87,8 +88,9 @@ export function PhotoProductLookup({ photo, decoded, findProduct, onCompare, onR
           <CameraActionButton primary label="Compare saved prices" onPress={() => onCompare(check.barcode, check.product)} />
         </View> : null}
       </PhotoBarcodeReview>
-      {candidateLookup ? <View style={check.kind === 'known' || check.kind === 'checking' ? styles.hidden : undefined}>
-        <ProductCandidateLookup {...candidateLookup} />
+      {candidateLookup ? <View style={showCandidateLookup ? undefined : styles.hidden}>
+        <ProductCandidateLookup {...candidateLookup}
+          renderIdentitySuggestions={showCandidateLookup ? candidateLookup.renderIdentitySuggestions : undefined} />
       </View> : null}
     </ScrollView>
     <SafeAreaView edges={['bottom']} style={styles.actions}>

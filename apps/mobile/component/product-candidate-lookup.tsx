@@ -1,7 +1,8 @@
 import { reviewedPackParts } from '@cheapo/domain/package-measures';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Keyboard, StyleSheet, Text, TextInput, View } from 'react-native';
 
+import type { ProductIdentityDraft } from '@/data/ai-observation';
 import type { ProductCandidate, ProductCandidateSearch } from '@/data/cheapo-shopping-reads';
 import { packSizeMaxLength } from '@/data/photo-review';
 import { productMetadataMaxLength } from '@/data/product-metadata';
@@ -14,6 +15,7 @@ type SearchState = { kind: 'entry' | 'checking' } | { kind: 'error'; message: st
 export type ProductCandidateLookupProps = {
   findCandidates: (identity: ProductCandidateSearch, signal: AbortSignal) => Promise<Matches>;
   onCompare: (candidate: ProductCandidate) => void;
+  renderIdentitySuggestions?: (onApply: (draft: ProductIdentityDraft) => void, busy: boolean) => ReactNode;
 };
 
 const fields = [
@@ -23,7 +25,7 @@ const fields = [
   ['packSize', 'Pack size (optional)', packSizeMaxLength],
 ] as const;
 
-export function ProductCandidateLookup({ findCandidates, onCompare }: ProductCandidateLookupProps) {
+export function ProductCandidateLookup({ findCandidates, onCompare, renderIdentitySuggestions }: ProductCandidateLookupProps) {
   const [expanded, setExpanded] = useState(false);
   const [values, setValues] = useState({ name: '', brand: '', variety: '', packSize: '' });
   const [state, setState] = useState<SearchState>({ kind: 'entry' });
@@ -37,6 +39,15 @@ export function ProductCandidateLookup({ findCandidates, onCompare }: ProductCan
   function changeField(key: keyof typeof values, value: string) {
     active.current?.abort();
     setValues(current => ({ ...current, [key]: value }));
+    setState({ kind: 'entry' });
+  }
+
+  function applySuggestions(draft: ProductIdentityDraft) {
+    active.current?.abort();
+    setValues(current => ({
+      name: draft.product ?? current.name, brand: draft.brand ?? current.brand,
+      variety: draft.variety ?? current.variety, packSize: draft.packSize ?? current.packSize,
+    }));
     setState({ kind: 'entry' });
   }
 
@@ -70,6 +81,7 @@ export function ProductCandidateLookup({ findCandidates, onCompare }: ProductCan
 
   return <View style={ui.card}>
     <Text accessibilityRole="header" style={styles.heading}>Packaging details</Text>
+    {renderIdentitySuggestions?.(applySuggestions, state.kind === 'checking')}
     {fields.map(([key, label, maxLength]) => <View key={key} style={styles.field}>
       <Text style={ui.body}>{label}</Text>
       <TextInput accessibilityLabel={label} value={values[key]} maxLength={maxLength} style={styles.input}

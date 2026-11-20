@@ -3,35 +3,34 @@ import { AccessibilityInfo, Platform } from 'react-native';
 import { useRouter } from 'expo-router';
 import { File } from 'expo-file-system';
 
-import type { AiPriceDraft } from '@/data/ai-observation';
+import type { AiPriceDraft, ProductIdentityDraft } from '@/data/ai-observation';
 import type { PhotoAsset } from '@/data/local-photo';
-import { requestPhotoDraft } from '@/lib/direct-auth/photo-analysis';
+import { requestPhotoDraft, requestProductIdentityDraft } from '@/lib/direct-auth/photo-analysis';
 import { phoneAuth } from '@/lib/direct-auth/phone-session';
 import type { PhotoShopCountry } from '@/lib/direct-auth/shop-country';
-import { PhotoAnalysisControls } from './photo-analysis-review';
+import { PhotoAnalysisControls, ProductIdentitySuggestion } from './photo-analysis-review';
 import type { ReviewSuggestion } from './photo-review';
 
-async function photoDataUrl(photo: PhotoAsset): Promise<string> {
+async function photoDataUrl(photo: PhotoAsset, packaging: boolean): Promise<string> {
   if (!photo.uri.startsWith('file:')) throw new Error('Choose or take a photo on this phone first.');
   let file: File;
   try { file = new File(photo.uri); }
   catch { throw new Error('Could not read the selected photo.'); }
   if (!file.exists || !file.size) throw new Error('Could not read the selected photo.');
-  if (file.size > 5_900_000) throw new Error('Crop the photo to a smaller area before analysing it.');
+  if (file.size > 5_900_000) throw new Error(packaging
+    ? 'This photo is too large to analyse. Take a closer photo or enter details manually.'
+    : 'Crop the photo to a smaller area before analysing it.');
   try { return `data:image/jpeg;base64,${await file.base64()}`; }
   catch { throw new Error('Could not read the selected photo.'); }
 }
 
-export function DirectPhotoAnalysis({ photo, shopCountry, busy, onApply, children }: {
-  photo: PhotoAsset;
-  shopCountry?: PhotoShopCountry;
-  busy: boolean;
-  onApply: (draft: AiPriceDraft) => void;
-  children: (controls: ReactNode, suggestion?: ReviewSuggestion) => ReactNode;
-}) {
+type PhotoRequest = Parameters<typeof requestProductIdentityDraft>[0];
+
+function useDirectPhotoAnalysis<Draft>(photo: PhotoAsset, busy: boolean, packaging: boolean,
+  requestDraft: (request: PhotoRequest) => Promise<Draft>) {
   const router = useRouter();
   const [authState, setAuthState] = useState(phoneAuth?.getState);
-  const [draft, setDraft] = useState<AiPriceDraft>();
+  const [draft, setDraft] = useState<Draft>();
   const [status, setStatus] = useState<string>();
   const [working, setWorking] = useState(false);
   const request = useRef<AbortController | null>(null);
@@ -56,14 +55,14 @@ export function DirectPhotoAnalysis({ photo, shopCountry, busy, onApply, childre
     setDraft(undefined);
     setStatus('Analysing the selected photo…');
     try {
-      const image = await photoDataUrl(photo);
+      const image = await photoDataUrl(photo, packaging);
       if (controller.signal.aborted) return;
       const suggestion = await phoneAuth.withPlanAccess((accessToken) => {
         if (controller.signal.aborted) throw new Error('Photo analysis was cancelled.');
-        return requestPhotoDraft({ accessToken, image, signal: controller.signal, shopCountry });
+        return requestDraft({ accessToken, image, signal: controller.signal });
       });
       if (!controller.signal.aborted) {
-        setDraft(suggestion);
+        setDraft(() => suggestion);
         const message = 'Suggestions ready. Check the details before applying.';
         setStatus(message);
         if (Platform.OS === 'ios') AccessibilityInfo.announceForAccessibilityWithOptions(message, { queue: true });
@@ -83,7 +82,8 @@ export function DirectPhotoAnalysis({ photo, shopCountry, busy, onApply, childre
   }
 
   const controls = <PhotoAnalysisControls
-    label={authState?.planAllowed ? working ? 'Analysing…' : 'Analyse photo' : 'Connect ChatGPT'}
+    packaging={packaging}
+    label={authState?.planAllowed ? working ? 'Analysing…' : packaging ? 'Analyse packaging photo' : 'Analyse photo' : 'Connect ChatGPT'}
     status={status}
     disabled={authState?.planAllowed ? busy || working || authState.busy : authState?.busy}
     onPress={() => {
@@ -92,12 +92,39 @@ export function DirectPhotoAnalysis({ photo, shopCountry, busy, onApply, childre
     }}
   />;
 
+  function applied(message: string) {
+    setDraft(undefined);
+    setStatus(message);
+  }
+  return { controls, draft, applied, working };
+}
+
+export function DirectPhotoAnalysis({ photo, shopCountry, busy, onApply, children }: {
+  photo: PhotoAsset;
+  shopCountry?: PhotoShopCountry;
+  busy: boolean;
+  onApply: (draft: AiPriceDraft) => void;
+  children: (controls: ReactNode, suggestion?: ReviewSuggestion) => ReactNode;
+}) {
+  const { controls, draft, applied } = useDirectPhotoAnalysis(photo, busy, false,
+    request => requestPhotoDraft({ ...request, shopCountry }));
   return children(controls, draft ? {
     draft,
     onApply: selected => {
       onApply(selected);
-      setDraft(undefined);
-      setStatus('Suggestions added. Review or edit before saving.');
+      applied('Suggestions added. Review or edit before saving.');
     },
   } : undefined);
+}
+
+export function DirectProductIdentityAnalysis({ photo, busy, onApply }: {
+  photo: PhotoAsset;
+  busy: boolean;
+  onApply: (draft: ProductIdentityDraft) => void;
+}) {
+  const { controls, draft, applied, working } = useDirectPhotoAnalysis(photo, busy, true, requestProductIdentityDraft);
+  return <>{controls}{draft ? <ProductIdentitySuggestion draft={draft} disabled={busy || working} onApply={selected => {
+    onApply(selected);
+    applied('Suggestions added. Check the details before searching.');
+  }} /> : null}</>;
 }

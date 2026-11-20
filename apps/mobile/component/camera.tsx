@@ -25,7 +25,7 @@ import { PhotoBarcodeCatalogMatch, PhotoBarcodeMissing, PhotoBarcodeReview } fro
 import { cameraPermissionMessage, PhotoBarcodeScan } from "./photo-barcode-scan";
 import { emptyReview, loadLocalPhotos, reviewComplete, saveLocalPhoto, type DraftShop, type LocalPhotoDraft, type ManualReview, type PhotoAsset } from "@/data/local-photo";
 import { MobileDraft } from "./mobile-draft";
-import { DirectPhotoAnalysis } from "./direct-photo-analysis";
+import { DirectPhotoAnalysis, DirectProductIdentityAnalysis } from "./direct-photo-analysis";
 import { fieldPhotoAnalysisEnabled } from "@/lib/direct-auth/phone-session";
 import type { PhotoShopCountry } from "@/lib/direct-auth/shop-country";
 import { applyPhotoSuggestion, calculatePackUnitPrice, savedProductDetails } from "@/data/photo-review";
@@ -462,7 +462,11 @@ export const CameraComponent = ({ currentShop, currentShopCountry, onScanBarcode
   if (draft && productLookup) return <PhotoProductLookup key={draft.id} photo={draft.original}
     decoded={decodedBarcodes?.draftId === draft.id ? decodedBarcodes.result : undefined}
     findProduct={findLookupProduct} onCompare={productLookup.onCompare} onRetake={retakePhoto}
-    candidateLookup={productLookup.candidateLookup} />;
+    candidateLookup={productLookup.candidateLookup ? {
+      ...productLookup.candidateLookup,
+      renderIdentitySuggestions: fieldPhotoAnalysisEnabled ? (onApply, busy) =>
+        <DirectProductIdentityAnalysis photo={draft.original} busy={busy} onApply={onApply} /> : undefined,
+    } : undefined} />;
 
   if (draft && cropping) {
     // Mount the crop modal before mounting the review and its native inputs.

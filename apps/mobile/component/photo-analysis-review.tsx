@@ -1,19 +1,86 @@
 import { useRef, useState } from 'react';
 import { Button, Platform, Pressable, StyleSheet, Text, View, type PressableProps } from 'react-native';
-import type { AiPriceDraft, PriceReadings } from '@/data/ai-observation';
+import type { AiPriceDraft, PriceReadings, ProductIdentityDraft, ProductIdentityField } from '@/data/ai-observation';
 import { priceLabel, unitPriceLabel } from '@/data/observation';
 import { marketColor as color } from './results/theme';
 
-export function PhotoAnalysisControls({ label, status, disabled, onPress }: {
+export function PhotoAnalysisControls({ label, status, disabled, onPress, packaging = false }: {
   label: string;
   status?: string;
   disabled?: boolean;
   onPress: () => void;
+  packaging?: boolean;
 }) {
   return <View style={styles.controls}>
-    <Text style={styles.note}>Analyse photo uses your ChatGPT plan to send the selected photo and, when available, the shop’s country hint to OpenAI.</Text>
+    <Text style={styles.note}>{packaging
+      ? 'Analyse packaging photo sends the selected photo to OpenAI using your ChatGPT plan.'
+      : 'Analyse photo uses your ChatGPT plan to send the selected photo and, when available, the shop’s country hint to OpenAI.'}</Text>
     <Button title={label} disabled={disabled} onPress={onPress} />
     <Text aria-live="polite" style={styles.note}>{status}</Text>
+  </View>;
+}
+
+function SuggestedField<Value>({ label, primary, alternatives = [], chosen, disabled, onChoose, format = String }: {
+  label: string;
+  primary: Value | null | undefined;
+  alternatives?: Value[];
+  chosen?: Value;
+  disabled: boolean;
+  onChoose: (value: Value) => void;
+  format?: (value: Value) => string;
+}) {
+  if (primary == null || primary === '') return <Text style={styles.note}>{label} unconfirmed</Text>;
+  const options = [primary, ...alternatives];
+  return <View style={styles.readings}>
+    <Text style={styles.label}>{label}{options.length > 1 ? ' · Uncertain' : ''}</Text>
+    <View accessibilityRole="radiogroup" accessibilityLabel={`${label} suggestion choices`} style={styles.options}>
+      {options.map((value, index) => {
+        const checked = (chosen ?? primary) === value;
+        const onKeyDown: PressableProps['onKeyDown'] = event => {
+          if (disabled) return;
+          const { key } = event.nativeEvent;
+          const step = { ArrowUp: -1, ArrowLeft: -1, ArrowDown: 1, ArrowRight: 1 }[key];
+          if (key !== ' ' && step === undefined) return;
+          event.preventDefault();
+          const next = (index + (step ?? 0) + options.length) % options.length;
+          onChoose(options[next]);
+          const node = event.currentTarget as unknown as HTMLElement;
+          node.parentElement?.querySelectorAll<HTMLElement>('[role="radio"]')[next]?.focus();
+        };
+        return <Pressable key={index}
+          accessibilityRole="radio" accessibilityLabel={`${label}: ${format(value)}`}
+          aria-checked={checked} disabled={disabled}
+          tabIndex={Platform.OS === 'web' && !checked ? -1 : undefined}
+          onKeyDown={Platform.OS === 'web' ? onKeyDown : undefined}
+          onPress={() => onChoose(value)}
+          style={[styles.pill, checked && styles.selectedPill]}>
+          <Text style={[styles.pillText, checked && styles.selectedText]}>{format(value)}</Text>
+        </Pressable>;
+      })}
+    </View>
+  </View>;
+}
+
+const packagingFields = [
+  ['product', 'Product name'], ['brand', 'Brand'], ['variety', 'Variety'], ['packSize', 'Pack size'],
+] as const;
+
+export function ProductIdentitySuggestion({ draft, disabled, onApply }: {
+  draft: ProductIdentityDraft;
+  disabled: boolean;
+  onApply: (draft: ProductIdentityDraft) => void;
+}) {
+  const [chosen, setChosen] = useState<Partial<Record<ProductIdentityField, string>>>({});
+  const hasDetails = packagingFields.some(([field]) => draft[field]);
+  return <View style={styles.suggestion}>
+    <Text accessibilityRole="header" style={styles.title}>Suggested packaging details</Text>
+    <View style={styles.details}>
+      {packagingFields.map(([field, label]) => (field === 'product' || draft[field]) && <SuggestedField key={field}
+        label={label} primary={draft[field]} alternatives={draft.alternatives?.[field]} chosen={chosen[field]}
+        disabled={disabled} onChoose={value => setChosen(current => ({ ...current, [field]: value }))} />)}
+      {draft.uncertainty ? <Text style={styles.note}>{draft.uncertainty}</Text> : null}
+    </View>
+    {hasDetails ? <Button title="Use suggested details" disabled={disabled} onPress={() => onApply({ ...draft, ...chosen })} /> : null}
   </View>;
 }
 
@@ -35,38 +102,9 @@ export function PhotoSuggestion({ draft, disabled, onApply, onFirstLayout }: {
   function readings<Field extends keyof PriceReadings>(
     field: Field, label: string, format: (value: NonNullable<PriceReadings[Field]>) => string = String,
   ) {
-    const primary = values[field];
-    if (primary == null || primary === '') return <Text style={styles.note}>{label} unconfirmed</Text>;
-    const options = [primary, ...(draft.alternatives?.[field] ?? [])];
-    const selected = chosen[field] ?? primary;
-    return <View style={styles.readings}>
-      <Text style={styles.label}>{label}{options.length > 1 ? ' · Uncertain' : ''}</Text>
-      <View accessibilityRole="radiogroup" accessibilityLabel={`${label} suggestion choices`} style={styles.options}>
-        {options.map((value, index) => {
-          const checked = selected === value;
-          const onKeyDown: PressableProps['onKeyDown'] = event => {
-            if (disabled) return;
-            const { key } = event.nativeEvent;
-            const step = { ArrowUp: -1, ArrowLeft: -1, ArrowDown: 1, ArrowRight: 1 }[key];
-            if (key !== ' ' && step === undefined) return;
-            event.preventDefault();
-            const next = (index + (step ?? 0) + options.length) % options.length;
-            select(field, options[next]);
-            const node = event.currentTarget as unknown as HTMLElement;
-            node.parentElement?.querySelectorAll<HTMLElement>('[role="radio"]')[next]?.focus();
-          };
-          return <Pressable key={index}
-            accessibilityRole="radio" accessibilityLabel={`${label}: ${format(value)}`}
-            aria-checked={checked} disabled={disabled}
-            tabIndex={Platform.OS === 'web' && !checked ? -1 : undefined}
-            onKeyDown={Platform.OS === 'web' ? onKeyDown : undefined}
-            onPress={() => select(field, value)}
-            style={[styles.pill, checked && styles.selectedPill]}>
-            <Text style={[styles.pillText, checked && styles.selectedText]}>{format(value)}</Text>
-          </Pressable>;
-        })}
-      </View>
-    </View>;
+    return <SuggestedField<NonNullable<PriceReadings[Field]>> label={label} primary={values[field] ?? undefined}
+      alternatives={draft.alternatives?.[field]} chosen={chosen[field] ?? undefined} disabled={disabled}
+      onChoose={value => select(field, value)} format={format} />;
   }
 
   return <View style={styles.suggestion} onLayout={onFirstLayout ? event => {
