@@ -305,7 +305,9 @@ describe("CameraComponent", () => {
     const compare = await screen.findByRole('button', { name: 'Compare Market rolled oats' });
     expect(onCompare).not.toHaveBeenCalled();
     await fireEvent.press(compare);
-    expect(onCompare).toHaveBeenCalledWith(candidate);
+    expect(onCompare).toHaveBeenCalledWith(candidate, expect.objectContaining({
+      original: expect.objectContaining({ uri: expect.stringMatching(/^file:\/\//) }),
+    }));
     expect(screen.getByLabelText('Product photo')).toHaveProp('source', { uri: 'file:///package.jpg' });
   });
 

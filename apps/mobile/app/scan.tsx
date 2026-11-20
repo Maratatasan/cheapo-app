@@ -2,13 +2,13 @@ import { View, StyleSheet, Platform } from "react-native";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { shopDisplayName } from "@cheapo/domain/names";
-import { CameraComponent } from "@/component/camera";
+import { CameraComponent, type CameraProductLookup } from "@/component/camera";
 import { BarcodeScan } from "@/component/barcode-scan";
 import { useCheapoShopping } from "@/component/cheapo-shopping-provider";
-import type { ProductCandidateLookupProps } from "@/component/product-candidate-lookup";
 import { ShopChooser, ShopLoadFeedback } from "@/component/shop/shop-chooser";
 import { createOwnerShoppingReads } from "@/data/cheapo-shopping-read-device";
 import { productPhotoPriceSources } from "@/data/photo-price-source";
+import type { LocalPhotoDraft } from "@/data/local-photo";
 import { useSavedShops } from "@/hooks/use-saved-shops";
 import { photoShopCountry } from "@/lib/direct-auth/shop-country";
 
@@ -27,7 +27,13 @@ function ProductLookupScreen() {
     activePhotoSource.current = undefined;
   }, []);
   useEffect(() => clearPhotoSource, [clearPhotoSource, shopping]);
-  const candidateLookup = useMemo<ProductCandidateLookupProps | undefined>(() => {
+  const rememberPhotoSource = useCallback((productId: string, { id, original, selected, cropBox, capturedAt }: LocalPhotoDraft) => {
+    clearPhotoSource();
+    activePhotoSource.current = id;
+    productPhotoPriceSources.set(id, { productId, owner: shopping, source: { original, selected, cropBox, capturedAt } });
+    return id;
+  }, [clearPhotoSource, shopping]);
+  const candidateLookup = useMemo<CameraProductLookup['candidateLookup']>(() => {
     if (!shopping) return;
     const reads = createOwnerShoppingReads(shopping.owner);
     return {
@@ -36,23 +42,20 @@ function ProductLookupScreen() {
         if (result.status !== "fresh") throw Error("Catalog lookup unavailable.");
         return result.value;
       },
-      onCompare(candidate) {
+      onCompare(candidate, draft) {
         if (candidate.kind === "catalog") {
-          router.push({ pathname: "/find-product", params: { productId: candidate.product.id } });
+          const productId = candidate.product.id;
+          router.push({ pathname: "/find-product", params: { productId, photoSource: rememberPhotoSource(productId, draft) } });
         } else {
           router.push({ pathname: "/compare/[id]", params: { id: candidate.observationId, source: "shared" } });
         }
       },
     };
-  }, [router, shopping]);
+  }, [router, shopping, rememberPhotoSource]);
   return <>
     <Stack.Screen options={{ title: "Find product from a photo" }} />
     <CameraComponent productLookup={{ onCompare: (barcode, product, draft) => {
-      clearPhotoSource();
-      activePhotoSource.current = draft.id;
-      const { original, selected, cropBox, capturedAt } = draft;
-      productPhotoPriceSources.set(draft.id, { productId: product.id, owner: shopping, source: { original, selected, cropBox, capturedAt } });
-      router.push({ pathname: "/find-product", params: { barcode, photoSource: draft.id } });
+      router.push({ pathname: "/find-product", params: { barcode, photoSource: rememberPhotoSource(product.id, draft) } });
     },
       onRetake: clearPhotoSource, candidateLookup }} />
   </>;
