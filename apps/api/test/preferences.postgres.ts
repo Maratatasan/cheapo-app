@@ -351,3 +351,45 @@ test('denies issuing credentials for inactive or unrelated memberships and past 
     assert.match(result.stderr, /requires an active membership and a future expiry/);
   }
 });
+
+async function shopCandidates(letter: string, query: string) {
+  const address = server.address();
+  assert(address && typeof address !== 'string');
+  const search = new URLSearchParams({ query });
+  const response = await fetch(`http://127.0.0.1:${address.port}/v1/shops?${search}`, {
+    headers: { Authorization: `Bearer ${token(letter)}` },
+  });
+  return { status: response.status, body: await response.json() };
+}
+
+test('finds canonical branch candidates without reading household nicknames or linking shops', async () => {
+  const branch = { id: 'candidate-market-hall', name: 'Market Hall', address: '12 Square Lane',
+    location: { latitude: 51.14, longitude: -0.18 } };
+  await pool.query('INSERT INTO cheapo.shop (id, name, address, location) VALUES ($1, $2, $3, $4)',
+    [branch.id, branch.name, branch.address, branch.location]);
+  await pool.query(`INSERT INTO cheapo.household_saved_shop (household_id, shop_id, nickname)
+    VALUES ($1, $2, 'Private Fish Shop')`, [otherHousehold, branch.id]);
+  const expected = { status: 200, body: { shops: [branch] } };
+  const before = await savedShopRequest('A');
+  assert.deepEqual(await shopCandidates('A', ' market HALL '), expected);
+  assert.deepEqual(await shopCandidates('A', 'square lane'), expected);
+  assert.deepEqual(await shopCandidates('A', 'Private Fish Shop'), { status: 200, body: { shops: [] } });
+  assert.equal((await shopCandidates('D', 'Market Hall')).status, 403);
+  assert.equal((await shopCandidates('F', 'Market Hall')).status, 401);
+  assert.deepEqual(await savedShopRequest('A'), before);
+});
+
+test('caps candidate results and treats searches as literal text', async () => {
+  await pool.query(`INSERT INTO cheapo.shop (id, name)
+    SELECT 'candidate-cap-' || lpad(n::text, 2, '0'), 'Fixture Market ' || lpad(n::text, 2, '0')
+    FROM generate_series(1, 22) AS n`);
+  assert.deepEqual(await shopCandidates('A', 'Fixture Market'), {
+    status: 200,
+    body: { shops: Array.from({ length: 20 }, (_, index) => {
+      const suffix = String(index + 1).padStart(2, '0');
+      return { id: `candidate-cap-${suffix}`, name: `Fixture Market ${suffix}` };
+    }) },
+  });
+  assert.deepEqual(await shopCandidates('A', '%%'), { status: 200, body: { shops: [] } });
+  assert.equal((await shopCandidates('A', ' ')).status, 400);
+});

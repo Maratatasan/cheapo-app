@@ -1,13 +1,26 @@
 import { shopDisplayName, type Shop } from '@cheapo/domain';
 
-import type { ExecuteSavedShop, SavedShopState, ShopAction } from './saved-shops.ts';
+import type { ExecuteSavedShop, SavedShopState, ShopAction, ShopCandidate } from './saved-shops.ts';
 
 import { readShoppingMember, type ShoppingMember, type ShoppingQuery, type ShoppingTransaction } from './postgres-shopping.ts';
 
-type ShopRow = Omit<Shop, 'name' | 'nickname' | 'address' | 'location'> & {
-  name: string | null; nickname: string | null; address: string | null; location: Shop['location'] | null;
-  selected: boolean; test_shop: boolean | null;
-};
+type BranchRow = { id: string; name: string | null; address: string | null; location: Shop['location'] | null };
+type ShopRow = BranchRow & { nickname: string | null; selected: boolean; test_shop: boolean | null };
+
+function branchFields({ id, name, address, location }: BranchRow): ShopCandidate {
+  return { id, name: name ?? undefined, address: address ?? undefined, location: location ?? undefined };
+}
+
+async function findShopCandidates(query: ShoppingQuery, nameOrAddress: string): Promise<ShopCandidate[]> {
+  const { rows } = await query<BranchRow>(`
+    SELECT id, name, address, location FROM cheapo.shop
+    WHERE strpos(lower(coalesce(name, '')), lower($1)) > 0
+       OR strpos(lower(coalesce(address, '')), lower($1)) > 0
+    ORDER BY lower(name) NULLS LAST, lower(address) NULLS LAST, id
+    LIMIT 20
+  `, [nameOrAddress]);
+  return rows.map(branchFields);
+}
 
 async function readSavedShops(query: ShoppingQuery, member: ShoppingMember): Promise<SavedShopState> {
   const { rows } = await query<ShopRow>(`
@@ -21,9 +34,8 @@ async function readSavedShops(query: ShoppingQuery, member: ShoppingMember): Pro
     WHERE link.household_id = $1::uuid
     ORDER BY lower(coalesce(link.nickname, shop.name)), shop.id
   `, [member.household_id, member.shopper_id]);
-  const shops = rows.map(({ id, name, nickname, address, location, test_shop }) => ({
-    id, name: name ?? undefined, nickname: nickname ?? undefined,
-    address: address ?? undefined, location: location ?? undefined, testShop: test_shop ?? undefined,
+  const shops = rows.map(row => ({
+    ...branchFields(row), nickname: row.nickname ?? undefined, testShop: row.test_shop ?? undefined,
   }));
   const currentShop = shops[rows.findIndex(row => row.selected)];
   return currentShop ? { shops, currentShop } : { shops };
@@ -38,7 +50,7 @@ async function selectShop(query: ShoppingQuery, member: ShoppingMember, shopId: 
 
 type ShopChange = 'ok' | 'shop_not_saved' | 'invalid_shop';
 
-async function changeShop(query: ShoppingQuery, member: ShoppingMember, action: Exclude<ShopAction, { kind: 'read' }>): Promise<ShopChange> {
+async function changeShop(query: ShoppingQuery, member: ShoppingMember, action: Exclude<ShopAction, { kind: 'read' | 'candidates' }>): Promise<ShopChange> {
   const household = member.household_id;
   // The household's link and any affected selections change together.
   await query('SELECT id FROM cheapo.household WHERE id = $1::uuid FOR UPDATE', [household]);
@@ -102,6 +114,7 @@ export function postgresSavedShops(transaction: ShoppingTransaction): ExecuteSav
     const member = await readShoppingMember(query, digest);
     if (!member) return { status: 'unauthenticated' };
     if (!member.active) return { status: 'forbidden' };
+    if (action.kind === 'candidates') return { status: 'candidates', shops: await findShopCandidates(query, action.query) };
     if (action.kind !== 'read') {
       const status = await changeShop(query, member, action);
       if (status !== 'ok') return { status };

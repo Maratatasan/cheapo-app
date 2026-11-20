@@ -119,6 +119,12 @@ household’s nickname stays private. Missing or expired credentials return
 `401`, inactive membership returns `403`, and editing or selecting a branch
 outside the caller’s saved list returns `404`.
 
+Use `GET /v1/shops?query={name-or-address}` to find canonical branch candidates.
+The service matches literal, case-insensitive text and returns up to 20
+branches in `{ "shops": [...] }`. Candidates include stable ID and any known
+name, address and location. A search has no effect on household links or
+selections. Confirm the branch before reusing its ID.
+
 ## Canonical product contract
 
 Send a Cheapo bearer credential with active household membership. Responses
