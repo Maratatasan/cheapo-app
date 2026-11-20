@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import type { PhotoBarcodeResult } from '@/data/photo-barcode';
@@ -9,10 +10,12 @@ type Props = {
   confirmed: boolean;
   confirmLabel?: string;
   confirmedLabel?: string;
+  checking?: boolean;
   carried?: boolean;
   locked?: boolean;
   busy: boolean;
   error?: string;
+  children?: ReactNode;
   onChange: (value: string) => void;
   onConfirm: () => void;
   onClear: () => void;
@@ -27,7 +30,7 @@ const messages = {
   unavailable: 'Photo barcode reading is unavailable.',
 };
 
-export function PhotoBarcodeReview({ result, value, confirmed, confirmLabel = 'Confirm barcode', confirmedLabel = 'Barcode confirmed', carried, locked, busy, error, onChange, onConfirm, onClear, onScan }: Props) {
+export function PhotoBarcodeReview({ result, value, confirmed, confirmLabel = 'Confirm barcode', confirmedLabel = 'Barcode confirmed', checking, carried, locked, busy, error, children, onChange, onConfirm, onClear, onScan }: Props) {
   const scanButton = onScan && !locked ? (
     <Pressable accessibilityRole="button" accessibilityLabel="Scan barcode"
       disabled={busy} onPress={onScan} style={[styles.scan, busy && styles.disabled]}>
@@ -70,15 +73,37 @@ export function PhotoBarcodeReview({ result, value, confirmed, confirmLabel = 'C
               editable={!busy} value={value} onChangeText={onChange} style={[styles.input, styles.grow]} />
             {scanButton}
           </View>
-          <Pressable accessibilityRole="button" disabled={busy || !value.trim()} onPress={onConfirm}
-            style={[styles.button, (busy || !value.trim()) && styles.disabled]}>
-            <Text style={styles.label}>{confirmLabel}</Text>
+          <Pressable accessibilityRole="button" accessibilityState={{ busy: checking }} disabled={busy || checking || !value.trim()} onPress={onConfirm}
+            style={[styles.button, (busy || checking || !value.trim()) && styles.disabled]}>
+            <Text style={styles.label}>{checking ? 'Checking barcode…' : confirmLabel}</Text>
           </Pressable>
         </>
       )}
       {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
+      {children}
     </View>
   );
+}
+
+export function PhotoBarcodeCatalogMatch({ name, details, selected, busy, onUse, onCompare }: {
+  name: string; details?: string; selected: boolean; busy: boolean;
+  onUse: () => void; onCompare?: () => void;
+}) {
+  return <View style={styles.match}>
+    <Text style={styles.note}>{selected ? 'Using saved product' : 'Matching saved product'}</Text>
+    <Text style={styles.label}>{name}</Text>
+    {details ? <Text style={styles.note}>{details}</Text> : null}
+    {selected ? null : <Pressable accessibilityRole="button" disabled={busy} onPress={onUse} style={styles.button}>
+      <Text style={styles.label}>Use this product</Text>
+    </Pressable>}
+    {onCompare ? <Pressable accessibilityRole="button" disabled={busy} onPress={onCompare} style={styles.button}>
+      <Text style={styles.label}>Compare saved prices</Text>
+    </Pressable> : null}
+  </View>;
+}
+
+export function PhotoBarcodeMissing() {
+  return <Text accessibilityLiveRegion="polite" style={styles.note}>No saved product matches this barcode.</Text>;
 }
 
 const styles = StyleSheet.create({
@@ -86,6 +111,7 @@ const styles = StyleSheet.create({
     borderRadius: 12, borderColor: color.border, borderWidth: 1 },
   label: { color: color.ink, fontSize: 14, fontWeight: '700' },
   note: { color: color.muted, fontSize: 13 },
+  match: { gap: spacing.sm, borderTopWidth: 1, borderColor: color.border, paddingTop: spacing.sm },
   inputRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   grow: { flex: 1 },
   scan: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 10,

@@ -35,6 +35,7 @@ export default function ScanScreen() {
       ) : (
         <CameraComponent currentShop={{ id: shop.id, displayName }}
           currentShopCountry={photoShopCountry(shop.address)}
+          onCompareBarcode={Platform.OS === "web" ? undefined : barcode => router.push({ pathname: "/find-product", params: { barcode } })}
           onScanBarcode={Platform.OS === "web" ? undefined : () => router.setParams({ mode: "barcode" })} />
       )}
     </View>

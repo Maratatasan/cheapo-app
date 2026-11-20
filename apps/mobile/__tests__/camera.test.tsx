@@ -21,8 +21,12 @@ jest.mock('../hooks/use-enrolled-catalog', () => ({ useEnrolledCatalog: () => mo
 const mockSharedReads = jest.fn();
 jest.mock('../data/cheapo-shopping-read-device', () => ({ openCheapoSavedPriceReads: (...args: unknown[]) => mockSharedReads(...args) }));
 const mockAddLocalProduct = jest.fn();
+const mockFindLocalProduct = jest.fn();
 const mockScanFromURLAsync = jest.fn();
-jest.mock('../data/local-products', () => ({ addLocalProduct: (...args: unknown[]) => mockAddLocalProduct(...args) }));
+jest.mock('../data/local-products', () => ({
+  addLocalProduct: (...args: unknown[]) => mockAddLocalProduct(...args),
+  findLocalProductByBarcode: (...args: unknown[]) => mockFindLocalProduct(...args),
+}));
 const mockChoosePhoto = jest.fn();
 let mockFieldPhotoAnalysisEnabled = false;
 const mockRequestPhotoDraft = jest.fn();
@@ -82,6 +86,7 @@ describe("CameraComponent", () => {
     mockRequestPhotoDraft.mockReset();
     mockSaveLocalPhoto.mockReset();
     mockAddLocalProduct.mockReset();
+    mockFindLocalProduct.mockReset().mockResolvedValue(undefined);
     mockScanFromURLAsync.mockReset().mockResolvedValue([]);
     mockChoosePhoto.mockReset();
     mockLoadLocalPhotos.mockResolvedValue([]);
@@ -233,6 +238,104 @@ describe("CameraComponent", () => {
     }
     expect(mockSaveLocalPhoto).not.toHaveBeenCalled();
     expect(commitMutation).not.toHaveBeenCalled();
+  });
+
+  it('shows a known exact barcode before saving and keeps the crop and price when the shopper uses the product', async () => {
+    const shop = { id: 'selected-shop', displayName: 'Selected shop' };
+    mockPermission = { granted: false };
+    mockChoosePhoto.mockResolvedValue({ uri: 'file:///original.jpg', width: 1200, height: 800, mimeType: 'image/jpeg' });
+    mockFindLocalProduct.mockResolvedValue({ id: 'saved-rice', barcode: '00036000291452', name: 'Saved rice', productType: 'Rice' });
+    mockSaveLocalPhoto.mockImplementation(async draft => draft);
+    const compare = jest.fn();
+
+    await render(<CameraComponent currentShop={shop} onCompareBarcode={compare} />);
+    await fireEvent.press(screen.getByRole('button', { name: 'Choose photo' }));
+    await fireEvent.press(await screen.findByRole('button', { name: 'Apply crop' }));
+    await fireEvent.changeText(screen.getByLabelText('Pack price'), '2.50');
+    await fireEvent.changeText(screen.getByLabelText('Product barcode'), '036000291452');
+    await fireEvent.press(screen.getByRole('button', { name: 'Confirm barcode' }));
+
+    expect(await screen.findByText('Saved rice')).toBeOnTheScreen();
+    expect(screen.getByRole('button', { name: 'Save on this phone' })).toBeDisabled();
+    expect(mockSaveLocalPhoto).not.toHaveBeenCalled();
+    await fireEvent.press(screen.getByRole('button', { name: 'Compare saved prices' }));
+    expect(compare).toHaveBeenCalledWith('00036000291452');
+    await fireEvent.press(screen.getByRole('button', { name: 'Use this product' }));
+    expect(screen.getByLabelText('Pack price')).toHaveDisplayValue('2.50');
+    await fireEvent.press(screen.getByRole('button', { name: 'Save Price' }));
+
+    expect(mockAddLocalProduct).not.toHaveBeenCalled();
+    expect(mockSaveLocalPhoto).toHaveBeenCalledWith(expect.objectContaining({
+      productId: 'saved-rice', selected: expect.objectContaining({ uri: 'file:///cropped.jpg' }),
+      review: expect.objectContaining({ productName: 'Saved rice', productType: 'Rice', price: '2.50' }),
+    }));
+  });
+
+  it('offers a retry after an unavailable check and ignores a stale result when the barcode changes', async () => {
+    const shop = { id: 'selected-shop', displayName: 'Selected shop' };
+    mockPermission = { granted: false };
+    mockChoosePhoto.mockResolvedValue({ uri: 'file:///original.jpg', width: 1200, height: 800, mimeType: 'image/jpeg' });
+    let completeLookup!: (result: { id: string; name: string; barcode: string }) => void;
+    const firstLookup = new Promise(resolve => { completeLookup = resolve; });
+    const findByBarcode = jest.fn().mockReturnValueOnce(firstLookup).mockRejectedValueOnce(Error('Offline'))
+      .mockResolvedValueOnce(undefined);
+    const save = jest.fn();
+    mockCatalog.mockReturnValue({ findByBarcode, save });
+
+    await render(<CameraComponent currentShop={shop} />);
+    await fireEvent.press(screen.getByRole('button', { name: 'Choose photo' }));
+    await fireEvent.press(await screen.findByRole('button', { name: 'Apply crop' }));
+    await fireEvent.changeText(screen.getByLabelText('Product barcode'), '036000291452');
+    await fireEvent.press(screen.getByRole('button', { name: 'Confirm barcode' }));
+    expect(screen.getByRole('button', { name: 'Checking barcode…' })).toBeDisabled();
+    await fireEvent.changeText(screen.getByLabelText('Product barcode'), '4006381333931');
+    await fireEvent.press(screen.getByRole('button', { name: 'Confirm barcode' }));
+    await act(() => completeLookup({ id: 'old-rice', name: 'Old barcode match', barcode: '00036000291452' }));
+
+    expect(screen.queryByText('Old barcode match')).not.toBeOnTheScreen();
+    expect(screen.getByRole('alert')).toHaveTextContent('Could not check this barcode. Try again.');
+    expect(screen.queryByText('No saved product matches this barcode.')).not.toBeOnTheScreen();
+    expect(screen.getByRole('button', { name: 'Save on this phone' })).toBeDisabled();
+    await fireEvent.press(screen.getByRole('button', { name: 'Retry barcode lookup' }));
+    expect(await screen.findByText('No saved product matches this barcode.')).toBeOnTheScreen();
+    expect(findByBarcode).toHaveBeenLastCalledWith('04006381333931', expect.any(AbortSignal));
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])('retains the review when a competing product is found (at publication: %s)', async atPublication => {
+    const shop = { id: 'selected-shop', displayName: 'Selected shop' };
+    mockPermission = { granted: false };
+    mockChoosePhoto.mockResolvedValue({ uri: 'file:///original.jpg', width: 1200, height: 800, mimeType: 'image/jpeg' });
+    mockFindLocalProduct.mockResolvedValueOnce(undefined);
+    if (atPublication) {
+      mockFindLocalProduct.mockResolvedValueOnce(undefined);
+      mockAddLocalProduct.mockRejectedValueOnce(Error('This barcode already has a saved product.'));
+    }
+    mockFindLocalProduct.mockResolvedValue({
+      id: 'winning-product', name: 'Existing rice', productType: 'Rice', barcode: '00036000291452',
+    });
+    mockSaveLocalPhoto.mockImplementation(async draft => draft);
+
+    await render(<CameraComponent currentShop={shop} />);
+    await fireEvent.press(screen.getByRole('button', { name: 'Choose photo' }));
+    await fireEvent.press(await screen.findByRole('button', { name: 'Apply crop' }));
+    await fireEvent.changeText(screen.getByLabelText('Product barcode'), '036000291452');
+    await fireEvent.press(screen.getByRole('button', { name: 'Confirm barcode' }));
+    expect(await screen.findByText('No saved product matches this barcode.')).toBeOnTheScreen();
+    await fireEvent.changeText(screen.getByLabelText('Product name'), 'Draft rice');
+    await fireEvent.changeText(screen.getByLabelText('Product type'), 'Rice');
+    await fireEvent.changeText(screen.getByLabelText('Pack price'), '2.50');
+    await fireEvent.press(screen.getByRole('button', { name: 'Save Price' }));
+
+    expect(await screen.findByText('Existing rice')).toBeOnTheScreen();
+    expect(screen.getByLabelText('Product name')).toHaveDisplayValue('Draft rice');
+    expect(screen.getByLabelText('Pack price')).toHaveDisplayValue('2.50');
+    expect(mockAddLocalProduct).toHaveBeenCalledTimes(atPublication ? 1 : 0);
+    expect(mockSaveLocalPhoto).not.toHaveBeenCalled();
+    await fireEvent.press(screen.getByRole('button', { name: 'Use this product' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Save Price' }));
+    expect(mockSaveLocalPhoto).toHaveBeenCalledWith(expect.objectContaining({ productId: 'winning-product',
+      selected: expect.objectContaining({ uri: 'file:///cropped.jpg' }) }));
   });
 
   it('lets the shopper confirm one barcode from the original and saves the photo under the new product ID', async () => {
