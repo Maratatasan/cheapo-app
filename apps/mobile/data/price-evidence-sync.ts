@@ -1,7 +1,7 @@
 import { CheapoAccessError, type CheapoAccess } from '../lib/cheapo-access/client';
 import { describePriceEvidence, transferPricePhoto, type PricePhotoIntent } from './cheapo-price-photo-transfer';
 import type { LocalPhotoDraft } from './local-photo';
-import type { PriceAppendQueue, PriceAppendReceipt } from './price-append-queue';
+import { sameShoppingOwner, type PriceAppendQueue, type PriceAppendReceipt } from './price-append-queue';
 
 type OpenSession = CheapoAccess['openShoppingWriteSession'];
 
@@ -39,8 +39,7 @@ export function createPriceEvidenceSync(
       if (signal?.aborted) return 'failed';
       const session = await openSession();
       const { owner } = session;
-      if (owner.origin !== queue.owner.origin || owner.householdId !== queue.owner.householdId
-        || owner.shopperId !== queue.owner.shopperId) return 'blocked';
+      if (!sameShoppingOwner(owner, queue.owner)) return 'blocked';
 
       for (const { intent, ...source } of pending) {
         if (signal?.aborted) return 'failed';

@@ -19,6 +19,11 @@ function ownerKey(owner: PriceQueueOwner) {
   return JSON.stringify([owner.origin, owner.householdId, owner.shopperId]);
 }
 
+export function sameShoppingOwner(first: PriceQueueOwner | null, second: PriceQueueOwner) {
+  return first !== null && first.origin === second.origin
+    && first.householdId === second.householdId && first.shopperId === second.shopperId;
+}
+
 function validReceipt(value: unknown, sourceId: string): value is PriceAppendReceipt {
   if (!value || typeof value !== 'object') return false;
   const { id, sourceId: confirmedSourceId, version } = value as Partial<PriceAppendReceipt>;
