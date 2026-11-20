@@ -10,7 +10,7 @@ const item = /^\/v1\/me\/price-observations\/([^/]+)$/;
 const cursorFields = z.tuple([z.iso.datetime({ precision: 6 }), z.uuid()]);
 const defaultLimit = 30;
 const maxLimit = 50;
-const queryKeys = new Set(['limit', 'cursor', 'productId', 'comparableGroupId', 'productType', 'currency', 'includeRecordedInError']);
+const queryKeys = new Set(['limit', 'cursor', 'productId', 'sourceId', 'comparableGroupId', 'productType', 'currency', 'includeRecordedInError']);
 const filterId = z.string().regex(/^[^\s\0]{1,128}$/);
 const historyFilters = z.object({
   productId: filterId.nullable(),
@@ -21,7 +21,7 @@ const historyFilters = z.object({
 
 type PriceCursor = z.infer<typeof cursorFields>;
 type PriceHistoryPage = {
-  kind: 'page'; limit: number; cursor?: PriceCursor; includeRecordedInError: boolean;
+  kind: 'page'; limit: number; cursor?: PriceCursor; sourceId?: string; includeRecordedInError: boolean;
   filters: z.infer<typeof historyFilters>;
 };
 type PriceHistoryRead = PriceHistoryPage | { kind: 'detail'; id: string };
@@ -91,8 +91,12 @@ function readPage(params: URLSearchParams): PriceHistoryPage | undefined {
   }).data;
   const errors = params.get('includeRecordedInError');
   if (!filters || (filters.productId && (filters.comparableGroupId || filters.productType))) return undefined;
-  if (errors !== null && (errors !== 'true' || Object.values(filters).some(Boolean))) return undefined;
-  return { kind: 'page', limit, cursor, filters, includeRecordedInError: errors === 'true' };
+  const hasFilters = Object.values(filters).some(Boolean);
+  if (errors !== null && (errors !== 'true' || hasFilters)) return undefined;
+  const source = params.get('sourceId');
+  const sourceId = source === null ? undefined : filterId.safeParse(source).data;
+  if (source !== null && (!sourceId || cursor || hasFilters)) return undefined;
+  return { kind: 'page', limit, cursor, sourceId, filters, includeRecordedInError: errors === 'true' };
 }
 
 export function createPriceHistoryHandler(

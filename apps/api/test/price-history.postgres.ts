@@ -124,6 +124,56 @@ test('rejects unbounded, malformed, and caller-scoped page requests', async () =
   }
 });
 
+test('resolves exact legacy source IDs only to the authenticated shopper', async () => {
+  const sourceQuery = '?sourceId=same-source-id&includeRecordedInError=true';
+  const own = await (await request('H', sourceQuery)).json() as HistoryBody;
+  const peer = await (await request('I', sourceQuery)).json() as HistoryBody;
+  assert.equal(own.nextCursor, null);
+  assert.equal(peer.nextCursor, null);
+  assert.equal(own.observations.length, 1);
+  assert.equal(peer.observations.length, 1);
+  assert.notEqual(own.observations[0].id, peer.observations[0].id);
+  assert.equal(own.observations[0].productName, 'Original oats');
+  assert.equal(peer.observations[0].productName, 'Another observation');
+  assert(own.observations[0].ownedByCurrentShopper && peer.observations[0].ownedByCurrentShopper);
+  for (const [letter, sourceId] of [
+    ['J', 'same-source-id'], ['H', 'outside-household'], ['H', 'hidden-draft'],
+    ['H', 'hidden-test-shop'], ['H', 'same-source'],
+  ]) {
+    assert.deepEqual(await (await request(letter, '?sourceId=' + sourceId)).json(), { observations: [], nextCursor: null });
+  }
+  assert.equal((await request('K', sourceQuery)).status, 403);
+  assert.equal((await request('Z', sourceQuery)).status, 401);
+
+  const errorSource = 'source-query-recorded-in-error';
+  const { rows: [{ id }] } = await pool.query(`
+    INSERT INTO cheapo.price_observation (household_id, shopper_id, id, captured_at, status)
+    VALUES ($1, $2, $3, statement_timestamp(), 'complete') RETURNING resource_id AS id
+  `, [household, shopper, errorSource]);
+  assert.equal((await request('H', '/' + id, 'PATCH', {
+    action: 'record_in_error', operationId: 'source-query-error', expectedVersion: 1, reason: 'Wrong tag',
+  })).status, 200);
+  assert.deepEqual(await (await request('H', '?sourceId=' + errorSource)).json(), { observations: [], nextCursor: null });
+  const recorded = await (await request('H', '?sourceId=' + errorSource + '&includeRecordedInError=true')).json() as HistoryBody;
+  assert.equal(recorded.observations[0].recordedInErrorReason, 'Wrong tag');
+  // This fixture remains recorded in error and excluded from ordinary comparison pages.
+});
+
+test('rejects invalid exact-source lookups and combinations with navigation or comparison filters', async () => {
+  const first = await (await request('H', '?limit=1')).json() as HistoryBody;
+  assert(first.nextCursor);
+  for (const query of [
+    '?sourceId=', '?sourceId=two+words', '?sourceId=%00', '?sourceId=' + 'x'.repeat(129),
+    '?sourceId=a&sourceId=b', '?sourceId=valid&productId=product', '?sourceId=valid&productType=Oats',
+    '?sourceId=valid&comparableGroupId=group', '?sourceId=valid&currency=GBP',
+    '?sourceId=valid&cursor=' + first.nextCursor,
+  ]) {
+    const response = await request('H', query);
+    assert.equal(response.status, 400);
+    assert.deepEqual(await response.json(), { error: 'invalid_page' });
+  }
+});
+
 const appendInput = {
   sourceId: 'phone-observation', capturedAt: '2026-11-03T08:03:02.654321+01:00',
   productId: 'append-oats', shopId: 'append-branch', shopDisplayName: 'Market when captured',
