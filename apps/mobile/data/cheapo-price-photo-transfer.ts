@@ -3,6 +3,8 @@ import { File } from 'expo-file-system';
 import { fetch } from 'expo/fetch';
 
 import { CheapoAccessError } from '../lib/cheapo-access/client';
+import { withCheapoDeadline } from '../lib/cheapo-access/request-deadline';
+import { isSignedS3ObjectUrl } from '../lib/cheapo-access/s3-object-url';
 import { savedPhotoDirectory, type PhotoAsset, type SavedPriceRecord } from './local-photo';
 import type { PriceAppendReceipt } from './price-append-queue';
 
@@ -66,50 +68,24 @@ export async function describePriceEvidence(
   if (record.original.uri !== record.selected.uri) sources.push(captureSource(record.selected, 'crop'));
   const intents: PricePhotoIntent[] = [];
   for (const source of sources) {
-    const content = await withDeadline(signal, fileDeadlineMs, () => readPhoto(source))
+    const content = await withCheapoDeadline(signal, fileDeadlineMs, () => readPhoto(source))
       .catch(() => { throw Error('The saved photo is unavailable.'); });
     intents.push({ ...source, observationId, sha256: content.sha256, byteCount: content.bytes.byteLength });
   }
   return intents;
 }
 
-async function withDeadline<T>(signal: AbortSignal | undefined, timeoutMs: number, work: (signal: AbortSignal) => Promise<T>) {
-  const controller = new AbortController();
-  const cancel = () => controller.abort();
-  const stopped = new Promise<never>((_, reject) => {
-    controller.signal.addEventListener('abort', () => reject(Error('Photo transfer interrupted.')), { once: true });
-  });
-  const timer = setTimeout(cancel, timeoutMs);
-  signal?.addEventListener('abort', cancel, { once: true });
-  if (signal?.aborted) cancel();
-  try {
-    return await Promise.race([stopped, Promise.resolve().then(() => {
-      if (controller.signal.aborted) throw Error('Photo transfer interrupted.');
-      return work(controller.signal);
-    })]);
-  } finally {
-    clearTimeout(timer);
-    signal?.removeEventListener('abort', cancel);
-  }
-}
-
 type PhotoReply = { role?: unknown; availability?: unknown; url?: unknown; headers?: unknown; expiresInSeconds?: unknown };
 
 function parseGrant(reply: PhotoReply, byteCount: number) {
-  if (typeof reply.url !== 'string' || !reply.headers || typeof reply.headers !== 'object'
+  if (!isSignedS3ObjectUrl(reply.url) || !reply.headers || typeof reply.headers !== 'object'
     || typeof reply.expiresInSeconds !== 'number' || !positiveInt(reply.expiresInSeconds, 120)) return;
-  let target: URL;
   let signed: Headers;
   try {
-    target = new URL(reply.url);
     signed = new Headers(reply.headers as HeadersInit);
   } catch {
     return;
   }
-  if (target.protocol !== 'https:' || target.port || target.username || target.password || target.hash
-    || !/(?:^|\.)s3(?:[.-][a-z0-9-]+)*\.amazonaws\.com$/.test(target.hostname)
-    || !/^[a-f0-9]{64}$/.test(target.searchParams.get('X-Amz-Signature') ?? '')) return;
-
   const checksum = signed.get('x-amz-checksum-sha256');
   if (signed.get('Content-Type') !== 'image/jpeg' || signed.get('Content-Length') !== String(byteCount)
     || signed.get('If-None-Match') !== '*' || !checksum || !/^[A-Za-z0-9+/]{43}=$/.test(checksum)) return;
@@ -135,7 +111,7 @@ export async function transferPricePhoto(
   const path = `/v1/me/price-observations/${observationId}/photos/${role}/upload`;
 
   function request(init: RequestInit) {
-    return withDeadline(signal, apiDeadlineMs, async stageSignal => {
+    return withCheapoDeadline(signal, apiDeadlineMs, async stageSignal => {
       session.assertCurrent();
       const response = await session.request(path, { ...init, signal: stageSignal });
       const reply: PhotoReply | null = response.ok ? await response.json() : null;
@@ -155,11 +131,11 @@ export async function transferPricePhoto(
     const grant = prepared.reply.availability === 'pending' && parseGrant(prepared.reply, byteCount);
     if (!grant) return 'blocked';
 
-    const photo = await withDeadline(signal, fileDeadlineMs, () => readPhoto(intent)).catch(() => null);
+    const photo = await withCheapoDeadline(signal, fileDeadlineMs, () => readPhoto(intent)).catch(() => null);
     if (signal?.aborted) return 'retry';
     if (!photo || photo.bytes.byteLength !== byteCount || photo.sha256 !== expectedHash) return 'local-photo-unavailable';
 
-    const uploaded = await withDeadline(signal, grant.timeoutMs, stageSignal => {
+    const uploaded = await withCheapoDeadline(signal, grant.timeoutMs, stageSignal => {
       session.assertCurrent();
       return objectFetch(grant.url, {
         method: 'PUT', headers: grant.headers, body: photo.bytes,
