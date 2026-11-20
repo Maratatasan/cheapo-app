@@ -14,11 +14,19 @@ const mockAssertOwner = jest.fn();
 const mockRandomId = jest.fn();
 const mockObservation = jest.fn();
 const mockReadCurrent = jest.fn();
+const mockCatalog = jest.fn();
+const mockSelectedPhoto = jest.fn();
+const mockHistory = jest.fn();
+const mockSavePhoto = jest.fn();
+const mockSaveManual = jest.fn();
+const mockSubscribeClear = jest.fn();
+const mockDecodePhoto = jest.fn();
 const mockRuntime = {
   owner: { origin: 'https://api.example.test', householdId: 'test-household', shopperId: 'test-shopper' },
   assertOwner: mockAssertOwner, commitMutation: mockEnqueue,
-  priceQueue: { read: mockQueued }, priceRecords: { load: mockLoad },
+  priceQueue: { read: mockQueued, save: mockSaveManual }, priceRecords: { load: mockLoad, saveNewPhoto: mockSavePhoto },
   loadPriceChanges: mockChanges, retry: mockRetry,
+  subscribeSync: () => () => {}, readPriceSaveStatus: async () => 'waiting',
 };
 let mockShopping: typeof mockRuntime | null;
 let mockRoute: { id: string; source?: string };
@@ -31,11 +39,13 @@ jest.mock('expo-router', () => ({
 jest.mock('expo-file-system', () => ({}));
 jest.mock('expo-crypto', () => ({ randomUUID: () => mockRandomId() }));
 jest.mock('../component/cheapo-shopping-provider', () => ({ useCheapoShopping: () => mockShopping }));
+jest.mock('../hooks/use-enrolled-catalog', () => ({ useEnrolledCatalog: () => mockCatalog() }));
 jest.mock('../data/cheapo-shopping-read-device', () => ({ openCheapoSavedPriceReads: async () => ({
-  loadPriceObservation: mockObservation, assertCurrent: mockReadCurrent,
+  loadPriceObservation: mockObservation, assertCurrent: mockReadCurrent, loadSelectedPhoto: mockSelectedPhoto, loadPriceHistory: mockHistory,
 }) }));
+jest.mock('../data/cheapo-shopping-read-cache', () => ({ cheapoShoppingReadCache: { subscribeClear: (...args: unknown[]) => mockSubscribeClear(...args) } }));
 jest.mock('expo-camera', () => ({ useCameraPermissions: () => [null, jest.fn()] }));
-jest.mock('../data/photo-barcode', () => ({ decodePhotoBarcodes: async () => ({ status: 'found', codes: ['036000291452', '4006381333931'] }) }));
+jest.mock('../data/photo-barcode', () => ({ decodePhotoBarcodes: (...args: unknown[]) => mockDecodePhoto(...args) }));
 jest.mock('../data/local-products', () => ({ findLocalProductByBarcode: jest.fn(), findLocalProductById: jest.fn() }));
 jest.mock('../data/local-photo', () => ({ loadSavedPriceRecord: jest.fn(), saveLocalPhotoReview: jest.fn(), linkSavedPriceToBarcode: jest.fn() }));
 
@@ -52,6 +62,13 @@ const product: LocalPhotoDraft = {
 beforeEach(() => {
   jest.resetAllMocks();
   mockShopping = null;
+  mockCatalog.mockReturnValue(null);
+  mockHistory.mockResolvedValue({ status: 'fresh', value: { observations: [] } });
+  mockSavePhoto.mockImplementation(async record => ({ record, pending: 'waiting' }));
+  mockSaveManual.mockResolvedValue(undefined);
+  mockSubscribeClear.mockReturnValue(() => {});
+  mockDecodePhoto.mockResolvedValue({ status: 'found', codes: ['036000291452', '4006381333931'] });
+  jest.mocked(findLocalProductById).mockResolvedValue(undefined);
   mockRoute = { id: 'capture-1' };
   mockEnqueue.mockResolvedValue(undefined);
   mockRandomId.mockReturnValueOnce('test-operation-1').mockReturnValue('test-operation-2');
@@ -129,6 +146,155 @@ test('requires a reason, keeps the saved photo available and durably queues orde
   expect(mockRetry).toHaveBeenCalledTimes(2);
   expect(mockBack).not.toHaveBeenCalled();
   expect(saveLocalPhotoReview).not.toHaveBeenCalled();
+});
+
+test('links a checked enrolled product without including an unsaved price edit, then orders the normal Save behind the link', async () => {
+  mockShopping = mockRuntime;
+  mockQueued.mockResolvedValue({ entries: [{ record: product }], recovery: [] });
+  const matched = { id: 'shared-rice', name: 'Matched rice', barcode: '00036000291452', catalogBase: { kind: 'version', version: 3 } };
+  const findByBarcode = jest.fn().mockResolvedValue(matched);
+  mockCatalog.mockReturnValue({ findByBarcode, save: jest.fn() });
+  await render(<EditSavedPrice />);
+  await fireEvent.changeText(await screen.findByLabelText('Pack price'), '2.40');
+  await fireEvent.press(screen.getByRole('button', { name: 'Link barcode' }));
+  await fireEvent.press(await screen.findByRole('button', { name: 'Barcode 036000291452' }));
+  await fireEvent.press(screen.getByRole('button', { name: 'Check barcode' }));
+  await fireEvent.press(await screen.findByRole('button', { name: 'Save barcode link' }));
+  expect(await screen.findByText('Saved on this phone · Waiting to sync')).toBeOnTheScreen();
+  expect(mockEnqueue).toHaveBeenNthCalledWith(1, expect.objectContaining({ operationId: 'test-operation-1',
+    action: expect.objectContaining({ kind: 'price', priceKey: product.id, base: { kind: 'append', sourceId: product.id },
+      change: expect.objectContaining({ productId: matched.id, review: expect.objectContaining({ price: review.price }) }) }) }));
+  expect(findByBarcode).toHaveBeenCalledWith(matched.barcode, expect.any(AbortSignal));
+  expect(screen.getByLabelText('Pack price')).toHaveDisplayValue('2.40');
+  await fireEvent.press(screen.getByRole('button', { name: 'Save changes' }));
+  expect(mockEnqueue).toHaveBeenNthCalledWith(2, expect.objectContaining({ action: expect.objectContaining({
+    base: { kind: 'operation', operationId: 'test-operation-1' }, change: expect.objectContaining({ review: expect.objectContaining({ price: '2.40' }) }),
+  }) }));
+  expect(linkSavedPriceToBarcode).not.toHaveBeenCalled();
+  expect(saveLocalPhotoReview).not.toHaveBeenCalled();
+});
+
+test('enrolled barcode creation puts the exact product operation ahead of the price link', async () => {
+  mockShopping = mockRuntime;
+  mockQueued.mockResolvedValue({ entries: [{ record: product }], recovery: [] });
+  const findByBarcode = jest.fn().mockResolvedValue(undefined);
+  const create = jest.fn(async details => ({ ...details, catalogBase: { kind: 'operation', operationId: 'publish-product' } }));
+  mockCatalog.mockReturnValue({ findByBarcode, save: create });
+  await render(<EditSavedPrice />);
+  await fireEvent.press(await screen.findByRole('button', { name: 'Link barcode' }));
+  await fireEvent.press(await screen.findByRole('button', { name: 'Barcode 036000291452' }));
+  await fireEvent.press(screen.getByRole('button', { name: 'Check barcode' }));
+  await fireEvent.press(await screen.findByRole('button', { name: 'Create product and link' }));
+  expect(create).toHaveBeenCalledWith(expect.objectContaining({ id: 'test-operation-1', barcode: '00036000291452', name: review.productName }));
+  expect(mockEnqueue).toHaveBeenCalledWith(expect.objectContaining({ waitFor: ['publish-product'],
+    action: expect.objectContaining({ change: expect.objectContaining({ productId: 'test-operation-1' }) }) }));
+});
+
+test.each([false, true])('first-syncs a checked phone-only price with the original ID and capture time (manual: %s)', async manual => {
+  mockShopping = mockRuntime;
+  if (manual) {
+    mockLoad.mockResolvedValue({ ...product, original: undefined, selected: undefined, productId: 'known-rice' });
+    mockCatalog.mockReturnValue({ findById: jest.fn().mockResolvedValue({ id: 'known-rice', name: 'Rice' }) });
+  }
+  await render(<EditSavedPrice />);
+  await fireEvent.changeText(await screen.findByLabelText('Pack price'), '2.45');
+  await fireEvent.press(screen.getByRole('button', { name: 'Save changes' }));
+  const save = manual ? mockSaveManual : mockSavePhoto;
+  expect(save).toHaveBeenCalledWith(expect.objectContaining({ id: product.id, capturedAt: product.capturedAt,
+    review: expect.objectContaining({ price: '2.45' }) }));
+  expect(mockEnqueue).not.toHaveBeenCalled();
+  expect(saveLocalPhotoReview).not.toHaveBeenCalled();
+  expect(mockBack).toHaveBeenCalledTimes(1);
+});
+
+test('keeps unchecked offline older price edits in the editor without guessing or saving a different record', async () => {
+  mockShopping = mockRuntime;
+  mockHistory.mockResolvedValue({ status: 'unavailable' });
+  await render(<EditSavedPrice />);
+  await fireEvent.changeText(await screen.findByLabelText('Pack price'), '2.45');
+  await fireEvent.press(screen.getByRole('button', { name: 'Save changes' }));
+  expect(await screen.findByRole('alert')).toBeOnTheScreen();
+  expect(screen.getByLabelText('Pack price')).toHaveDisplayValue('2.45');
+  expect(screen.queryByRole('button', { name: 'Link barcode' })).toBeNull();
+  expect(mockSavePhoto).not.toHaveBeenCalled();
+  expect(mockEnqueue).not.toHaveBeenCalled();
+  expect(saveLocalPhotoReview).not.toHaveBeenCalled();
+});
+
+test('first-syncs a checked phone-only photo when linking its barcode and retains a separate unsaved price', async () => {
+  mockShopping = mockRuntime;
+  const matched = { id: 'shared-rice', name: 'Matched rice', barcode: '00036000291452', catalogBase: { kind: 'version', version: 3 } };
+  mockCatalog.mockReturnValue({ findByBarcode: jest.fn().mockResolvedValue(matched) });
+  await render(<EditSavedPrice />);
+  await fireEvent.changeText(await screen.findByLabelText('Pack price'), '2.40');
+  await fireEvent.press(screen.getByRole('button', { name: 'Link barcode' }));
+  await fireEvent.press(await screen.findByRole('button', { name: 'Barcode 036000291452' }));
+  await fireEvent.press(screen.getByRole('button', { name: 'Check barcode' }));
+  await fireEvent.press(await screen.findByRole('button', { name: 'Save barcode link' }));
+  expect(mockSavePhoto).toHaveBeenCalledWith(expect.objectContaining({ id: product.id, capturedAt: product.capturedAt,
+    original: product.original, productId: matched.id, review: expect.objectContaining({ price: review.price }) }));
+  expect(screen.getByLabelText('Pack price')).toHaveDisplayValue('2.40');
+  expect(linkSavedPriceToBarcode).not.toHaveBeenCalled();
+  await fireEvent.press(screen.getByRole('button', { name: 'Save changes' }));
+  expect(mockEnqueue).toHaveBeenCalledWith(expect.objectContaining({ action: expect.objectContaining({
+    base: { kind: 'append', sourceId: product.id }, change: expect.objectContaining({ review: expect.objectContaining({ price: '2.40' }) }),
+  }) }));
+});
+
+test.each([false, true])('clears only replaceable editor photos and preserves an unsaved review (already downloaded: %s)', async downloaded => {
+  mockShopping = mockRuntime;
+  const id = '1f39e272-9d1a-4204-9094-fe87d761cd43';
+  mockRoute = { id, source: 'shared' };
+  mockObservation.mockResolvedValue({ status: 'cached', value: { observation: {
+    id, sourceId: product.id, ownedByCurrentShopper: false, version: 4, capturedAt: product.capturedAt,
+    productName: 'Peer rice', productId: null, sourceProductId: null, shopId: 'test-shop', sourceShopId: null, shopDisplayName: review.shop,
+    priceAmount: review.price, currency: 'GBP', review: null, unitPrice: null,
+    photos: [{ role: 'original', width: 300, height: 300 }], cropBox: null, selectedPhotoRole: 'original',
+  } } });
+  const output = { status: 'cached', value: { ...photo, uri: 'file:///cache/downloaded.jpg' } };
+  let finish = () => {};
+  if (downloaded) mockSelectedPhoto.mockResolvedValue(output);
+  else mockSelectedPhoto.mockReturnValue(new Promise(resolve => { finish = () => resolve(output); }));
+  await render(<EditSavedPrice />);
+  await fireEvent.changeText(await screen.findByLabelText('Pack price'), '2.25');
+  if (downloaded) expect(await screen.findByLabelText('Price photo preview')).toBeOnTheScreen();
+  const clear = mockSubscribeClear.mock.calls[0][0];
+  await act(clear);
+  expect(mockSelectedPhoto.mock.calls[0][2].aborted).toBe(true);
+  await act(finish);
+  expect(screen.queryByLabelText('Price photo preview')).toBeNull();
+  expect(screen.getByLabelText('Pack price')).toHaveDisplayValue('2.25');
+  await fireEvent.press(screen.getByRole('button', { name: 'Save changes' }));
+  expect(mockEnqueue).toHaveBeenCalledWith(expect.objectContaining({ action: expect.objectContaining({
+    base: { kind: 'version', id, version: 4 }, change: expect.objectContaining({ review: expect.objectContaining({ price: '2.25' }) }),
+  }) }));
+});
+
+test('ignores a barcode decoder still working on a shared photo when cache is cleared', async () => {
+  mockShopping = mockRuntime;
+  mockCatalog.mockReturnValue({ findByBarcode: jest.fn() });
+  const id = '1f39e272-9d1a-4204-9094-fe87d761cd43';
+  mockRoute = { id, source: 'shared' };
+  mockObservation.mockResolvedValue({ status: 'cached', value: { observation: {
+    id, sourceId: product.id, ownedByCurrentShopper: false, version: 4, capturedAt: product.capturedAt,
+    productName: 'Peer rice', productId: null, shopId: 'test-shop', shopDisplayName: review.shop,
+    priceAmount: review.price, currency: 'GBP', review: null, unitPrice: null,
+    photos: [{ role: 'original', width: 300, height: 300 }], cropBox: null, selectedPhotoRole: 'original',
+  } } });
+  mockSelectedPhoto.mockResolvedValue({ status: 'cached', value: { ...photo, uri: 'file:///cache/downloaded.jpg' } });
+  let decoded = () => {};
+  mockDecodePhoto.mockReturnValue(new Promise(resolve => {
+    decoded = () => resolve({ status: 'found', codes: ['036000291452'] });
+  }));
+  await render(<EditSavedPrice />);
+  expect(await screen.findByLabelText('Price photo preview')).toBeOnTheScreen();
+  await fireEvent.press(screen.getByRole('button', { name: 'Link barcode' }));
+  expect(mockDecodePhoto).toHaveBeenCalledWith('file:///cache/downloaded.jpg');
+  await act(mockSubscribeClear.mock.calls[0][0]);
+  await act(decoded);
+  expect(screen.getByLabelText('Product barcode')).toBeOnTheScreen();
+  expect(screen.queryByRole('button', { name: 'Barcode 036000291452' })).toBeNull();
+  expect(mockEnqueue).not.toHaveBeenCalled();
 });
 
 test.each([false, true])('keeps a queued edit behind its dependent write (earlier correction: %s)', async earlierCorrection => {

@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
+import type { PriceObservationDetail } from '@cheapo/domain/price-history';
+import { randomUUID } from 'expo-crypto';
 import { Stack, useLocalSearchParams, usePreventRemove, useRouter } from 'expo-router';
 import { useCameraPermissions } from 'expo-camera';
 import { Platform, View } from 'react-native';
@@ -13,20 +15,29 @@ import { DisplayState } from '@/component/results/display-state';
 import { ui } from '@/component/results/theme';
 import { linkSavedPriceToBarcode, loadSavedPriceRecord, saveLocalPhotoReview } from '@/data/local-photo';
 import { openCheapoSavedPriceReads } from '@/data/cheapo-shopping-read-device';
+import { cheapoShoppingReadCache } from '@/data/cheapo-shopping-read-cache';
 import {
-  correctionFromReview, readEnrolledPriceEdit, recordFromObservation, saveEnrolledPriceEdit, type PriceEditRecord, type PriceEditTarget,
+  correctionFromReview, readEnrolledPriceEdit, recordFromObservation, saveEnrolledPriceEdit,
+  type PriceEditRecord, type PriceEditTarget,
 } from '@/data/edit-enrolled-price';
+import { firstSyncSavedPrice, readOwnEnrolledPriceEdit } from '@/data/edit-enrolled-price-device';
 import { findLocalProductByBarcode, findLocalProductById } from '@/data/local-products';
 import { decodePhotoBarcodes } from '@/data/photo-barcode';
 import { reviewComplete, type ManualReview } from '@/data/photo-review';
+import type { PhotoSavePending } from '@/data/price-records';
+import { keptSharedPrice, projectSharedPrice } from '@/data/saved-price-history';
+import { useEnrolledCatalog } from '@/hooks/use-enrolled-catalog';
+import { usePriceSaveNotice } from '@/hooks/use-price-save-notice';
 
 type EditableProduct = PriceEditRecord & { review: ManualReview };
-type EditorData = { product: EditableProduct | null; target?: PriceEditTarget; errorReason?: string };
+type EditorData = { product: EditableProduct | null; target?: PriceEditTarget; errorReason?: string;
+  observation?: PriceObservationDetail; available?: boolean };
 
 export default function EditSavedPrice() {
   const router = useRouter();
   const { id, source } = useLocalSearchParams<{ id: string; source?: string }>();
   const shopping = useCheapoShopping();
+  const enrolledCatalog = useEnrolledCatalog();
   const [loaded, setLoaded] = useState<{ id: string; source?: string; shopping: typeof shopping; data: EditorData }>();
   const current = loaded?.id === id && loaded.source === source && loaded.shopping === shopping ? loaded.data : undefined;
   const product = current?.product;
@@ -35,44 +46,70 @@ export default function EditSavedPrice() {
   const [linkOpen, setLinkOpen] = useState(false);
   const [linkSaving, setLinkSaving] = useState(false);
   const [linkedBarcode, setLinkedBarcode] = useState<{ code: string; saved?: boolean }>();
+  const [linkProgress, setLinkProgress] = useState<{ pending: PhotoSavePending; operationId?: string }>();
+  const barcodeLinkStatus = usePriceSaveNotice(shopping, linkProgress ? id : undefined, linkProgress?.pending, linkProgress?.operationId);
   const [permission, requestPermission] = useCameraPermissions();
   const [error, setError] = useState<string>();
   const saving = useRef(false);
   const lifecycle = useRef<AbortController | null>(null);
+  const photoLifecycle = useRef<AbortController | null>(null);
+  const pendingProduct = useRef<{ barcode: string; id: string } | undefined>(undefined);
   usePreventRemove(linkSaving);
 
   useEffect(() => {
     const controller = new AbortController();
+    const initialPhoto = new AbortController();
     lifecycle.current = controller;
+    photoLifecycle.current = initialPhoto;
+    const stopClear = source === 'shared' ? cheapoShoppingReadCache.subscribeClear(() => {
+      photoLifecycle.current?.abort();
+      photoLifecycle.current = new AbortController();
+      setLoaded(state => state?.data.product ? { ...state, data: { ...state.data, product: {
+        ...state.data.product, original: undefined, selected: undefined,
+      } } } : state);
+    }) : undefined;
     const { signal } = controller;
     const show = (data: EditorData) => {
       if (signal.aborted) return;
       setLinkOpen(false);
       setLinkSaving(false);
       setLinkedBarcode(undefined);
+      setLinkProgress(undefined);
+      pendingProduct.current = undefined;
       setError(undefined);
       setLoaded({ id, source, shopping, data });
       setReview(data.product?.review);
     };
 
+    async function showExistingBarcode(productId: string | undefined, shared: boolean) {
+      if (!productId) return;
+      const linked = await (shared && enrolledCatalog ? enrolledCatalog.findById(productId, signal) : findLocalProductById(productId)).catch(() => undefined);
+      if (!signal.aborted && linked?.barcode) setLinkedBarcode({ code: linked.barcode });
+    }
+
     async function load() {
       if (source === 'shared') {
         if (!shopping) return show({ product: null });
         const reads = await openCheapoSavedPriceReads(shopping.owner);
-        const result = await reads.loadPriceObservation(id, signal);
-        const observation = result.status !== 'unavailable' && result.value.observation;
+        const [result, changes] = await Promise.all([reads.loadPriceObservation(id, signal), shopping.loadPriceChanges()]);
+        const current = result.status === 'unavailable' ? undefined : result.value.observation;
+        const observation = current ?? (result.status !== 'fresh' ? keptSharedPrice(id, changes) : undefined);
         if (!observation || signal.aborted) return show({ product: null });
         const { record, target, errorReason } = await readEnrolledPriceEdit(shopping, recordFromObservation(observation), observation);
         if (!record.review) return show({ product: null });
         reads.assertCurrent();
-        show({ product: { ...record, review: record.review }, target, errorReason });
-        if (observation.selectedPhotoRole) {
-          const photo = await reads.loadPhoto(id, observation.selectedPhotoRole, signal).catch(() => undefined);
+        const displayed = projectSharedPrice(observation, changes).display;
+        show({ product: { ...record, review: record.review }, target, errorReason, observation: displayed });
+        void showExistingBarcode(record.productId, true);
+        const role = displayed.selectedPhotoRole;
+        if (role && !initialPhoto.signal.aborted) {
+          const photo = await reads.loadSelectedPhoto(displayed, role, initialPhoto.signal).catch(() => undefined);
           reads.assertCurrent();
-          if (!signal.aborted && photo && photo.status !== 'unavailable') {
+          if (!signal.aborted && !initialPhoto.signal.aborted && photo && photo.status !== 'unavailable') {
             const { uri, width, height } = photo.value;
+            const asset = { uri, width, height, mimeType: 'image/jpeg' as const };
             setLoaded(state => state?.data.product ? { ...state, data: { ...state.data, product: {
-              ...state.data.product, selected: { uri, width, height, mimeType: 'image/jpeg' },
+              ...state.data.product, selected: asset, ...(role === 'original' ? { original: asset } : {}),
             } } } : state);
           }
         }
@@ -82,19 +119,22 @@ export default function EditSavedPrice() {
       await shopping?.assertOwner();
       const draft = await (shopping?.priceRecords.load(id) ?? loadSavedPriceRecord(id));
       if (!draft?.review || !reviewComplete(draft.review, draft.shop?.displayName)) return show({ product: null });
-      const edit = shopping ? await readEnrolledPriceEdit(shopping, draft) : { record: draft };
+      const edit = shopping ? await readOwnEnrolledPriceEdit(shopping, draft, signal) : { record: draft };
       const { record } = edit;
       if (!record.review) return show({ product: null });
       show({ ...edit, product: { ...record, review: record.review } });
-      if (record.productId && !shopping) {
-        const linked = await findLocalProductById(record.productId).catch(() => undefined);
-        if (!signal.aborted && linked?.barcode) setLinkedBarcode({ code: linked.barcode });
-      }
+      void showExistingBarcode(record.productId, Boolean(shopping && 'target' in edit && edit.target));
     }
 
     if (Platform.OS !== 'web') void load().catch(() => show({ product: null }));
-    return () => { controller.abort(); lifecycle.current = null; };
-  }, [id, shopping, source]);
+    return () => {
+      controller.abort();
+      photoLifecycle.current?.abort();
+      stopClear?.();
+      photoLifecycle.current = null;
+      lifecycle.current = null;
+    };
+  }, [enrolledCatalog, id, shopping, source]);
 
   function leave() {
     if (linkSaving) return;
@@ -110,7 +150,19 @@ export default function EditSavedPrice() {
     setError(undefined);
     try {
       if (shopping && current?.target) await saveEnrolledPriceEdit(shopping, current.target, review.productName, correctionFromReview(review));
-      else if (source === 'shared') throw Error('The shared price needs to be checked again.');
+      else if (shopping && current?.available === true) {
+        if (product.productId) {
+          if (!enrolledCatalog) throw Error('Open Cheapo access before syncing this price.');
+          const saved = await enrolledCatalog.findById(product.productId, signal);
+          if (!saved) {
+            const original = await findLocalProductById(product.productId);
+            if (!original) throw Error('The saved product is unavailable.');
+            await enrolledCatalog.save(original);
+          }
+        }
+        await firstSyncSavedPrice(shopping, { ...product, review });
+      }
+      else if (source === 'shared' || current?.available === false) throw Error('The shared price needs to be checked again.');
       else {
         await shopping?.assertOwner();
         await saveLocalPhotoReview(id, review);
@@ -124,6 +176,66 @@ export default function EditSavedPrice() {
       if (!signal.aborted) setBusy(false);
     }
   }
+
+  async function openBarcodeLink() {
+    setLinkOpen(true);
+    const observation = current?.observation;
+    const signal = photoLifecycle.current?.signal;
+    if (!signal || !shopping || product?.original || !observation) return;
+    try {
+      const reads = await openCheapoSavedPriceReads(shopping.owner);
+      const photo = await reads.loadSelectedPhoto(observation, 'original', signal);
+      reads.assertCurrent();
+      if (signal.aborted || photo.status === 'unavailable') return;
+      const { uri, width, height } = photo.value;
+      setLoaded(state => state?.data.product ? { ...state, data: { ...state.data, product: {
+        ...state.data.product, original: { uri, width, height, mimeType: 'image/jpeg' },
+      } } } : state);
+    } catch { /* Barcode entry and scanning remain available without the original. */ }
+  }
+
+  async function linkEnrolledBarcode(recordId: string, code: string, target: Parameters<typeof linkSavedPriceToBarcode>[2]) {
+    const signal = lifecycle.current?.signal;
+    if (!signal || signal.aborted || !shopping || !enrolledCatalog || (!current?.target && current?.available !== true) || !product || product.id !== recordId) {
+      throw Error('Open the saved price again before linking a barcode.');
+    }
+    const matched = await enrolledCatalog.findByBarcode(code, signal);
+    let linked = matched;
+    if (target.kind === 'existing') {
+      if (!matched || matched.id !== target.productId) throw Error('This barcode match changed. Check it again.');
+    } else {
+      if (pendingProduct.current?.barcode !== code) pendingProduct.current = { barcode: code, id: randomUUID() };
+      const productId = pendingProduct.current.id;
+      if (matched && matched.id !== productId) throw Error('This barcode is now linked to a product. Check it again.');
+      linked = matched ?? await enrolledCatalog.save({ ...target.details, id: productId, barcode: code });
+    }
+    if (!linked || signal.aborted) throw Error('Open the saved price again before linking a barcode.');
+    const productId = linked.id;
+    let nextTarget: PriceEditTarget;
+    let linkProgress: { pending: PhotoSavePending; operationId?: string };
+    if (current.target) {
+      const waitFor = linked.catalogBase?.kind === 'operation' ? [linked.catalogBase.operationId] : undefined;
+      const operationId = await saveEnrolledPriceEdit(shopping, current.target, product.review.productName,
+        { ...correctionFromReview(product.review), productId }, waitFor);
+      nextTarget = { ...current.target, base: { kind: 'operation', operationId } };
+      linkProgress = { pending: 'waiting', operationId };
+    } else {
+      const first = await firstSyncSavedPrice(shopping, { ...product, productId });
+      nextTarget = first.target;
+      linkProgress = { pending: first.pending };
+    }
+    if (!signal.aborted) {
+      setLinkProgress(linkProgress);
+      setLoaded(state => state?.data.product ? { ...state, data: { ...state.data,
+        product: { ...state.data.product, productId }, target: nextTarget,
+      } } : state);
+    }
+    return { product: linked };
+  }
+
+  const sharedLink = Boolean(shopping && (current?.target || current?.available === true) && enrolledCatalog);
+  const canLink = !product?.productId && (!shopping || sharedLink)
+    && Boolean(product?.original || sharedLink && current?.observation?.photos.some(photo => photo.role === 'original'));
 
   async function changeErrorStatus(reason: string | null) {
     const signal = lifecycle.current?.signal;
@@ -152,15 +264,16 @@ export default function EditSavedPrice() {
         <PhotoReview photo={product.selected} review={review} selectedShopName={product.shop?.displayName ?? product.review.shop}
           saved={false} busy={busy || linkSaving} onReviewChange={setReview} onCancel={linkOpen ? () => setLinkOpen(false) : leave} onSave={save} saveError={error}
           saveBlocked={linkOpen ? 'Save or cancel the barcode link first.' : undefined}
-          savedBarcode={linkedBarcode?.code} barcodeLinkSaved={linkedBarcode?.saved}
-          barcodeReview={!shopping && !product.productId && product.original && !linkedBarcode ? (
-            linkOpen ? <SavedPriceBarcode key={product.id} record={{ ...product, original: product.original, selected: product.selected ?? product.original }}
-              lookup={findLocalProductByBarcode} readPhoto={decodePhotoBarcodes} link={linkSavedPriceToBarcode}
+          savedBarcode={linkedBarcode?.code} barcodeLinkSaved={linkedBarcode?.saved} barcodeLinkStatus={barcodeLinkStatus}
+          barcodeReview={(linkOpen || canLink && !linkedBarcode) && current?.available !== false ? (
+            linkOpen ? <SavedPriceBarcode key={product.id} record={product}
+              lookup={sharedLink && enrolledCatalog ? code => enrolledCatalog.findByBarcode(code, lifecycle.current?.signal) : findLocalProductByBarcode}
+              readPhoto={decodePhotoBarcodes} link={sharedLink ? linkEnrolledBarcode : linkSavedPriceToBarcode}
               disabled={busy} onSavingChange={setLinkSaving}
               onLinked={code => { setLinkedBarcode({ code, saved: true }); setLinkOpen(false); }} onCancel={() => setLinkOpen(false)}
               renderScanner={permission ? callbacks => <PhotoBarcodeScan permission={permission}
                 requestPermission={requestPermission} {...callbacks} /> : undefined} />
-              : <CameraActionButton label="Link barcode" disabled={busy} onPress={() => setLinkOpen(true)} />
+              : <CameraActionButton label="Link barcode" disabled={busy} onPress={() => { void openBarcodeLink(); }} />
           ) : undefined}>
           {shopping && current?.target && !linkOpen ? <RecordedPriceError key={product.id} reason={current.errorReason}
             busy={busy || linkSaving} onRecord={reason => { void changeErrorStatus(reason); }} onUndo={() => { void changeErrorStatus(null); }} /> : null}

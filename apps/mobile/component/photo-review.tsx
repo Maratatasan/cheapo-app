@@ -23,11 +23,12 @@ type Props = {
   barcodeReview?: ReactNode;
   savedBarcode?: string;
   barcodeLinkSaved?: boolean;
+  barcodeLinkStatus?: string;
   recordingPrice?: boolean;
   savedStatus?: string;
 };
 
-export function PhotoReview({ photo, review, selectedShopName, saved, savedStatus, busy, onReviewChange, onSave, onRetake, onCrop, onCancel, onOriginal, onImageError, galleryAction, children, saveError, saveBlocked, recordingPrice, suggestion, barcodeReview, savedBarcode, barcodeLinkSaved }: Props) {
+export function PhotoReview({ photo, review, selectedShopName, saved, savedStatus, busy, onReviewChange, onSave, onRetake, onCrop, onCancel, onOriginal, onImageError, galleryAction, children, saveError, saveBlocked, recordingPrice, suggestion, barcodeReview, savedBarcode, barcodeLinkSaved, barcodeLinkStatus }: Props) {
   const container = useRef<ComponentRef<typeof View>>(null);
   const scroll = useRef<ComponentRef<typeof ScrollView>>(null);
   const fieldViews = useRef<Partial<Record<keyof ManualReview, ComponentRef<typeof View> | null>>>({});
@@ -120,7 +121,7 @@ export function PhotoReview({ photo, review, selectedShopName, saved, savedStatu
         {savedBarcode ? <View style={styles.field}>
           <Text style={styles.label}>Product barcode</Text>
           <Text selectable style={styles.input}>{savedBarcode}</Text>
-          {barcodeLinkSaved ? <Text accessibilityLiveRegion="polite" style={styles.note}>Barcode link saved.</Text> : null}
+          {barcodeLinkSaved ? <Text accessibilityLiveRegion="polite" style={styles.note}>{barcodeLinkStatus ?? 'Barcode link saved.'}</Text> : null}
         </View> : barcodeReview}
         {fields.map(([field, label, accessibilityLabel, placeholder, maxLength]) => <View key={field} ref={view => { fieldViews.current[field] = view; }}
           collapsable={false} style={styles.field} onLayout={event => {
