@@ -10,6 +10,7 @@ import { createCheapoPricePhotoRead } from '../../apps/mobile/data/cheapo-price-
 import { cheapoShoppingReadCache, cheapoPricePhotoCache } from '../../apps/mobile/data/cheapo-shopping-read-cache.ts';
 import { createCheapoShoppingReads } from '../../apps/mobile/data/cheapo-shopping-reads.ts';
 import { readEnrolledPriceEdit } from '../../apps/mobile/data/edit-enrolled-price.ts';
+import { createEnrolledCatalog } from '../../apps/mobile/data/enrolled-catalog.ts';
 import { createEnrolledSavedShops } from '../../apps/mobile/data/enrolled-saved-shops.ts';
 import { emptyReview } from '../../apps/mobile/data/photo-review.ts';
 import { projectSharedPrice } from '../../apps/mobile/data/saved-price-history.ts';
@@ -95,8 +96,9 @@ const raw = (person, path, method = 'GET', body) => person.access.request(path, 
 const readers = person => createCheapoShoppingReads(person.access.openReadSession, cheapoShoppingReadCache);
 const observed = async (name, id) => operate(name, async person =>
   (await readers(person).loadPriceObservation(id)).value.observation);
+const initialBarcode = '2000000000015';
 const product = {
-  id: 'two-owner-rolled-oats', barcode: '2000000000015', name: 'Example oats', productType: 'Oats',
+  id: 'two-owner-rolled-oats', barcode: '2000000000022', name: 'Example oats', productType: 'Oats',
   brand: 'Example Mill', variety: 'Rolled', pack: { quantity: 500, unit: 'g' },
 };
 const groupId = 'two-owner-oats';
@@ -135,9 +137,14 @@ try {
       await person.access.enroll(credential);
       person.runtime = await openCheapoShopping(person.access);
       assert.equal(person.runtime.owner.shopperId, shopperId);
+      const queue = person.runtime.mutationQueue;
+      const { assertOwner: assertCurrent, retry: sync } = person.runtime;
       person.shops = createEnrolledSavedShops({
-        queue: person.runtime.mutationQueue, assertCurrent: person.runtime.assertOwner, sync: person.runtime.retry,
-        loadHosted: operations => readers(person).loadEditableSavedShops(undefined, operations),
+        queue, assertCurrent, sync, loadHosted: operations => readers(person).loadEditableSavedShops(undefined, operations),
+      });
+      const reads = readers(person);
+      person.catalog = createEnrolledCatalog({
+        queue, assertCurrent, sync, readByBarcode: reads.findEditableProductByBarcode, readById: reads.findEditableProductById,
       });
     });
   }
@@ -146,8 +153,13 @@ try {
     const saved = await person.shops.saveShop({ id: 'fixture-market', name: 'Fixture Market', nickname: 'Before rename' }, { select: true });
     assert.equal(saved.currentShop.nickname, 'Before rename');
     await person.shops.updateShop('fixture-market', { nickname: 'Household nickname' }, saved.editBases.get('fixture-market'));
+    const first = await person.catalog.save({ ...product, barcode: initialBarcode });
+    assert.equal(first.catalogBase.kind, 'operation');
+    assert.equal((await person.catalog.findByBarcode(initialBarcode)).id, product.id);
+    const corrected = await person.catalog.replaceBarcode(first, product.barcode);
+    assert.equal(corrected.catalogBase.kind, 'operation');
+    assert.equal((await person.catalog.findById(product.id)).barcode, '02000000000022');
     person.online = true;
-    await person.runtime.commitMutation(queued({ kind: 'create-product', product }, 'Add the synthetic barcode'));
     await person.runtime.commitMutation(queued({ kind: 'preference', groupId, basis: 'kg',
       base: { kind: 'version', version: 0 } }, 'Set the comparison basis'));
     assert.equal((await person.runtime.retry()).state, 'complete');
@@ -172,12 +184,12 @@ try {
   assert.deepEqual(preferenceA.value, { basis: 'kg', version: 1 });
   assert.deepEqual(preferenceB.value, { basis: null, version: 0 });
   await operate('B', async person => {
-    const read = await readers(person).findEditableProductByBarcode(product.barcode);
-    assert.deepEqual(read.value, { product: { ...product, barcode: '02000000000015' }, version: 1 });
+    assert.equal(await person.catalog.findByBarcode(initialBarcode), undefined);
+    const read = await person.catalog.findByBarcode(product.barcode);
+    assert.deepEqual(read, { ...product, barcode: '02000000000022', catalogBase: { kind: 'version', version: 2 } });
     person.online = false;
-    const reopened = await readers(person).findEditableProductByBarcode(product.barcode);
-    assert.equal(reopened.status, 'cached');
-    assert.deepEqual(reopened.value, read.value);
+    const reopened = await person.catalog.findByBarcode(product.barcode);
+    assert.deepEqual(reopened, read);
     person.online = true;
   });
   summary.push('The enrolled shop repository isolates household nicknames and personal current shops; queued catalog and comparison-preference changes keep exact IDs, versions and personal basis boundaries.');
@@ -237,6 +249,19 @@ try {
     person.online = true;
   });
   assert.equal((await operate('C', person => raw(person, collection + '/' + canonical))).status, 404);
+  const sourceFilter = { sourceId: id, includeRecordedInError: true };
+  const own = await operate('A', person => readers(person).loadPriceHistory(sourceFilter));
+  const another = await operate('B', person => readers(person).loadPriceHistory(sourceFilter));
+  assert.deepEqual(own.value.observations.map(price => price.id), [canonical]);
+  assert.deepEqual(another.value.observations, []);
+  const offlineOther = await operate('B', async person => {
+    person.online = false;
+    const read = await readers(person).loadPriceHistory(sourceFilter);
+    person.online = true;
+    return read;
+  });
+  assert.equal(offlineOther.status, 'cached');
+  assert.deepEqual(offlineOther.value.observations, []);
   summary.push('Actual offline save and edit survived reopening, a committed append response was lost, and replay produced one corrected observation with two independently verified photos visible to B only inside the household.');
 
   const editA = mutation(target(canonical, 2), edits('3.45'));
