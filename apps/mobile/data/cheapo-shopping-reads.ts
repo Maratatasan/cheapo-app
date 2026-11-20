@@ -7,9 +7,10 @@ import { mutationOperationId, savedShopVersion } from './shopping-mutations';
 import { decodeHistoryObservation, decodeHistoryPage, historyObservationPath, historyPagePath } from "./cheapo-price-history";
 
 export type ReadCache = {
-  read(key: string): Promise<string | null>;
-  write(key: string, text: string): Promise<void>;
-  remove(key: string): Promise<void>;
+  revision(): number;
+  read(key: string, revision: number): Promise<string | null>;
+  write(key: string, text: string, revision: number): Promise<void>;
+  remove(key: string, revision: number): Promise<void>;
 };
 
 export type ShoppingRead<T> =
@@ -131,11 +132,12 @@ export function createCheapoShoppingReads(openSession: () => Promise<CheapoReadS
     } = {},
   ): Promise<ShoppingRead<T>> {
     if (signal?.aborted) throw requestInterrupted();
+    const revision = cache.revision();
     const session = await openSession();
     const key = `${session.cacheScope}\0${path}${cacheVersioned ? '\0versioned' : ''}`;
 
     function assertCurrent() {
-      if (signal?.aborted) throw requestInterrupted();
+      if (signal?.aborted || revision !== cache.revision()) throw requestInterrupted();
       session.assertCurrent();
     }
 
@@ -143,7 +145,7 @@ export function createCheapoShoppingReads(openSession: () => Promise<CheapoReadS
       let result: ShoppingRead<T> = { status: "unavailable" };
       if (cacheable) {
         try {
-          const text = await cache.read(key);
+          const text = await cache.read(key, revision);
           if (text) {
             const snapshot = object(JSON.parse(text));
             const { lastSyncedAt } = snapshot;
@@ -166,6 +168,7 @@ export function createCheapoShoppingReads(openSession: () => Promise<CheapoReadS
     let response: { ok: boolean; status: number; body: unknown; etag: string | null };
     try {
       response = await withCheapoDeadline(signal, readDeadlineMs, async stageSignal => {
+        assertCurrent();
         const checked = await session.get(path, stageSignal);
         if (stageSignal.aborted) throw requestInterrupted();
         return { status: checked.status, ok: checked.ok, body: checked.ok ? await checked.json() : undefined,
@@ -183,8 +186,8 @@ export function createCheapoShoppingReads(openSession: () => Promise<CheapoReadS
     const metadata = observedOperations ? { observedOperationIds: [...observedOperations] } : {};
     if (cacheable) {
       try {
-        if (cacheable(value)) await cache.write(key, JSON.stringify({ body: value, lastSyncedAt, ...metadata }));
-        else await cache.remove(key);
+        if (cacheable(value)) await cache.write(key, JSON.stringify({ body: value, lastSyncedAt, ...metadata }), revision);
+        else await cache.remove(key, revision);
       } catch {
         // A cache write failure does not invalidate the checked response.
       }

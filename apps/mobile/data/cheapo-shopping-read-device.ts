@@ -1,9 +1,11 @@
 import { cheapoAccess } from "../lib/cheapo-access/device";
 import { CheapoAccessError } from "../lib/cheapo-access/client";
+import { renderSelectedPriceCrop } from "../lib/render-selected-price-crop";
 import { createCheapoPricePhotoRead } from "./cheapo-price-photo-read";
 import { createCheapoShoppingReads } from "./cheapo-shopping-reads";
 import { cheapoPricePhotoCache, cheapoShoppingReadCache } from "./cheapo-shopping-read-cache";
 import type { PriceQueueOwner } from "./price-append-queue";
+import { createSelectedPricePhotoRead } from "./selected-price-photo-read";
 
 export const cheapoShoppingReads = cheapoAccess
   ? createCheapoShoppingReads(cheapoAccess.openReadSession, cheapoShoppingReadCache)
@@ -35,8 +37,9 @@ export async function openCheapoSavedPriceReads(owner: PriceQueueOwner) {
     return session;
   };
   const { loadPriceHistory, loadPriceObservation } = createCheapoShoppingReads(openBound, cheapoShoppingReadCache);
+  const loadPhoto = createCheapoPricePhotoRead(openBound, cheapoPricePhotoCache);
   return {
-    loadPriceHistory, loadPriceObservation, assertCurrent: session.assertCurrent,
-    loadPhoto: createCheapoPricePhotoRead(openBound, cheapoPricePhotoCache),
+    loadPriceHistory, loadPriceObservation, assertCurrent: session.assertCurrent, loadPhoto,
+    loadSelectedPhoto: createSelectedPricePhotoRead(session, cheapoPricePhotoCache, loadPhoto, renderSelectedPriceCrop),
   };
 }
