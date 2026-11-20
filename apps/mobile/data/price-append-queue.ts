@@ -62,7 +62,7 @@ function requirePriceRecord(value: unknown): SavedPriceRecord {
   };
 }
 
-function encodePriceAppend({ id, capturedAt, productId, shop, review }: SavedPriceRecord) {
+function encodePriceAppend({ id, capturedAt, productId, shop, review, cropBox }: SavedPriceRecord) {
   if (!shop || !review) throw Error('A reviewed price and saved shop are required.');
   const { productName, productType, brand, variety, price, currency, packSize, unitPrice, unit } = review;
   const payload = priceAppendSchema.safeParse({
@@ -70,6 +70,7 @@ function encodePriceAppend({ id, capturedAt, productId, shop, review }: SavedPri
     review: { productName, productType, brand, variety, price, currency, packSize,
       unitPrice: unitPrice.trim() || undefined, unit: unit.trim() || undefined },
     unitPrice: reviewUnitPrice(review),
+    cropBox,
   });
   if (!payload.success) throw Error('This reviewed price cannot be queued for Cheapo. Check its details.');
   return JSON.stringify(payload.data);

@@ -140,9 +140,46 @@ test('a restricted runtime can append and replay a price but cannot rewrite its 
   const replayed = await request(path, 'A', 'POST', input);
   assert.equal(replayed.status, 200);
   assert.deepEqual(await replayed.json(), identity);
+  const { rows: [stored] } = await runtime.query(`SELECT payload ? 'cropBox' AS present
+    FROM cheapo.price_append_receipt WHERE resource_id = $1::uuid`, [identity.id]);
+  assert.equal(stored.present, false);
   assert.equal((await request(path, 'B', 'POST', input)).status, 422);
   await assert.rejects(runtime.query('UPDATE cheapo.price_append_receipt SET accepted_version = 2'), { code: '42501' });
   await assert.rejects(runtime.query('DELETE FROM cheapo.price_append_receipt'), { code: '42501' });
+});
+
+test('keeps a reviewed crop in its original receipt and in reopened evidence after a correction', async () => {
+  const shopId = 'runtime-crop-branch';
+  assert.equal((await request(`/v1/me/saved-shops/${shopId}`, 'A', 'PUT', { name: 'Runtime Crop Branch' })).status, 200);
+  const path = '/v1/me/price-observations';
+  const cropBox = { left: 0.12, top: 0.18, right: 0.95, bottom: 0.82 };
+  const input = {
+    sourceId: 'runtime-cropped-price', capturedAt: '2026-11-01T03:04:05Z', shopId,
+    shopDisplayName: 'Runtime Crop Branch', review: { productName: 'Oats', price: '2.50', currency: 'GBP' }, cropBox,
+  };
+  assert.equal((await request(path, 'A', 'POST', { ...input, cropBox: { ...cropBox, right: 1.1 } })).status, 400);
+  assert.equal((await request(path, 'A', 'POST', { ...input, cropBox: { ...cropBox, bottom: cropBox.top } })).status, 400);
+  const created = await request(path, 'A', 'POST', input);
+  assert.equal(created.status, 201);
+  const identity = await created.json() as { id: string; version: number };
+  const item = `${path}/${identity.id}`;
+  const corrected = await request(item, 'A', 'PATCH', {
+    operationId: 'runtime-crop-edit', expectedVersion: identity.version, action: 'correct',
+    review: { ...input.review, price: '3.15' },
+  });
+  assert.equal(corrected.status, 200);
+
+  const replay = await request(path, 'A', 'POST', input);
+  assert.equal(replay.status, 200);
+  assert.deepEqual(await replay.json(), identity);
+  assert.equal((await request(path, 'A', 'POST', { ...input, cropBox: { ...cropBox, right: 0.9 } })).status, 409);
+  assert.equal((await request(path, 'A', 'POST', { ...input, cropBox: undefined })).status, 409);
+  const reopened = await request(item, 'A');
+  assert.equal(reopened.status, 200);
+  const { observation } = await reopened.json() as { observation: { cropBox: object; priceAmount: string } };
+  assert.deepEqual(observation.cropBox, cropBox);
+  assert.equal(observation.priceAmount, '3.15');
+  await assert.rejects(runtime.query('UPDATE cheapo.price_observation SET crop_box = NULL'), { code: '42501' });
 });
 
 test('a restricted login can only change versioned price fields and append its audit event', async () => {
