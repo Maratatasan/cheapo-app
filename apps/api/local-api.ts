@@ -2,10 +2,12 @@ import type { Pool } from 'pg';
 
 import { createCatalogHandler, isCatalogPath } from './catalog.ts';
 import { postgresCatalog } from './postgres-catalog.ts';
+import { postgresPriceHistory } from './postgres-price-history.ts';
 import { postgresSavedShops } from './postgres-saved-shops.ts';
 import type { ShoppingTransaction } from './postgres-shopping.ts';
 import { postgresPreferences } from './postgres.ts';
 import { createPreferencesHandler } from './preferences.ts';
+import { createPriceHistoryHandler, isPriceHistoryPath } from './price-history.ts';
 import { createSavedShopHandler, isSavedShopPath } from './saved-shops.ts';
 
 function localTransaction(pool: Pool): ShoppingTransaction {
@@ -30,10 +32,12 @@ export function createLocalApi(pool: Pool) {
   const transaction = localTransaction(pool);
   const shops = createSavedShopHandler(postgresSavedShops(transaction));
   const catalog = createCatalogHandler(postgresCatalog(transaction));
+  const prices = createPriceHistoryHandler(postgresPriceHistory(transaction));
   return (request: Request) => {
     const path = new URL(request.url).pathname;
     if (isSavedShopPath(path)) return shops(request);
     if (isCatalogPath(path)) return catalog(request);
+    if (isPriceHistoryPath(path)) return prices(request);
     return preferences(request);
   };
 }
