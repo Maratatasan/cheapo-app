@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 
 import { useState } from "react";
-import { View } from "react-native";
+import { Text, View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { PhotoReview } from "../component/photo-review";
 import { observationShopLabel } from "../data/observation";
@@ -9,6 +9,7 @@ import { emptyReview, type ManualReview } from "../data/photo-review";
 import type { Meta, StoryObj } from "@storybook/react-native-web-vite";
 import { expect, fireEvent, fn } from "storybook/test";
 import { ShopComparison, type ComparisonRow, type ShopComparisonProps } from "../component/results/shop-comparison";
+import { marketColor, ui } from "../component/results/theme";
 
 const localPhoto = import.meta.env.DEV
   ? import.meta.env.VITE_COMPARISON_SAMPLE_PHOTO
@@ -120,6 +121,65 @@ export const MissingVariety: Story = {
   play: async ({ canvas, userEvent }) => {
     await userEvent.click(canvas.getByRole("checkbox", { name: "Same variety" }));
     await expect(canvas.getByText("More product details needed")).toBeVisible();
+  },
+};
+
+const sharedOats = { productType: 'Oats', variety: 'Rolled', brand: 'Example Mill', currency: 'GBP', capturedOn: '2026-01-02' };
+const sharedHistoryOffers: ComparisonRow[] = [
+  { ...sharedOats, id: 'shared:peer', shop: 'Peer Market', product: 'Thick-cut oats', brand: 'Peer Mill', price: 2.20,
+    unit_price: { amount: 0.44, unit: '100g' } },
+  { ...sharedOats, id: 'legacy:other', shop: 'Local Market', product: 'Steel-cut oats', variety: 'Steel-cut', price: 2.60,
+    unit_price: { amount: 5.2, unit: 'kg' } },
+  { ...sharedOats, id: 'queued:old', shop: 'Example Corner Shop', product: 'Oats from this phone', price: 3.00,
+    unit_price: null },
+];
+
+export const SavedSharedComparison: Story = {
+  args: {
+    sample: false,
+    product: { name: 'Whole rolled oats', pack: '500 g', photo: { uri: new URL('./fixtures/price-label-crop.jpg', import.meta.url).href } },
+    reference: { ...sharedOats, id: 'shared:reference', shop: 'Example Market', product: 'Whole rolled oats', price: 3.05,
+      unit_price: { amount: 0.61, unit: '100g' } },
+    comparisons: sharedHistoryOffers, onEdit: fn(),
+  },
+  render: args => <View style={{ width: '100%', maxWidth: 428, backgroundColor: marketColor.background, padding: 20 }}>
+    <ShopComparison {...args} />
+    <Text style={ui.small}>Showing saved shared prices</Text>
+    <Text style={ui.small}>Last synced 2 Jan 2026, 10:00</Text>
+  </View>,
+};
+
+export const SharedComparisonFilters: Story = {
+  ...SavedSharedComparison,
+  play: async ({ args, canvas, userEvent }) => {
+    await expect(canvas.getByText('Lowest unit price')).toBeVisible();
+    await expect(canvas.getByText('Unit price unavailable')).toBeVisible();
+    await expect(canvas.getByRole('button', { name: /Edit Oats from this phone/ })).toBeVisible();
+    await userEvent.click(canvas.getByRole('checkbox', { name: 'Same brand' }));
+    await expect(canvas.queryByText('Peer Market')).not.toBeInTheDocument();
+    await expect(canvas.getByText('Local Market')).toBeVisible();
+    await userEvent.click(canvas.getByRole('checkbox', { name: 'Same brand' }));
+    await userEvent.click(canvas.getByRole('checkbox', { name: 'Same variety' }));
+    await expect(canvas.queryByText('Local Market')).not.toBeInTheDocument();
+    await userEvent.click(canvas.getByRole('button', { name: /Edit Thick-cut oats at Peer Market/ }));
+    await expect(args.onEdit).toHaveBeenCalledWith('shared:peer');
+  },
+};
+
+export const ExactProductHistory: Story = {
+  ...SavedSharedComparison,
+  args: {
+    ...SavedSharedComparison.args,
+    exactProductId: 'example-oats',
+    reference: { ...sharedOats, id: 'shared:reference', productId: 'example-oats', productType: undefined,
+      shop: 'Example Market', product: 'Whole rolled oats', price: 3.05, unit_price: { amount: 0.61, unit: '100g' } },
+    comparisons: [{ ...sharedHistoryOffers[0], productId: 'example-oats', productType: undefined },
+      { ...sharedHistoryOffers[1], productId: 'another-product' }],
+  },
+  play: async ({ canvas }) => {
+    await expect(canvas.getByText('Prices for this exact product')).toBeVisible();
+    await expect(canvas.getByText('Peer Market')).toBeVisible();
+    await expect(canvas.queryByText('Local Market')).not.toBeInTheDocument();
   },
 };
 

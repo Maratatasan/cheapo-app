@@ -50,6 +50,7 @@ export function projectSharedPrice<T extends PriceObservation>(observation: T, c
 
 export function projectLocalPrice(row: LocalHistoryRow, changes: readonly PendingHistoryChange[]) {
   let display = row.record;
+  let productId: string | null | undefined = row.record.productId;
   let pending: PendingPriceState | undefined;
   let recordedInErrorReason: string | undefined;
   for (const item of changes) {
@@ -57,6 +58,7 @@ export function projectLocalPrice(row: LocalHistoryRow, changes: readonly Pendin
     if (item.state !== 'acknowledged') pending = strongestPending(pending, item.state);
     const change = item.change;
     if (change.action === 'correct') {
+      if (change.productId !== undefined) productId = change.productId;
       const shop = change.shop ?? display.shop;
       if (shop) display = { ...display, shop, review: { ...change.review, shop: shop.displayName,
         unitPrice: change.review.unitPrice ?? '', unit: change.review.unit ?? '' } };
@@ -64,7 +66,7 @@ export function projectLocalPrice(row: LocalHistoryRow, changes: readonly Pendin
       recordedInErrorReason = change.action === 'record_in_error' ? change.reason : undefined;
     }
   }
-  return { display, pending, recordedInErrorReason };
+  return { display, pending, recordedInErrorReason, productId };
 }
 
 // The caller supplies queue entries and observations from the same verified
@@ -114,9 +116,9 @@ export function savedPriceHistoryRows({ legacy, queued, shared }: {
 
 export function comparisonRowFromSavedHistory(row: SavedPriceHistoryRow, changes: readonly PendingHistoryChange[] = []) {
   if (row.source !== 'shared') {
-    const { display, recordedInErrorReason } = projectLocalPrice(row, changes);
+    const { display, recordedInErrorReason, productId } = projectLocalPrice(row, changes);
     const comparison = recordedInErrorReason ? null : comparisonRowFromDraft(display);
-    return comparison ? { ...comparison, id: row.key } : null;
+    return comparison ? { ...comparison, id: row.key, productId } : null;
   }
 
   const { display: observation } = projectSharedPrice(row.observation, changes);
@@ -135,6 +137,7 @@ export function comparisonRowFromSavedHistory(row: SavedPriceHistoryRow, changes
     variety: normalizeName(observation.review?.variety),
     brand: normalizeName(observation.review?.brand),
     price,
+    productId: observation.productId,
     currency: observation.currency,
     unit_price: observation.unitPrice,
   };

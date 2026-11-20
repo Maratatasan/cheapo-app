@@ -6,6 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import type { PriceEvidenceRole } from '../data/cheapo-price-photo-read';
 import type { PendingPriceState } from '../data/saved-price-history';
+import { EditPriceButton } from './results/edit-price-button';
 import { PriceDisplay } from './results/price-display';
 import { color, radius, spacing, typography, ui } from './results/theme';
 
@@ -24,6 +25,7 @@ type Props = {
   onRetryPhoto(): void;
   onBack(): void;
   onCompare?(): void;
+  onEdit?(): void;
   onOpenLocal?(): void;
 };
 
@@ -40,7 +42,7 @@ export function PendingPriceNotice({ state }: { state?: PendingPriceState }) {
 }
 
 export function SharedPriceEvidence({
-  observation, lastSyncedAt, cached, activeRole, photo, pendingChange, onPhotoRole, onRetryPhoto, onBack, onCompare, onOpenLocal,
+  observation, lastSyncedAt, cached, activeRole, photo, pendingChange, onPhotoRole, onRetryPhoto, onBack, onCompare, onEdit, onOpenLocal,
 }: Props) {
   const [failedUri, setFailedUri] = useState<string>();
   const photoRole = observation.photos.find(asset => asset.role === activeRole);
@@ -116,6 +118,7 @@ export function SharedPriceEvidence({
               <Text style={styles.roleLabel}>Compare saved prices</Text>
             </Pressable>
           ) : null}
+          {onEdit ? <EditPriceButton label={`Edit ${name}`} onPress={onEdit} /> : null}
           {onOpenLocal ? (
             <Pressable accessibilityRole="button" style={[styles.role, styles.compare]} onPress={onOpenLocal}>
               <Text style={styles.roleLabel}>Open this phone’s copy</Text>

@@ -86,6 +86,8 @@ export function SavedProductsScreen({ priceQueue = null, loadPriceChanges }: {
           cached={detail.status === 'cached'} activeRole={detail.role} photo={detail.photo} pendingChange={sharedView.pending}
           onPhotoRole={role => { void openShared(detail.id, role); }}
           onRetryPhoto={() => { void openShared(detail.id, detail.role ?? undefined); }} onBack={closeShared}
+          onCompare={() => router.push({ pathname: '/compare/[id]', params: { id: detail.id, source: 'shared' } })}
+          onEdit={() => router.push({ pathname: '/edit-price/[id]', params: { id: detail.id, source: 'shared' } })}
           onOpenLocal={linkedLocal?.source === 'shared' && linkedLocal.linkedLocal ? () => {
             closeShared();
             setOriginal(false);
@@ -116,7 +118,9 @@ export function SavedProductsScreen({ priceQueue = null, loadPriceChanges }: {
           {reviewComplete(opened.review, opened.shop?.displayName) ? (
             <View style={styles.actions}>
               {!openedView.recordedInErrorReason ? (
-                <Button title="Compare saved prices" onPress={() => router.push({ pathname: '/compare/[id]', params: { id: opened.id } })} />
+                <Button title="Compare saved prices" onPress={() => router.push({ pathname: '/compare/[id]', params: {
+                  id: opened.id, ...(openedRow?.source === 'queued' ? { source: 'queued' } : {}),
+                } })} />
               ) : null}
               <EditPriceButton label={`Edit ${opened.review?.productName.trim()}`} onPress={() => router.push({ pathname: '/edit-price/[id]', params: { id: opened.id } })} />
             </View>

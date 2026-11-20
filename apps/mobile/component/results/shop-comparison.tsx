@@ -15,6 +15,7 @@ export type ShopComparisonProps = {
   comparisons: readonly ComparisonRow[];
   reference?: ComparisonRow;
   catalogProduct?: ProductMetadata;
+  exactProductId?: string;
   state?: "ready" | "loading" | "error";
   onRetry?: () => void;
   onEdit?: (id: string) => void;
@@ -80,6 +81,7 @@ export function ShopComparison({
   comparisons,
   reference,
   catalogProduct,
+  exactProductId,
   state = "ready",
   onRetry,
   onEdit,
@@ -89,7 +91,7 @@ export function ShopComparison({
   const photo = product.photo;
   const [sameVariety, setSameVariety] = useState(false);
   const [sameBrand, setSameBrand] = useState(false);
-  const ranked = comparePrices(comparisons, reference, { sameVariety, sameBrand }, catalogProduct);
+  const ranked = comparePrices(comparisons, reference, { sameVariety, sameBrand }, catalogProduct, exactProductId);
   const selection = catalogProduct ?? reference;
   const referenceUnitPrice = normalizedUnitPrice(reference?.unit_price);
   const lowestAlternative = ranked.groups.length === 1 ? ranked.groups[0].entries[0]?.unitPrice.amount : undefined;
@@ -143,7 +145,7 @@ export function ShopComparison({
             <FilterPill label="Same variety" checked={sameVariety} onPress={() => setSameVariety(!sameVariety)} />
             <FilterPill label="Same brand" checked={sameBrand} onPress={() => setSameBrand(!sameBrand)} />
           </View>
-          {!sameVariety && !sameBrand ? <Text style={styles.small}>Price first · Any variety or brand within the same product type</Text> : null}
+          {!sameVariety && !sameBrand ? <Text style={styles.small}>{exactProductId ? "Prices for this exact product" : "Price first · Any variety or brand within the same product type"}</Text> : null}
         </>
       ) : null}
       {state === "loading" ? (
