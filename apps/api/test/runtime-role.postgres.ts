@@ -280,8 +280,8 @@ test('a restricted login can return versioned create receipts without changing t
   assert.equal((await request(shop, 'B', 'PUT', link)).status, 200);
   assert.equal((await request(shop, 'E', 'PUT', link)).status, 401);
   for (const sql of [
-    "UPDATE cheapo.shopping_create_receipt SET response = '{}'::jsonb",
-    'DELETE FROM cheapo.shopping_create_receipt',
+    "UPDATE cheapo.shopping_operation_receipt SET response = '{}'::jsonb",
+    'DELETE FROM cheapo.shopping_operation_receipt',
   ]) {
     await assert.rejects(runtime.query(sql), { code: '42501' });
   }

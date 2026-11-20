@@ -641,3 +641,41 @@ test('returns the original saved link receipt without resetting the branch or th
   assert.deepEqual(await savedShopRequest('G', path, 'PUT', input), first);
   assert.equal((await savedShopRequest('A', path)).status, 404);
 });
+
+test('replays a current shop operation without replacing a later selection for that shopper', async () => {
+  await savedShopRequest('A', '/select-receipt-one', 'PUT', { name: 'First shop' });
+  await savedShopRequest('A', '/select-receipt-two', 'PUT', { name: 'Second shop' });
+  const first = { operationId: 'select-one', shopId: 'select-receipt-one' };
+  const second = { operationId: 'select-two', shopId: 'select-receipt-two' };
+  const accepted = { status: 200, body: { shopId: first.shopId } };
+  assert.deepEqual(await savedShopRequest('A', '/selection', 'PUT', first), accepted);
+  assert.equal((await savedShopRequest('G', '/selection', 'PUT', second)).status, 200);
+  assert.deepEqual(await savedShopRequest('A', '/selection', 'PUT', first), accepted);
+  const state = (await savedShopRequest('A')).body as { currentShop: { id: string } };
+  assert.equal(state.currentShop.id, second.shopId);
+  assert.equal((await savedShopRequest('A', '/selection', 'PUT', { ...first, shopId: second.shopId })).status, 409);
+  assert.equal((await savedShopRequest('F', '/selection', 'PUT', first)).status, 401);
+  const peer = (await savedShopRequest('B')).body as { currentShop?: object };
+  assert.equal(peer.currentShop, undefined);
+});
+
+test('replays a shop unlink without deleting a later link and rejects a stale unlink', async () => {
+  const id = 'unlink-receipt-market';
+  const path = `/${id}`;
+  await savedShopRequest('A', path, 'PUT', { name: 'Market' });
+  const before = (await savedShopRequest('A', path)).body as { version: string };
+  const removal = { operationId: 'unlink-market', expectedVersion: before.version };
+  const accepted = { status: 200, body: { shopId: id } };
+  assert.deepEqual(await savedShopRequest('A', path, 'DELETE', removal), accepted);
+  await savedShopRequest('B', path, 'PUT', { name: 'Market', nickname: 'Relinked' });
+  assert.deepEqual(await savedShopRequest('G', path, 'DELETE', removal), accepted);
+
+  const current = (await savedShopRequest('A', path)).body as { shop: { nickname: string }; version: string };
+  assert.equal(current.shop.nickname, 'Relinked');
+  assert.notEqual(current.version, before.version);
+  assert.deepEqual(await savedShopRequest('A', path, 'DELETE', { ...removal, operationId: 'stale-unlink' }),
+    { status: 409, body: { error: 'version_conflict', currentVersion: current.version, current: current.shop } });
+  assert.equal((await savedShopRequest('A', path, 'DELETE', { ...removal, expectedVersion: current.version })).status, 409);
+  assert.equal((await savedShopRequest('D', path, 'DELETE', removal)).status, 403);
+  assert.equal((await savedShopRequest('A', path)).status, 200);
+});

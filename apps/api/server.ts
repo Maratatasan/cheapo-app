@@ -10,7 +10,9 @@ export function localHttpServer(handle: (request: Request) => Promise<Response>)
           headers.append(name, entry);
         }
       }
-      const streamsBody = incoming.method === 'POST' || incoming.method === 'PUT' || incoming.method === 'PATCH';
+      const deletingWithBody = incoming.method === 'DELETE' &&
+        (Number(headers.get('Content-Length')) > 0 || headers.has('Transfer-Encoding'));
+      const streamsBody = incoming.method === 'POST' || incoming.method === 'PUT' || incoming.method === 'PATCH' || deletingWithBody;
       const init = {
         method: incoming.method,
         headers,

@@ -16,11 +16,13 @@ export type ShopAction =
   | { kind: 'edit'; shopId: string; details: z.infer<typeof editInput>; operation?: {
       operationId: string; expectedVersion: string;
     } }
-  | { kind: 'select' | 'unlink'; shopId: string };
+  | { kind: 'select'; shopId: string; operationId?: string }
+  | { kind: 'unlink'; shopId: string; operation?: z.infer<typeof conditionalUnlink> };
 export type SavedShopResult =
   | { status: 'ok'; state: SavedShopState }
   | { status: 'candidates'; shops: ShopCandidate[] }
   | { status: 'detail'; detail: VersionedSavedShop }
+  | { status: 'acknowledged'; shopId: string }
   | { status: 'version_conflict'; current: VersionedSavedShop }
   | { status: 'unauthenticated' | 'forbidden' | 'shop_not_saved' | 'invalid_shop' | 'operation_conflict' };
 export type ExecuteSavedShop = (digest: string, action: ShopAction) => Promise<SavedShopResult>;
@@ -30,16 +32,18 @@ const catalog = '/v1/shops';
 const selection = '/v1/me/current-shop';
 const item = /^\/v1\/me\/saved-shops\/([^/]+)$/;
 const scalarInput = shopSchema.shape.id.refine(id => !id.includes('\0'));
-const selectInput = z.object({ shopId: scalarInput });
+const operationId = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
+const expectedVersion = z.string().regex(/^[1-9][0-9]{0,9}:[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/);
+const selectInput = z.object({ shopId: scalarInput, operationId: operationId.optional() });
+const conditionalUnlink = z.strictObject({ operationId, expectedVersion });
 const editInput = z.strictObject({
   name: shopSchema.shape.name.nullable(),
   nickname: shopSchema.shape.nickname.nullable(),
   address: shopSchema.shape.address.nullable(),
 }).refine(details => Object.keys(details).length > 0);
-const operationId = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
 const conditionalEdit = z.strictObject({
   operationId,
-  expectedVersion: z.string().regex(/^[1-9][0-9]{0,9}:[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/),
+  expectedVersion,
   details: editInput,
 });
 const queryInput = z.string().trim().min(2).max(120).refine(value => !value.includes('\0'));
@@ -77,7 +81,13 @@ async function readAction(request: Request, url: URL): Promise<ShopAction | Resp
   const shopId = match && decodedId(match[1]);
   if (match && !shopId) return json({ error: 'invalid_shop_id' }, 400);
   if (shopId && method === 'GET') return { kind: 'detail', shopId };
-  if (shopId && method === 'DELETE') return { kind: 'unlink', shopId };
+  if (shopId && method === 'DELETE') {
+    if (!request.body) return { kind: 'unlink', shopId };
+    const body = await readJson(request, 8_192, 'invalid_shop');
+    if (body instanceof Response) return body;
+    const operation = conditionalUnlink.safeParse(body.value);
+    return operation.success ? { kind: 'unlink', shopId, operation: operation.data } : json({ error: 'invalid_shop' }, 400);
+  }
   if (shopId && method !== 'PUT' && method !== 'PATCH') return unsupported('GET, PUT, PATCH, DELETE');
   if (!shopId && path !== selection) return json({ error: 'not_found' }, 404);
 
@@ -86,7 +96,7 @@ async function readAction(request: Request, url: URL): Promise<ShopAction | Resp
   const value = body.value;
   if (path === selection) {
     const result = selectInput.safeParse(value);
-    return result.success ? { kind: 'select', shopId: result.data.shopId } : json({ error: 'invalid_shop' }, 400);
+    return result.success ? { kind: 'select', ...result.data } : json({ error: 'invalid_shop' }, 400);
   }
   if (!value || typeof value !== 'object' || Array.isArray(value)) return json({ error: 'invalid_shop' }, 400);
   if (shopId && method === 'PATCH') {
@@ -123,6 +133,7 @@ export function createSavedShopHandler(execute: ExecuteSavedShop) {
       switch (result.status) {
         case 'ok': return json(result.state);
         case 'candidates': return json({ shops: result.shops });
+        case 'acknowledged': return json({ shopId: result.shopId });
         case 'detail': return json(result.detail, 200, { ETag: `"${result.detail.version}"` });
         case 'version_conflict': return json({ error: 'version_conflict',
           currentVersion: result.current.version, current: result.current.shop }, 409);

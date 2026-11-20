@@ -150,6 +150,17 @@ For a replay-safe link, send `PUT` with `operationId`, `shop`, and optional
 returns that original detail and version, including after a nickname edit,
 unlink or a later selection. The replay has no new selection effect.
 
+For the current visit selection, send `operationId` alongside `shopId` in
+`PUT /v1/me/current-shop`. The accepted response contains `shopId`.
+Replaying the operation returns the same acknowledgement without applying the
+selection again.
+
+For a versioned unlink, send `operationId` and `expectedVersion` in the
+JSON body of `DELETE /v1/me/saved-shops/{id}`. The accepted response contains
+`shopId`. A stale link returns its current shop and version. An exact retry
+returns the original acknowledgement without removing a later re-link. The
+same name, address and nickname version applies to editing and unlinking.
+
 Use the version from a saved-shop detail when editing from an enrolled phone.
 Send `PATCH` with `operationId`, `expectedVersion`, and `details` containing
 the changed fields. A successful edit returns the same `{ shop, version }`

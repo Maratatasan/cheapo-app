@@ -3,7 +3,7 @@ import { shopDisplayName, type Shop } from '@cheapo/domain';
 import type {
   ExecuteSavedShop, SavedShopResult, SavedShopState, ShopAction, ShopCandidate, VersionedSavedShop,
 } from './saved-shops.ts';
-import { readCreateReceipt, saveCreateReceipt } from './postgres-create-receipt.ts';
+import { readShoppingReceipt, saveShoppingReceipt } from './postgres-shopping-receipt.ts';
 import { readShoppingMember, type ShoppingMember, type ShoppingQuery, type ShoppingTransaction } from './postgres-shopping.ts';
 
 type BranchRow = { id: string; name: string | null; address: string | null; location: Shop['location'] | null };
@@ -147,6 +147,29 @@ async function editShop(query: ShoppingQuery, member: ShoppingMember, action: Ex
   return operation ? { status: 'detail', detail: after } : { status: 'ok', state: await readSavedShops(query, member) };
 }
 
+async function receiptedShopChange(
+  query: ShoppingQuery, member: ShoppingMember, action: Extract<ShopAction, { kind: 'select' | 'unlink' }>,
+): Promise<SavedShopResult | undefined> {
+  const operationId = action.kind === 'select' ? action.operationId : action.operation?.operationId;
+  if (!operationId) return undefined;
+  const { shopId } = action;
+  const operation = {
+    kind: action.kind === 'select' ? 'shop_selection' as const : 'shop_unlink' as const,
+    id: shopId, operationId, request: action,
+  };
+  const receipt = await readShoppingReceipt<{ shopId: string }>(query, member, operation);
+  if (receipt) return receipt.matches ? { status: 'acknowledged', ...receipt.response } : { status: 'operation_conflict' };
+
+  if (action.kind === 'unlink' && action.operation) {
+    const current = await readSavedShop(query, member.household_id, shopId, true);
+    if (current && current.version !== action.operation.expectedVersion) return { status: 'version_conflict', current };
+  }
+  const status = await changeShop(query, member, action);
+  if (status !== 'ok') return { status };
+  await saveShoppingReceipt(query, member, operation, { shopId });
+  return { status: 'acknowledged', shopId };
+}
+
 export function postgresSavedShops(transaction: ShoppingTransaction): ExecuteSavedShop {
   return (digest, action) => transaction(async query => {
     // Hold the resolved household lock until links and selections commit together.
@@ -162,15 +185,19 @@ export function postgresSavedShops(transaction: ShoppingTransaction): ExecuteSav
     if (action.kind === 'edit') return editShop(query, member, action);
     if (action.kind === 'save' && action.operationId) {
       const operation = { kind: 'saved_shop' as const, id: action.shop.id, operationId: action.operationId, request: action };
-      const receipt = await readCreateReceipt<VersionedSavedShop>(query, member, operation);
+      const receipt = await readShoppingReceipt<VersionedSavedShop>(query, member, operation);
       if (receipt) return receipt.matches ? { status: 'detail', detail: receipt.response } : { status: 'operation_conflict' };
 
       const status = await changeShop(query, member, action);
       if (status !== 'ok') return { status };
       const detail = await readSavedShop(query, member.household_id, action.shop.id);
       if (!detail) throw Error('Could not read the saved branch receipt.');
-      await saveCreateReceipt(query, member, operation, detail);
+      await saveShoppingReceipt(query, member, operation, detail);
       return { status: 'detail', detail };
+    }
+    if (action.kind === 'select' || action.kind === 'unlink') {
+      const receipted = await receiptedShopChange(query, member, action);
+      if (receipted) return receipted;
     }
     if (action.kind !== 'read') {
       const status = await changeShop(query, member, action);
