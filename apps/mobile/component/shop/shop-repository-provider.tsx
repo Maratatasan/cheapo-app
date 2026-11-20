@@ -18,6 +18,7 @@ export function ShopRepositoryProvider({ repository, children }: { repository: S
     return createEnrolledSavedShops({
       queue: runtime.mutationQueue,
       loadHosted: observed => readings.loadEditableSavedShops(undefined, observed),
+      loadCandidates: readings.searchShopCandidates,
       sync: runtime.retry,
       async assertCurrent() {
         if (!sameShoppingOwner(await access.lastVerifiedOwner(), runtime.owner)) {
