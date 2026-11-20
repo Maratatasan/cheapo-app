@@ -41,6 +41,13 @@ model. **Open** marks a decision still to be made.
 | Product presentation photo | A recognizable display image for one exact product and pack. It belongs to the product and follows its ID across shop results. | Planned. Shared publication follows the community catalog. |
 | Raw original | The uncropped source image kept alongside the selected image or crop. | Local. Visibility of originals and unpublished drafts beyond their contributor is open. |
 
+### OCR terms
+
+| Term | Meaning |
+| --- | --- |
+| OCR-assisted AI | AI review of a product or price photo with locally extracted text as supporting evidence. The shopper reviews the suggested details and explicitly confirms before saving. |
+| OCR fuzzy search | Approximate catalog lookup that uses text read from a photo to suggest possible products. The shopper confirms the matched Product before linking it or saving a price. |
+
 ## Sharing and sync
 
 | Term | Meaning | Status |
