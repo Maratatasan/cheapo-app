@@ -3,7 +3,7 @@ import { canonicalProductBarcode } from "@cheapo/domain/product-barcode";
 import type { PriceHistoryQuery, PriceObservationDetail } from "@cheapo/domain/price-history";
 import { CheapoAccessError, type CheapoReadSession } from "../lib/cheapo-access/client";
 import { requestInterrupted, withCheapoDeadline } from "../lib/cheapo-access/request-deadline";
-import { savedShopVersion } from './shopping-mutations';
+import { mutationOperationId, savedShopVersion } from './shopping-mutations';
 import { decodeHistoryObservation, decodeHistoryPage, historyObservationPath, historyPagePath } from "./cheapo-price-history";
 
 export type ReadCache = {
@@ -13,7 +13,7 @@ export type ReadCache = {
 };
 
 export type ShoppingRead<T> =
-  | { status: "fresh" | "cached"; value: T; lastSyncedAt: string }
+  | { status: "fresh" | "cached"; value: T; lastSyncedAt: string; observedOperationIds?: string[] }
   | { status: "unavailable" };
 
 type SavedShop = Shop & { testShop?: boolean };
@@ -90,7 +90,7 @@ function decodeProduct(value: unknown): { product: Product | null } {
 export function createCheapoShoppingReads(openSession: () => Promise<CheapoReadSession>, cache: ReadCache) {
   async function read<T>(
     path: string, decode: Decoder<T>, cacheable: ((value: T) => boolean) | undefined, signal?: AbortSignal,
-    notFound?: () => T,
+    notFound?: () => T, observedOperations?: readonly string[],
   ): Promise<ShoppingRead<T>> {
     if (signal?.aborted) throw requestInterrupted();
     const session = await openSession();
@@ -111,7 +111,10 @@ export function createCheapoShoppingReads(openSession: () => Promise<CheapoReadS
             const { lastSyncedAt } = snapshot;
             if (typeof lastSyncedAt === "string" && Number.isFinite(Date.parse(lastSyncedAt))) {
               const value = decode(snapshot.body);
-              if (cacheable(value)) result = { status: "cached", value, lastSyncedAt };
+              const observed = snapshot.observedOperationIds;
+              const metadata = observedOperations && Array.isArray(observed)
+                && observed.every(id => mutationOperationId.safeParse(id).success) ? { observedOperationIds: observed } : {};
+              if (cacheable(value)) result = { status: "cached", value, lastSyncedAt, ...metadata };
             }
           }
         } catch {
@@ -138,22 +141,23 @@ export function createCheapoShoppingReads(openSession: () => Promise<CheapoReadS
     const value = response.status === 404 && notFound ? notFound() : decode(response.body);
     assertCurrent();
     const lastSyncedAt = new Date().toISOString();
+    const metadata = observedOperations ? { observedOperationIds: [...observedOperations] } : {};
     if (cacheable) {
       try {
-        if (cacheable(value)) await cache.write(key, JSON.stringify({ body: value, lastSyncedAt }));
+        if (cacheable(value)) await cache.write(key, JSON.stringify({ body: value, lastSyncedAt, ...metadata }));
         else await cache.remove(key);
       } catch {
         // A cache write failure does not invalidate the checked response.
       }
     }
     assertCurrent();
-    return { status: "fresh", value, lastSyncedAt };
+    return { status: "fresh", value, lastSyncedAt, ...metadata };
   }
 
   return {
     loadSavedShops: (signal?: AbortSignal) => read("/v1/me/saved-shops", decodeSavedShops, () => true, signal),
-    loadEditableSavedShops: (signal?: AbortSignal) =>
-      read("/v1/me/saved-shops?includeVersions=true", decodeEditableSavedShops, () => true, signal),
+    loadEditableSavedShops: (signal?: AbortSignal, observedOperations?: readonly string[]) =>
+      read("/v1/me/saved-shops?includeVersions=true", decodeEditableSavedShops, () => true, signal, undefined, observedOperations),
     searchShopCandidates(query: string, signal?: AbortSignal) {
       return read(`/v1/shops?${new URLSearchParams({ query })}`, decodeCandidates, undefined, signal);
     },

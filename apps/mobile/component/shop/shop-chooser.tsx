@@ -4,7 +4,7 @@ import { normalizeName, shopDisplayName } from "@cheapo/domain/names";
 
 import { ui } from "@/component/results/theme";
 import type { Shop } from "@cheapo/domain";
-import type { SavedShopState, ShopRepository } from "@/data/shop-repository";
+import type { SavedShopState, SavedShopSync, ShopEditBase, ShopRepository } from "@/data/shop-repository";
 import { ShopForm, type ShopFormValues } from "./shop-form";
 import { ShopPicker } from "./shop-picker";
 import { ShopRemovalConfirmation } from "./shop-removal-confirmation";
@@ -24,6 +24,7 @@ const emptyForm = { nickname: "", name: "", address: "" };
 export function ShopChooser({ state, actions, management, onSelected, onCancel }: ShopChooserProps) {
   const [form, setForm] = useState<ShopFormValues>();
   const [editing, setEditing] = useState<Shop>();
+  const [editingBase, setEditingBase] = useState<ShopEditBase>();
   const [confirmingRemoval, setConfirmingRemoval] = useState(false);
   const [error, setError] = useState<string>();
   const [saving, setSaving] = useState(false);
@@ -48,6 +49,7 @@ export function ShopChooser({ state, actions, management, onSelected, onCancel }
     setError(undefined);
     setForm(undefined);
     setEditing(undefined);
+    setEditingBase(undefined);
     setConfirmingRemoval(false);
   }
 
@@ -62,7 +64,9 @@ export function ShopChooser({ state, actions, management, onSelected, onCancel }
       isCurrent={editing.id === state.currentShop?.id}
       busy={saving}
       error={error}
-      onConfirm={() => perform(() => management.removeShop(editing.id), applyChanges)}
+      onConfirm={() => perform(() => editingBase
+        ? management.removeShop(editing.id, editingBase)
+        : management.removeShop(editing.id), applyChanges)}
       onCancel={() => { setError(undefined); setConfirmingRemoval(false); }}
     />;
   }
@@ -78,7 +82,9 @@ export function ShopChooser({ state, actions, management, onSelected, onCancel }
         onSubmit={(values) => {
           const details = { ...values, address: normalizeName(values.address) };
           if (editing && management) {
-            void perform(() => management.updateShop(editing.id, details), applyChanges);
+            void perform(() => editingBase
+              ? management.updateShop(editing.id, details, editingBase)
+              : management.updateShop(editing.id, details), applyChanges);
           } else {
             void perform(() => actions.saveShop(details, { select: true }));
           }
@@ -92,6 +98,7 @@ export function ShopChooser({ state, actions, management, onSelected, onCancel }
   return (
     <View style={ui.page}>
       {error ? <Text accessibilityRole="alert" style={ui.content}>{error}</Text> : null}
+      <ShopSyncFeedback sync={state.sync} />
       <ShopPicker
         shops={state.shops}
         selectedShopId={state.currentShop?.id}
@@ -101,6 +108,7 @@ export function ShopChooser({ state, actions, management, onSelected, onCancel }
           if (pending.current) return;
           setError(undefined);
           setEditing(shop);
+          setEditingBase(state.editBases?.get(shop.id));
           setForm({ nickname: shop.nickname ?? "", name: shop.name ?? "", address: shop.address ?? "" });
         } : undefined}
         onAddShop={() => {
@@ -112,6 +120,14 @@ export function ShopChooser({ state, actions, management, onSelected, onCancel }
       />
     </View>
   );
+}
+
+export function ShopSyncFeedback({ sync }: { sync?: SavedShopSync }) {
+  if (!sync) return null;
+  return <Text accessibilityLiveRegion="polite" style={ui.small}>
+    {sync.status === 'unavailable' ? 'Saved shops are unavailable offline. You can add a shop.'
+      : `Last synced ${new Date(sync.lastSyncedAt).toLocaleString()}`}
+  </Text>;
 }
 
 export function ShopLoadFeedback({ error, onRetry }: { error?: string; onRetry: () => void }) {
