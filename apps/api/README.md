@@ -90,8 +90,8 @@ revocation does not require the token.
 For an Android Field build, set `CHEAPO_FIELD_TEST=1` and
 `CHEAPO_API_ORIGIN` to the approved public HTTPS origin, with no path or
 credential. On the phone, open **Cheapo access** from Home and enter the
-delivered credential. The phone checks it through the read-only comparison
-preferences route before saving it in SecureStore. If access expires, the
+delivered credential. The phone checks it with `GET /v1/me` before saving it
+and its verified membership IDs together in SecureStore. If access expires, the
 operator can issue a replacement and enter it using **Use new credential**.
 An unsuccessful replacement preserves the previous credential. Clear
 the credential from any clipboard used during handoff. **Clear credential**
