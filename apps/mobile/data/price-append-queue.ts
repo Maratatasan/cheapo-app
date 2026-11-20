@@ -1,15 +1,15 @@
+import { priceAppendSchema } from '@cheapo/domain/price-append';
 import { CryptoDigestAlgorithm, digestStringAsync, randomUUID } from 'expo-crypto';
 import { Directory, File, Paths } from 'expo-file-system';
 
 import { parseCheapoApiOrigin } from '../lib/cheapo-access/origin';
 import { type PhotoAsset, type SavedPriceRecord, isSavedPriceRecord, savedPhotoDirectory } from './local-photo';
-import { reviewComplete } from './photo-review';
+import { reviewComplete, reviewUnitPrice } from './photo-review';
 
 export type PriceQueueOwner = { origin: string; householdId: string; shopperId: string };
 export type PriceAppendReceipt = { id: string; sourceId: string; version: number };
-type PriceQueueEntry = { record: SavedPriceRecord; receipt?: PriceAppendReceipt };
+type PriceQueueEntry = { record: SavedPriceRecord; body: string; receipt?: PriceAppendReceipt };
 type RecoveryEntry = { sourceId: string; reason: 'unfinished' | 'unreadable' };
-type PriceAppendResult = { outcome: 'acknowledged'; receipt: PriceAppendReceipt } | { outcome: 'blocked' | 'failed' };
 const localId = /^[A-Za-z0-9_-]{1,128}$/;
 const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 
@@ -62,6 +62,19 @@ function requirePriceRecord(value: unknown): SavedPriceRecord {
   };
 }
 
+function encodePriceAppend({ id, capturedAt, productId, shop, review }: SavedPriceRecord) {
+  if (!shop || !review) throw Error('A reviewed price and saved shop are required.');
+  const { productName, productType, brand, variety, price, currency, packSize, unitPrice, unit } = review;
+  const payload = priceAppendSchema.safeParse({
+    sourceId: id, capturedAt, productId, shopId: shop.id, shopDisplayName: shop.displayName,
+    review: { productName, productType, brand, variety, price, currency, packSize,
+      unitPrice: unitPrice.trim() || undefined, unit: unit.trim() || undefined },
+    unitPrice: reviewUnitPrice(review),
+  });
+  if (!payload.success) throw Error('This reviewed price cannot be queued for Cheapo. Check its details.');
+  return JSON.stringify(payload.data);
+}
+
 async function readFile(file: File): Promise<unknown> {
   return JSON.parse(await file.text());
 }
@@ -98,7 +111,12 @@ export async function openPriceAppendQueue(input: PriceQueueOwner) {
       || JSON.stringify(value.owner) !== JSON.stringify(owner)) throw Error('The queued price owner is invalid.');
     const record = requirePriceRecord(value.record);
     if (record.id !== sourceId) throw Error('The queued price ID does not match.');
-    return record;
+    if (!('format' in value) || value.format !== 1 || !('body' in value) || typeof value.body !== 'string') {
+      throw Error('Unknown queued price format.');
+    }
+    const payload = priceAppendSchema.safeParse(JSON.parse(value.body));
+    if (!payload.success || payload.data.sourceId !== sourceId) throw Error('The queued request is unreadable.');
+    return { record, body: value.body };
   }
 
   return {
@@ -110,12 +128,13 @@ export async function openPriceAppendQueue(input: PriceQueueOwner) {
       return serializePublication(async () => {
         const file = priceFile(record.id);
         if (file.exists) {
-          if (JSON.stringify(await readPrice(file, record.id)) !== JSON.stringify(record)) {
+          const previous = await readPrice(file, record.id);
+          if (JSON.stringify(previous.record) !== JSON.stringify(record)) {
             throw Error('A different price is already queued with this ID.');
           }
           return;
         }
-        await publish(file, JSON.stringify({ owner, record }));
+        await publish(file, JSON.stringify({ format: 1, owner, record, body: encodePriceAppend(record) }));
       });
     },
     async read() {
@@ -141,13 +160,13 @@ export async function openPriceAppendQueue(input: PriceQueueOwner) {
           const sourceId = price[1];
           try {
             if (!(file instanceof File)) throw Error('The queued price is not a file.');
-            const record = await readPrice(file, sourceId);
+            const pending = await readPrice(file, sourceId);
             const accepted = receiptFile(sourceId);
-            if (!accepted.exists) entries.push({ record });
+            if (!accepted.exists) entries.push(pending);
             else {
               const receiptValue = await readFile(accepted);
               if (!validReceipt(receiptValue, sourceId)) throw Error('Unreadable price acknowledgement.');
-              entries.push({ record, receipt: receiptValue });
+              entries.push({ ...pending, receipt: receiptValue });
             }
           } catch {
             recovery.push({ sourceId, reason: 'unreadable' });
@@ -172,28 +191,4 @@ export async function openPriceAppendQueue(input: PriceQueueOwner) {
   };
 }
 
-type PriceAppendQueue = Awaited<ReturnType<typeof openPriceAppendQueue>>;
-type PriceAppendSession = {
-  owner: PriceQueueOwner;
-  send(record: SavedPriceRecord): Promise<PriceAppendResult>;
-};
-
-export async function syncPriceAppends(queue: PriceAppendQueue, session: PriceAppendSession) {
-  if (ownerKey(queue.owner) !== ownerKey(session.owner)) return 'blocked';
-  const { entries, recovery } = await queue.read();
-  let failed = false;
-  for (const entry of entries) {
-    if (entry.receipt) continue;
-    try {
-      const result = await session.send(entry.record);
-      if (result.outcome === 'blocked') return 'blocked';
-      if (result.outcome === 'acknowledged') await queue.acknowledge(entry.record.id, result.receipt);
-      else failed = true;
-    } catch {
-      // A timeout or interrupted acknowledgement leaves the original intent.
-      failed = true;
-    }
-  }
-  if (failed || (recovery.length && (await queue.read()).recovery.length)) return 'failed';
-  return 'complete';
-}
+export type PriceAppendQueue = Awaited<ReturnType<typeof openPriceAppendQueue>>;
