@@ -3,13 +3,14 @@ import { z } from 'zod';
 import { json, unauthorized } from './api-http.ts';
 import { readCredentialDigest } from './credential.ts';
 import { appendPriceObservation, type ExecutePriceAppend } from './price-append.ts';
+import { correctPriceObservation, type ExecutePriceCorrection } from './price-correction.ts';
 
 const collection = '/v1/me/price-observations';
 const item = /^\/v1\/me\/price-observations\/([^/]+)$/;
 const cursorFields = z.tuple([z.iso.datetime({ precision: 6 }), z.uuid()]);
 const defaultLimit = 30;
 const maxLimit = 50;
-const queryKeys = new Set(['limit', 'cursor', 'productId', 'comparableGroupId', 'productType', 'currency']);
+const queryKeys = new Set(['limit', 'cursor', 'productId', 'comparableGroupId', 'productType', 'currency', 'includeRecordedInError']);
 const filterId = z.string().regex(/^[^\s\0]{1,128}$/);
 const historyFilters = z.object({
   productId: filterId.nullable(),
@@ -20,7 +21,7 @@ const historyFilters = z.object({
 
 type PriceCursor = z.infer<typeof cursorFields>;
 type PriceHistoryPage = {
-  kind: 'page'; limit: number; cursor?: PriceCursor;
+  kind: 'page'; limit: number; cursor?: PriceCursor; includeRecordedInError: boolean;
   filters: z.infer<typeof historyFilters>;
 };
 type PriceHistoryRead = PriceHistoryPage | { kind: 'detail'; id: string };
@@ -37,6 +38,7 @@ export type PriceObservation = {
   shopDisplayName: string | null;
   priceAmount: string | null;
   currency: string | null;
+  recordedInErrorReason?: string;
   review: Record<string, unknown> | null;
   unitPrice: { amount: number; unit: string } | null;
   photos: { role: 'original' | 'crop'; width: number; height: number }[];
@@ -85,21 +87,25 @@ function readPage(params: URLSearchParams): PriceHistoryPage | undefined {
     productType: params.get('productType'),
     currency: params.get('currency'),
   }).data;
+  const errors = params.get('includeRecordedInError');
   if (!filters || (filters.productId && (filters.comparableGroupId || filters.productType))) return undefined;
-  return { kind: 'page', limit, cursor, filters };
+  if (errors !== null && (errors !== 'true' || Object.values(filters).some(Boolean))) return undefined;
+  return { kind: 'page', limit, cursor, filters, includeRecordedInError: errors === 'true' };
 }
 
-export function createPriceHistoryHandler(execute: ExecutePriceHistory, append: ExecutePriceAppend) {
+export function createPriceHistoryHandler(
+  execute: ExecutePriceHistory, append: ExecutePriceAppend, correct: ExecutePriceCorrection,
+) {
   return async (request: Request): Promise<Response> => {
     const digest = readCredentialDigest(request.headers.get('Authorization'));
     if (!digest) return unauthorized();
     const url = new URL(request.url);
     const matched = item.exec(url.pathname);
     if (!matched && request.method === 'POST') return appendPriceObservation(request, digest, append);
-    if (request.method !== 'GET') return json({ error: 'method_not_allowed' }, 405, { Allow: matched ? 'GET' : 'GET, POST' });
-
     const id = matched && z.uuid().safeParse(matched[1]).data;
     if (matched && !id) return json({ error: 'invalid_observation_id' }, 400);
+    if (id && request.method === 'PATCH') return correctPriceObservation(request, digest, id, correct);
+    if (request.method !== 'GET') return json({ error: 'method_not_allowed' }, 405, { Allow: matched ? 'GET, PATCH' : 'GET, POST' });
     if (matched && url.searchParams.size) return json({ error: 'invalid_page' }, 400);
     const read: PriceHistoryRead | undefined = id ? { kind: 'detail', id } : readPage(url.searchParams);
     if (!read) return json({ error: 'invalid_page' }, 400);

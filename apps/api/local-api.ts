@@ -3,6 +3,7 @@ import type { Pool } from 'pg';
 import { createCatalogHandler, isCatalogPath } from './catalog.ts';
 import { postgresCatalog } from './postgres-catalog.ts';
 import { postgresPriceAppend } from './postgres-price-append.ts';
+import { postgresPriceCorrection } from './postgres-price-correction.ts';
 import { postgresPriceHistory } from './postgres-price-history.ts';
 import { postgresPricePhoto } from './postgres-price-photo.ts';
 import { postgresPhotoUpload } from './postgres-price-photo-upload.ts';
@@ -41,7 +42,9 @@ export function createShoppingApi({ query, transaction }: {
   const preferences = createPreferencesHandler(postgresPreferences({ query }));
   const shops = createSavedShopHandler(postgresSavedShops(transaction));
   const catalog = createCatalogHandler(postgresCatalog(transaction));
-  const prices = createPriceHistoryHandler(postgresPriceHistory(transaction), postgresPriceAppend(transaction));
+  const prices = createPriceHistoryHandler(
+    postgresPriceHistory(transaction), postgresPriceAppend(transaction), postgresPriceCorrection(transaction),
+  );
   const identity = createShoppingIdentityHandler(query);
   const photos = createPricePhotoHandler(postgresPricePhoto(transaction), evidence.read);
   const uploads = createPricePhotoUploadHandler(postgresPhotoUpload(transaction), evidence.upload);

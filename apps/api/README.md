@@ -196,6 +196,27 @@ edit changed the observation. A changed observation
 using an existing source ID returns `409 source_conflict`. A missing product
 or unauthorized saved-shop link returns `422 invalid_reference`.
 
+## Correct a price observation
+
+Use `PATCH /v1/me/price-observations/{id}` with a stable `operationId` and
+the current `expectedVersion`. Set `action` to `correct` and send the reviewed
+fields to update an observation. The optional `productId` replaces or clears
+its catalog link. The optional `shop` object takes a saved shop `id` and an
+observed `displayName`. The capture time, source IDs and photo references
+remain part of the observation's history.
+
+Use `record_in_error` with a `reason` to hide an observation from comparisons
+and ordinary lists. The detail still opens with its evidence, and the unfiltered
+list accepts `includeRecordedInError=true` when finding a record to undo.
+Use `undo_recorded_in_error` with its latest version to restore eligibility.
+
+A successful patch returns `200` with the corrected `observation` and new
+version. An identical operation replay returns its original response.
+`409 version_conflict` includes `currentVersion` and `current` so the caller can
+preserve both versions. A changed request under an existing operation ID
+returns `409 operation_conflict`. The revision retains the prior state and the
+server-resolved actor.
+
 ## Read restored price evidence
 
 Use `GET /v1/me/price-observations/{observationId}/photos/{role}` with the
