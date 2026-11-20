@@ -383,6 +383,25 @@ describe("CameraComponent", () => {
     expect(onCompare).not.toHaveBeenCalled();
   });
 
+  it('hands the original photo and checked unknown barcode to price review only on request', async () => {
+    jest.replaceProperty(Platform, 'OS', 'android');
+    mockPermission = { granted: false };
+    const photo = { uri: 'file:///package.jpg', width: 1200, height: 800, mimeType: 'image/jpeg' };
+    mockChoosePhoto.mockResolvedValue(photo);
+    mockScanFromURLAsync.mockResolvedValue([{ data: '036000291452' }]);
+    const onContinueToPrice = jest.fn();
+    await render(<CameraComponent productLookup={{ onCompare: jest.fn(), onContinueToPrice }} />);
+    await fireEvent.press(screen.getByRole('button', { name: 'Choose photo' }));
+    const add = await screen.findByRole('button', { name: 'Add using this barcode' });
+    expect(onContinueToPrice).not.toHaveBeenCalled();
+    await fireEvent.press(add);
+    expect(onContinueToPrice).toHaveBeenCalledWith({ barcode: '036000291452' }, expect.objectContaining({
+      id: expect.any(String), original: photo, selected: photo,
+    }));
+    expect(mockSaveLocalPhoto).not.toHaveBeenCalled();
+    expect(mockRequestProductIdentityDraft).not.toHaveBeenCalled();
+  });
+
   it('shows a known exact barcode before saving and keeps the crop and price when the shopper uses the product', async () => {
     const shop = { id: 'selected-shop', displayName: 'Selected shop' };
     mockPermission = { granted: false };

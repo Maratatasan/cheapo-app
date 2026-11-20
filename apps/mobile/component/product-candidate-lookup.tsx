@@ -5,16 +5,19 @@ import { Keyboard, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { ProductIdentityDraft } from '@/data/ai-observation';
 import type { ProductCandidate, ProductCandidateSearch } from '@/data/cheapo-shopping-reads';
 import { packSizeMaxLength } from '@/data/photo-review';
+import type { AddProductPhotoDetails } from '@/data/photo-price-source';
 import { productMetadataMaxLength } from '@/data/product-metadata';
 import { CameraActionButton } from './camera-actions';
 import { color, radius, spacing, typography, ui } from './results/theme';
 
 type Matches = { candidates: ProductCandidate[]; truncated: boolean };
-type SearchState = { kind: 'entry' | 'checking' } | { kind: 'error'; message: string } | { kind: 'checked'; matches: Matches };
+type SearchState = { kind: 'entry' | 'checking' | 'unavailable' }
+  | { kind: 'error'; message: string } | { kind: 'checked'; matches: Matches };
 
 export type ProductCandidateLookupProps = {
   findCandidates: (identity: ProductCandidateSearch, signal: AbortSignal) => Promise<Matches>;
   onCompare: (candidate: ProductCandidate) => void;
+  onContinueToPrice?: (details: AddProductPhotoDetails) => void;
   renderIdentitySuggestions?: (onApply: (draft: ProductIdentityDraft) => void, busy: boolean) => ReactNode;
 };
 
@@ -25,9 +28,9 @@ const fields = [
   ['packSize', 'Pack size (optional)', packSizeMaxLength],
 ] as const;
 
-export function ProductCandidateLookup({ findCandidates, onCompare, renderIdentitySuggestions }: ProductCandidateLookupProps) {
+export function ProductCandidateLookup({ findCandidates, onCompare, onContinueToPrice, renderIdentitySuggestions }: ProductCandidateLookupProps) {
   const [expanded, setExpanded] = useState(false);
-  const [values, setValues] = useState({ name: '', brand: '', variety: '', packSize: '' });
+  const [values, setValues] = useState({ name: '', brand: '', variety: '', packSize: '', productType: '' });
   const [state, setState] = useState<SearchState>({ kind: 'entry' });
   const active = useRef<AbortController | null>(null);
 
@@ -47,6 +50,7 @@ export function ProductCandidateLookup({ findCandidates, onCompare, renderIdenti
     setValues(current => ({
       name: draft.product ?? current.name, brand: draft.brand ?? current.brand,
       variety: draft.variety ?? current.variety, packSize: draft.packSize ?? current.packSize,
+      productType: draft.productType ?? current.productType,
     }));
     setState({ kind: 'entry' });
   }
@@ -70,14 +74,21 @@ export function ProductCandidateLookup({ findCandidates, onCompare, renderIdenti
     active.current = controller;
     setState({ kind: 'checking' });
     try {
-      const matches = await findCandidates(values, controller.signal);
+      const matches = await findCandidates({ name, brand, variety, packSize }, controller.signal);
       if (!controller.signal.aborted) setState({ kind: 'checked', matches });
     } catch {
-      if (!controller.signal.aborted) setState({ kind: 'error', message: 'Could not check the catalog. Try again.' });
+      if (!controller.signal.aborted) setState({ kind: 'unavailable' });
     }
   }
 
   if (!expanded) return <CameraActionButton label="Find by packaging details" onPress={() => setExpanded(true)} />;
+
+  function continueToPrice() {
+    const { name, ...details } = values;
+    // The assessed type carries into Add even though the candidate endpoint
+    // only checks the visible packaging search fields.
+    onContinueToPrice?.({ review: { ...details, productName: name } });
+  }
 
   return <View style={ui.card}>
     <Text accessibilityRole="header" style={styles.heading}>Packaging details</Text>
@@ -90,6 +101,10 @@ export function ProductCandidateLookup({ findCandidates, onCompare, renderIdenti
     <CameraActionButton primary label={state.kind === 'checking' ? 'Checking catalog…' : 'Check catalog'}
       busy={state.kind === 'checking'} disabled={!values.name.trim()} onPress={() => { void search(); }} />
     {state.kind === 'error' ? <Text accessibilityRole="alert" style={ui.body}>{state.message}</Text> : null}
+    {state.kind === 'unavailable' ? <>
+      <Text accessibilityRole="alert" style={ui.body}>Could not check the catalog. Try again.</Text>
+      {onContinueToPrice ? <CameraActionButton label="Continue to price review" onPress={continueToPrice} /> : null}
+    </> : null}
     {state.kind === 'checked' ? <>
       <Text accessibilityLiveRegion="polite" style={styles.heading}>
         {state.matches.candidates.length ? 'Possible matches' : state.matches.truncated ? 'Search was limited' : 'No matching products found'}
@@ -108,6 +123,7 @@ export function ProductCandidateLookup({ findCandidates, onCompare, renderIdenti
           <CameraActionButton label={`Compare ${details.name}`} onPress={() => onCompare(candidate)} />
         </View>;
       })}
+      {!state.matches.truncated && onContinueToPrice ? <CameraActionButton label="Add product" onPress={continueToPrice} /> : null}
     </> : null}
   </View>;
 }
