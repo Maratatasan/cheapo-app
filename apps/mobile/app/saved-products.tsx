@@ -9,18 +9,20 @@ import { color, spacing, ui } from '@/component/results/theme';
 import { SavedPriceDetails, SavedPriceHistoryList } from '@/component/saved-price-history-list';
 import { PendingPriceNotice, SharedPriceEvidence } from '@/component/shared-price-evidence';
 import { loadSavedPriceRecords, reviewComplete, type SavedPriceRecord } from '@/data/local-photo';
-import { loadSavedShops } from '@/data/local-shops';
+import type { PriceQueueOwner } from '@/data/price-append-queue';
 import { projectLocalPrice, projectSharedPrice, savedPriceHistoryRows, type PendingHistoryChange } from '@/data/saved-price-history';
 import { useSavedPriceReads, type SavedPriceQueueRead } from '@/data/use-saved-price-reads';
+import { exportSavedShopping } from '@/lib/saved-shopping-export';
 
 export default function SavedProducts() {
   const shopping = useCheapoShopping();
-  return <SavedProductsScreen priceQueue={shopping?.priceQueue} loadPriceChanges={shopping?.loadPriceChanges} />;
+  return <SavedProductsScreen priceQueue={shopping?.priceQueue} loadPriceChanges={shopping?.loadPriceChanges} exportOwner={shopping?.owner} />;
 }
 
-export function SavedProductsScreen({ priceQueue = null, loadPriceChanges }: {
+export function SavedProductsScreen({ priceQueue = null, loadPriceChanges, exportOwner }: {
   priceQueue?: SavedPriceQueueRead | null;
   loadPriceChanges?: () => Promise<readonly PendingHistoryChange[]>;
+  exportOwner?: PriceQueueOwner;
 }) {
   const router = useRouter();
   const [drafts, setDrafts] = useState<SavedPriceRecord[]>();
@@ -67,10 +69,7 @@ export function SavedProductsScreen({ priceQueue = null, loadPriceChanges }: {
     setExporting(true);
     setExportError(undefined);
     try {
-      const { exportShoppingData } = await import('@/lib/shopping-export').catch(() => {
-        throw Error('Sharing is unavailable in this build.');
-      });
-      await exportShoppingData(signal, { loadSavedShops });
+      await exportSavedShopping(signal, exportOwner);
     } catch (error) {
       if (!signal.aborted) setExportError(error instanceof Error ? error.message : 'Could not prepare the export.');
     } finally {

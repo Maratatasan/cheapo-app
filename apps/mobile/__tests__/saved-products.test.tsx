@@ -1,5 +1,6 @@
-import { act, fireEvent, render, renderHook, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react-native';
 import type { PriceObservationDetail } from '@cheapo/domain/price-history';
+import { Platform } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ShopRepositoryProvider } from '../component/shop/shop-repository-provider';
 import type { ShopRepository } from '../data/shop-repository';
@@ -10,6 +11,7 @@ import { openCheapoSavedPriceReads } from '../data/cheapo-shopping-read-device';
 import type { PendingHistoryChange } from '../data/saved-price-history';
 import { useSavedPriceReads } from '../data/use-saved-price-reads';
 import { CheapoAccessError } from '../lib/cheapo-access/client';
+import { exportSavedShopping } from '../lib/saved-shopping-export';
 
 const mockPush = jest.fn();
 let mockFocusRevision = 0;
@@ -34,6 +36,7 @@ jest.mock('../component/cheapo-shopping-provider', () => ({ useCheapoShopping: (
 
 jest.mock('expo-file-system', () => ({}));
 jest.mock('../data/cheapo-shopping-read-device', () => ({ openCheapoSavedPriceReads: jest.fn() }));
+jest.mock('../lib/saved-shopping-export', () => ({ exportSavedShopping: jest.fn() }));
 jest.mock('../data/local-photo', () => ({
   ...jest.requireActual('../data/local-photo'),
   loadSavedPriceRecords: jest.fn(),
@@ -66,6 +69,24 @@ const cached = <T,>(value: T) => ({ status: 'cached' as const, value, lastSynced
 afterEach(() => {
   mockCompareParams = { id: 'rice' };
   mockShoppingRuntime = null;
+});
+
+test('exports the selected owner’s protected work through the actual Android Saved products action', async () => {
+  const platform = jest.replaceProperty(Platform, 'OS', 'android');
+  try {
+    jest.mocked(loadSavedPriceRecords).mockResolvedValue([complete]);
+    const queue = { owner, read: jest.fn().mockResolvedValue({ entries: [], recovery: [] }) };
+    mockShoppingRuntime = { owner, priceQueue: queue, loadPriceChanges: async () => [] };
+    jest.mocked(openCheapoSavedPriceReads).mockResolvedValue({ assertCurrent: jest.fn(), loadPriceObservation: jest.fn(),
+      loadPhoto: jest.fn(), loadPriceHistory: jest.fn().mockResolvedValue({ status: 'unavailable' }) });
+    jest.mocked(exportSavedShopping).mockResolvedValue(undefined);
+    await render(<ShopRepositoryProvider repository={shopRepository}><SavedProducts /></ShopRepositoryProvider>);
+    await fireEvent.press(await screen.findByRole('button', { name: /^Export saved products and photos$/i }));
+    await waitFor(() => expect(exportSavedShopping).toHaveBeenCalledWith(expect.any(AbortSignal), owner));
+    expect(exportSavedShopping).toHaveBeenCalledTimes(1);
+  } finally {
+    platform.restore();
+  }
 });
 
 test('opens shared history and only the selected photo, applying the current owner’s pending correction', async () => {
