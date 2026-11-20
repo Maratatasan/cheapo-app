@@ -240,3 +240,35 @@ test("rejects a timed-out read after enrollment changes even when its old cache 
     jest.useRealTimers();
   }
 });
+
+test("caches the paired editable shop snapshot independently from the unversioned list", async () => {
+  const { download, cache, start } = setup();
+  const reads = start();
+  const shop = { id: "market", name: "Market" };
+  const version = "1:fa91641f-d265-4a3b-9695-4ff553ab5138";
+  const value = { shops: [shop], versions: [{ shopId: shop.id, version }] };
+  download.mockResolvedValueOnce(Response.json(value));
+  const firstRead = await reads.loadEditableSavedShops();
+  expect(firstRead).toMatchObject({ status: "fresh", value });
+  expect(download.mock.calls[0][0]).toBe(origin + "/v1/me/saved-shops?includeVersions=true");
+  expect([...cache.keys()]).toEqual(["fixture-scope-one\0/v1/me/saved-shops?includeVersions=true"]);
+
+  download.mockRejectedValue(new Error("Offline"));
+  expect(await reads.loadEditableSavedShops()).toEqual({ ...firstRead, status: "cached" });
+  expect(await reads.loadSavedShops()).toEqual({ status: "unavailable" });
+});
+
+test("rejects missing, repeated, mismatched and malformed saved-shop versions", async () => {
+  const { download, cache, start } = setup();
+  const reads = start();
+  const shops = [{ id: "one", name: "One" }, { id: "two", name: "Two" }];
+  const version = "1:fa91641f-d265-4a3b-9695-4ff553ab5138";
+  const known = { shopId: "one", version };
+  for (const versions of [
+    undefined, [known], [known, known], [known, { shopId: "another", version }], [known, { shopId: "two", version: 1 }],
+  ]) {
+    download.mockResolvedValueOnce(Response.json({ shops, versions }));
+    await expect(reads.loadEditableSavedShops()).rejects.toThrow("unreadable");
+  }
+  expect(cache.size).toBe(0);
+});

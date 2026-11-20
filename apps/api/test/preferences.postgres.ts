@@ -679,3 +679,28 @@ test('replays a shop unlink without deleting a later link and rejects a stale un
   assert.equal((await savedShopRequest('D', path, 'DELETE', removal)).status, 403);
   assert.equal((await savedShopRequest('A', path)).status, 200);
 });
+
+test('pairs each displayed saved shop with its own household version from one list snapshot', async () => {
+  const id = 'versioned-list-market';
+  const path = `/${id}`;
+  await savedShopRequest('A', path, 'PUT', { name: 'Market', nickname: 'Our market', select: true });
+  await savedShopRequest('C', path, 'PUT', { name: 'Market', nickname: 'Their market' });
+
+  type Snapshot = { shops: { id: string }[]; currentShop?: { id: string; nickname: string };
+    versions: { shopId: string; version: string }[] };
+  const request = await savedShopRequest('A', '?includeVersions=true');
+  assert.equal(request.status, 200);
+  const snapshot = request.body as Snapshot;
+  assert.deepEqual(snapshot.versions.map(row => row.shopId), snapshot.shops.map(row => row.id));
+  const version = snapshot.versions.find(row => row.shopId === id)?.version;
+  assert.equal(snapshot.currentShop?.id, id);
+  assert.equal(snapshot.currentShop.nickname, 'Our market');
+  const ownDetail = (await savedShopRequest('B', path)).body as { version: string };
+  assert.equal(ownDetail.version, version);
+
+  const different = (await savedShopRequest('C', '?includeVersions=true')).body as Snapshot;
+  assert.notEqual(different.versions.find(row => row.shopId === id)?.version, version);
+  const legacy = (await savedShopRequest('A')).body as object;
+  assert.equal('versions' in legacy, false);
+  assert.equal((await savedShopRequest('A', '?includeVersions=true&includeVersions=true')).status, 400);
+});

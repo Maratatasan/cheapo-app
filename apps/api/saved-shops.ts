@@ -6,10 +6,14 @@ import { readCredentialDigest } from './credential.ts';
 
 export type ShopCandidate = Pick<Shop, 'id' | 'name' | 'address' | 'location'>;
 type SavedShop = Shop & { testShop?: boolean };
-export type SavedShopState = { shops: SavedShop[]; currentShop?: SavedShop };
+export type SavedShopState = {
+  shops: SavedShop[];
+  currentShop?: SavedShop;
+  versions?: { shopId: string; version: string }[];
+};
 export type VersionedSavedShop = { shop: SavedShop; version: string };
 export type ShopAction =
-  | { kind: 'read' }
+  | { kind: 'read'; includeVersions?: true }
   | { kind: 'candidates'; query: string }
   | { kind: 'save'; shop: Shop; select: boolean; operationId?: string }
   | { kind: 'detail'; shopId: string }
@@ -75,7 +79,13 @@ async function readAction(request: Request, url: URL): Promise<ShopAction | Resp
     const query = values.length === 1 && queryInput.safeParse(values[0]).data;
     return query ? { kind: 'candidates', query } : json({ error: 'invalid_shop_query' }, 400);
   }
-  if (path === collection) return method === 'GET' ? { kind: 'read' } : unsupported('GET');
+  if (path === collection) {
+    if (method !== 'GET') return unsupported('GET');
+    const versions = url.searchParams.getAll('includeVersions');
+    if (versions.length === 0) return { kind: 'read' };
+    if (versions.length === 1 && versions[0] === 'true') return { kind: 'read', includeVersions: true };
+    return json({ error: 'invalid_shop_query' }, 400);
+  }
   if (path === selection && method !== 'PUT') return unsupported('PUT');
   const match = item.exec(path);
   const shopId = match && decodedId(match[1]);

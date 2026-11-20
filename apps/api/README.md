@@ -145,6 +145,11 @@ branches in `{ "shops": [...] }`. Candidates include stable ID and any known
 name, address and location. A search has no effect on household links or
 selections. Confirm the branch before reusing its ID.
 
+The enrolled phone can read `GET /v1/me/saved-shops?includeVersions=true`.
+Its `versions` array pairs exactly one `{ shopId, version }` with each saved
+shop from the same read. Retain the version with the displayed record for
+offline edits or removal. Earlier callers receive the usual list and selection.
+
 For a replay-safe link, send `PUT` with `operationId`, `shop`, and optional
 `select`. This returns the accepted `{ shop, version }`. An exact replay
 returns that original detail and version, including after a nickname edit,
