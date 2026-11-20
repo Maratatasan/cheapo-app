@@ -4,7 +4,8 @@ import { Keyboard, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { checkProductIdentity, type AddProductLookup, type ProductIdentityCheck } from '@/data/add-product-lookup';
 import type { ProductCandidate } from '@/data/cheapo-shopping-reads';
-import type { DraftShop, LocalPhotoDraft } from '@/data/local-photo';
+import type { DraftShop, LocalPhotoDraft, PhotoAsset } from '@/data/local-photo';
+import { suggestedObservedDay, timestampForObservedDay } from '@/data/price-observed-date';
 import { applyPhotoSuggestion, emptyReview, reviewComplete, type ManualReview } from '@/data/photo-review';
 import { dateLabel, priceLabel, type PriceValues } from '@/data/observation';
 import { fieldPhotoAnalysisEnabled } from '@/lib/direct-auth/phone-session';
@@ -21,6 +22,7 @@ type LastPrice = Pick<PriceValues, 'price' | 'currency'> & { capturedOn: string 
 
 export type ProductPriceSubmission = {
   shop: DraftShop;
+  observedAt: string;
   review: ManualReview;
   photo?: LocalPhotoDraft;
   barcode?: string;
@@ -59,6 +61,12 @@ export function AddProductPriceReview({ shop, shopCountry, initialReview, initia
   const [saving, setSaving] = useState(false);
   const search = useRef<AbortController | null>(null);
   const submitting = useRef(false);
+  const [openedAt] = useState(() => new Date().toISOString());
+  const [dateEdit, setDateEdit] = useState<{ original?: PhotoAsset; value: string }>();
+  const dateBaseline = photo?.capturedAt ?? openedAt;
+  const priceDay = dateEdit && dateEdit.original === photo?.original ? dateEdit.value
+    : suggestedObservedDay(photo?.original.takenOn, dateBaseline);
+  const observedAt = timestampForObservedDay(priceDay, dateBaseline);
   const edited = useRef(new Set<keyof ManualReview>());
   const known = choice?.kind === 'reuse' ? choice.product : undefined;
   const { photoText, shelfEvidence } = useShelfPhotoEvidence(choice ? photo : undefined, known);
@@ -71,7 +79,7 @@ export function AddProductPriceReview({ shop, shopCountry, initialReview, initia
     packSize: observedPackSize ?? packSize ?? review.packSize,
   } : {}), ...(shelfPrice ? { price: (shelfPrice.minor / 100).toFixed(2), currency: shelfPrice.currency } : {}),
     shop: shop?.displayName ?? '' };
-  const complete = Boolean(shop && reviewComplete(shownReview, shop.displayName));
+  const complete = Boolean(shop && observedAt && reviewComplete(shownReview, shop.displayName));
 
   useEffect(() => {
     setCheck({ kind: 'entry' });
@@ -119,13 +127,13 @@ export function AddProductPriceReview({ shop, shopCountry, initialReview, initia
   }
 
   async function submit(selected?: Choice) {
-    if (!shop || !complete || submitting.current || savedStatus) return;
+    if (!shop || !observedAt || !complete || submitting.current || savedStatus) return;
     if (selected?.kind === 'add' && check.kind === 'checked' && check.barcode && !review.productType?.trim()) return;
     submitting.current = true;
     setSaving(true);
     setSaveError(undefined);
     try {
-      const status = await onSubmit({ shop, review: shownReview, photo, barcode: check.kind === 'checked' || check.kind === 'unavailable'
+      const status = await onSubmit({ shop, observedAt, review: shownReview, photo, barcode: check.kind === 'checked' || check.kind === 'unavailable'
         ? check.barcode : undefined, choice: selected });
       setSavedStatus(status === 'queued' ? 'Price saved on this phone · Waiting to sync' : 'Draft saved · Review in Pending sync');
     } catch {
@@ -143,6 +151,7 @@ export function AddProductPriceReview({ shop, shopCountry, initialReview, initia
 
   const renderReview = (controls?: ReactNode, suggestion?: ReviewSuggestion) => <PhotoReview addingProduct recordingPrice={Boolean(known)}
     photo={photo?.selected} review={shownReview} suggestion={suggestion}
+    observedDate={{ value: priceDay, onChange: value => setDateEdit({ original: photo?.original, value }) }}
     selectedShopName={shop?.displayName} saved={Boolean(savedStatus)} savedStatus={savedStatus} busy={saving}
     onReviewChange={(next, field) => {
       edited.current.add(field);

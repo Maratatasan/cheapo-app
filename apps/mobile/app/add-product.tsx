@@ -77,16 +77,16 @@ function EnrolledAddProduct({ shopping, source }: { shopping: CheapoShoppingRunt
         Alert.alert('Camera access is off', 'You can choose an existing photo or enter details manually.');
         return;
       }
-      setPhoto({ id: ids.sourceId, capturedAt: new Date().toISOString(), original: asset, selected: asset });
+      setPhoto({ id: ids.sourceId, capturedAt: asset.takenAt ?? new Date().toISOString(), original: asset, selected: asset });
     } catch {
       if (active.current) Alert.alert('Photo unavailable', 'Keep entering details manually or choose another photo.');
     } finally { picking.current = false; }
   }
 
   async function submit(input: ProductPriceSubmission): Promise<'queued' | 'draft'> {
-    const { choice, shop, review, photo, barcode } = input;
+    const { choice, shop, observedAt, review, photo, barcode } = input;
     const createdAt = when.current ??= new Date().toISOString();
-    const base = { id: ids.sourceId, capturedAt: photo?.capturedAt ?? createdAt, shop, review,
+    const base = { id: ids.sourceId, capturedAt: observedAt, shop, review,
       productId: choice?.kind === 'reuse' ? choice.product.id : ids.productId };
     const record = photo ? { ...photo, ...base } : base;
     await shopping.productPrices.stage({ record, catalogOperationId: ids.catalogOperationId, createdAt, barcode });

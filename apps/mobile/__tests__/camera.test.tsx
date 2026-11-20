@@ -133,6 +133,32 @@ describe("CameraComponent", () => {
     expect(mockRequestPermission).not.toHaveBeenCalled();
   });
 
+  it('suggests an older imported price date and saves a correction through a crop and reopen', async () => {
+    mockPermission = { granted: false };
+    const original = { uri: 'file:///older-label.jpg', width: 1200, height: 800, mimeType: 'image/jpeg',
+      takenOn: '2020-11-18', takenAt: '2020-11-18T15:03:23.911Z' };
+    mockChoosePhoto.mockResolvedValue(original);
+    mockSaveLocalPhoto.mockImplementation(async draft => draft);
+    const shop = { id: 'market', displayName: 'Example Market' };
+    await render(<CameraComponent currentShop={shop} />);
+    await fireEvent.press(screen.getByRole('button', { name: 'Choose photo' }));
+    await fireEvent.press(await screen.findByRole('button', { name: 'Apply crop' }));
+    expect(screen.getByLabelText('Price observed date')).toHaveDisplayValue('2020-11-18');
+    await fireEvent.changeText(screen.getByLabelText('Price observed date'), '2020-11-31');
+    expect(screen.getByRole('button', { name: 'Save on this phone' })).toBeDisabled();
+    await fireEvent.changeText(screen.getByLabelText('Price observed date'), '2020-11-17');
+    await fireEvent.press(screen.getByRole('button', { name: 'Crop photo' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Apply crop' }));
+    expect(screen.getByLabelText('Price observed date')).toHaveDisplayValue('2020-11-17');
+    await fireEvent.press(screen.getByRole('button', { name: 'Save on this phone' }));
+    expect(mockSaveLocalPhoto).toHaveBeenCalledWith(expect.objectContaining({ capturedAt: '2020-11-17T12:00:00.000Z', original,
+      selected: expect.objectContaining({ uri: 'file:///cropped.jpg' }),
+    }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Retake' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Review 17 Nov 2020' }));
+    expect(screen.getByLabelText('Price observed date')).toHaveDisplayValue('2020-11-17');
+  });
+
   it.each([true, false])('commits a reviewed photo before showing its enrolled save status (confirmed shop: %s)', async linked => {
     const shop = { id: 'saved-shop', displayName: 'Saved shop' };
     mockPermission = { granted: false };

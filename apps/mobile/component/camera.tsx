@@ -44,6 +44,7 @@ import { readOwnEnrolledPriceEdit } from "@/data/edit-enrolled-price-device";
 import { correctionFromReview, saveEnrolledPriceEdit, type PriceEditTarget } from "@/data/edit-enrolled-price";
 import type { PhotoSavePending } from "@/data/price-records";
 import type { PhotoPriceSource } from "@/data/photo-price-source";
+import { observedDay, suggestedObservedDay, timestampForObservedDay } from "@/data/price-observed-date";
 import { usePriceSaveNotice } from "@/hooks/use-price-save-notice";
 import { useEnrolledCatalog } from "@/hooks/use-enrolled-catalog";
 import { useShelfPhotoEvidence } from "./use-shelf-photo-evidence";
@@ -118,6 +119,8 @@ export const CameraComponent = ({ currentShop, currentShopCountry, onScanBarcode
     review: linkedPrice.initialReview,
   } : null);
   const [cropping, setCropping] = useState(false);
+  const [reviewedDay, setReviewedDay] = useState<string>();
+  const priceDay = draft ? reviewedDay ?? suggestedObservedDay(draft.original.takenOn, draft.capturedAt) : undefined;
   const [visitShop, setVisitShop] = useState("");
   const [saved, setSaved] = useState(false);
   const [pendingSaveStatus, setPendingSaveStatus] = useState<PhotoSavePending>();
@@ -219,6 +222,7 @@ export const CameraComponent = ({ currentShop, currentShopCountry, onScanBarcode
   function selectPhoto(photo: PhotoAsset, cropBox?: CropBox) {
     const initialCrop = productLookup ? undefined : cropBox;
     editedFields.current.clear();
+    setReviewedDay(undefined);
     if (barcodeCapture?.initialReview) {
       for (const field of ["productName", "productType", "variety", "brand", "packSize"] as const) {
         if (barcodeCapture.initialReview[field]?.trim()) editedFields.current.add(field);
@@ -232,13 +236,15 @@ export const CameraComponent = ({ currentShop, currentShopCountry, onScanBarcode
     setEditedSelection(undefined);
     pendingCatalog.current = undefined;
     setCropping(initialCrop !== undefined);
-    setDraft({ id: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`, capturedAt: new Date().toISOString(),
+    setDraft({ id: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`, capturedAt: photo.takenAt ?? new Date().toISOString(),
       original: photo, selected: photo, review: linkedPrice?.initialReview ?? barcodeCapture?.initialReview ?? emptyReview(currentShop?.displayName ?? visitShop),
       cropBox: initialCrop, shop: currentShop, productId: linkedPrice?.productId });
     setSaved(false);
   }
   async function savePhoto() {
     if (!draft || savePending.current || barcode.checking || barcode.failed || (barcode.product && !matchedProduct)) return;
+    const observedAt = timestampForObservedDay(priceDay ?? '', draft.capturedAt);
+    if (!observedAt && !editingSaved) return;
     const review = draft.review && currentReview;
     const complete = reviewComplete(review, draft.shop?.displayName);
     if ((linkedPrice || matchedProduct || (draft.productId && barcode.confirmed)) && !complete) return;
@@ -250,7 +256,7 @@ export const CameraComponent = ({ currentShop, currentShopCountry, onScanBarcode
     savePending.current = true;
     setSaving(true);
     setSaveError(undefined);
-    let pendingDraft: LocalPhotoDraft = { ...draft, review, productId: matchedProduct?.id ?? draft.productId };
+    let pendingDraft: LocalPhotoDraft = { ...draft, capturedAt: observedAt ?? draft.capturedAt, review, productId: matchedProduct?.id ?? draft.productId };
     try {
       await shopping?.assertOwner();
       if (editingSaved && !editingSaved.available) {
@@ -317,6 +323,7 @@ export const CameraComponent = ({ currentShop, currentShopCountry, onScanBarcode
         : { record: await saveLocalPhoto(pendingDraft), pending: undefined };
       await shopping?.assertOwner();
       setDraft(result.record);
+      setReviewedDay(observedDay(result.record.capturedAt));
       setSaved(true);
       setPendingSaveStatus(result.pending);
       if (result.pending) setEditingSaved({ available: true, target: { priceKey: result.record.id,
@@ -377,6 +384,7 @@ export const CameraComponent = ({ currentShop, currentShopCountry, onScanBarcode
       editedFields.current.clear();
       changeBarcode("");
       setDraft({ ...draft, review: draft.review ?? emptyReview() });
+      setReviewedDay(observedDay(draft.capturedAt));
       setVisitShop(draft.review?.shop ?? "");
       setSaved(true);
       setPendingSaveStatus(undefined);
@@ -484,7 +492,7 @@ export const CameraComponent = ({ currentShop, currentShopCountry, onScanBarcode
   const retakePhoto = () => {
     productLookup?.onRetake?.();
     changeBarcode(barcodeCapture ? barcode.value : "");
-    setDraft(null); setSaved(false); setCropping(false);
+    setDraft(null); setSaved(false); setCropping(false); setReviewedDay(undefined);
   };
 
   if (draft && productLookup) return <PhotoProductLookup key={draft.id} photo={draft.original}
@@ -517,6 +525,8 @@ export const CameraComponent = ({ currentShop, currentShopCountry, onScanBarcode
     const renderReview = (controls: ReactNode, suggestion?: ReviewSuggestion) => (
       <PhotoReview
         photo={draft.selected}
+        observedDate={priceDay === undefined ? undefined : { value: priceDay,
+          onChange: editingSaved ? undefined : day => { setReviewedDay(day); setSaved(false); } }}
         review={currentReview}
         selectedShopName={draft.shop?.displayName}
         saved={saved}

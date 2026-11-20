@@ -11,6 +11,8 @@ import { readPendingPrices, readPriceSaveStatus } from '../data/pending-price-sy
 import type { PricePhotoIntent } from '../data/cheapo-price-photo-transfer';
 import { openCheapoShopping } from '../data/shopping-sync-runtime';
 import { priceChangeIsNewerThan } from '../data/shopping-pending-price-changes';
+import { timestampForObservedDay } from '../data/price-observed-date';
+import { comparisonRowFromDraft } from '../data/saved-comparison';
 
 const mockFiles = new Map<string, string>();
 let mockFailedPublication = /$a/;
@@ -129,6 +131,17 @@ it('reopens the immutable record and operation together and rejects ID reuse wit
   expect([...mockFiles.keys()]).toHaveLength(1);
   await expect(restarted.save({ ...record, review: { ...record.review, price: '2.00' } })).rejects.toThrow('different');
   expect(await queue.read()).toEqual(before);
+});
+
+it('reopens and sends the confirmed observation date with both protected photo references', async () => {
+  const { photo } = await photoEvidence();
+  const capturedAt = timestampForObservedDay('2020-11-18', photo.capturedAt)!;
+  const queue = await openPriceAppendQueue(owner);
+  await queue.save({ ...photo, capturedAt });
+  const reopened = await (await openPriceAppendQueue(owner)).read();
+  expect(reopened.entries[0].record).toMatchObject({ capturedAt, original: photo.original, selected: photo.selected });
+  expect(comparisonRowFromDraft(reopened.entries[0].record)).toMatchObject({ capturedOn: '2020-11-18' });
+  expect(reopened.entries[0].body).toContain('"capturedAt":"2020-11-18T12:00:00.000Z"');
 });
 
 it('keeps a partial publication visible for recovery and leaves valid work available', async () => {

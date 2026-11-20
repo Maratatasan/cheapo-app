@@ -6,6 +6,7 @@ import type { PhotoAsset } from '@/data/local-photo';
 import { calculatePackUnitPrice, packSizeMaxLength, reviewComplete, reviewUnitPrice, type ManualReview } from '@/data/photo-review';
 import { productMetadataMaxLength } from '@/data/product-metadata';
 import { unitPriceLabel } from '@/data/observation';
+import { validObservedDay } from '@/data/price-observed-date';
 import { PhotoSuggestion } from './photo-analysis-review';
 import { marketColor as color } from './results/theme';
 
@@ -29,9 +30,10 @@ type Props = {
   addingProduct?: boolean;
   updatingDraft?: boolean;
   savedStatus?: string;
+  observedDate?: { value: string; onChange?: (value: string) => void };
 };
 
-export function PhotoReview({ photo, review, selectedShopName, saved, savedStatus, busy, onReviewChange, onSave, onRetake, onCrop, onCancel, onOriginal, onImageError, galleryAction, children, leadContent, saveError, saveBlocked, recordingPrice, currentPriceConfirmation, addingProduct, updatingDraft, suggestion, barcodeReview, savedBarcode, barcodeLinkSaved, barcodeLinkStatus }: Props) {
+export function PhotoReview({ photo, review, selectedShopName, saved, savedStatus, busy, onReviewChange, onSave, onRetake, onCrop, onCancel, onOriginal, onImageError, galleryAction, children, leadContent, saveError, saveBlocked, recordingPrice, currentPriceConfirmation, addingProduct, updatingDraft, suggestion, barcodeReview, savedBarcode, barcodeLinkSaved, barcodeLinkStatus, observedDate }: Props) {
   const container = useRef<ComponentRef<typeof View>>(null);
   const scroll = useRef<ComponentRef<typeof ScrollView>>(null);
   const fieldViews = useRef<Partial<Record<keyof ManualReview, ComponentRef<typeof View> | null>>>({});
@@ -95,7 +97,8 @@ export function PhotoReview({ photo, review, selectedShopName, saved, savedStatu
   const amount = reviewUnitPrice(review);
   const invalidPack = !!review.packSize?.trim() && !calculatePackUnitPrice('1', review.packSize);
   const editable = !busy && (!addingProduct || !saved);
-  const saveDisabled = busy || saved || Boolean(saveBlocked) || (requireComplete && !complete);
+  const invalidDate = observedDate?.onChange && !validObservedDay(observedDate.value);
+  const saveDisabled = busy || saved || Boolean(saveBlocked || invalidDate) || (requireComplete && !complete);
   const saveLabel = busy ? 'Saving…' : updatingDraft ? 'Save draft changes' : editing ? 'Save changes'
     : (currentPriceConfirmation || addingProduct) ? 'Confirm current price'
     : recordingPrice || complete ? 'Save Price' : 'Save on this phone';
@@ -109,6 +112,14 @@ export function PhotoReview({ photo, review, selectedShopName, saved, savedStatu
         {photo && !keyboardVisible ? <Image source={{ uri: photo.uri }} accessibilityLabel="Price photo preview" style={styles.photo} resizeMode="contain" onError={onImageError} /> : null}
         <Text style={styles.status} accessibilityLiveRegion={savedStatus ? 'polite' : 'none'}>{savedStatus ?? (recordingPrice ? (saved ? 'On this phone' : review.productName) : addingProduct ? 'Review product and price' : editing ? 'Review saved details' : saved ? 'On this phone' : 'Review photo · Not saved')}</Text>
         <Text style={styles.note}>{recordingPrice || addingProduct ? (saved ? review.productName : 'Review the current price before saving.') : editing ? 'Use the amount and unit from your saved observation. Enter both unit-price fields or leave both blank.' : complete ? 'Manual details ready' : selectedShopName ? 'Incomplete draft · Add product and price' : 'Incomplete draft · Add product, price and shop'}</Text>
+        {observedDate ? <View style={styles.field}>
+          <Text style={styles.label}>Price observed date</Text>
+          {observedDate.onChange ? <>
+            <TextInput accessibilityLabel="Price observed date" value={observedDate.value} onChangeText={observedDate.onChange}
+              autoCapitalize="none" maxLength={10} placeholder="YYYY-MM-DD" editable={editable} style={styles.input} />
+            <Text style={styles.note}>{invalidDate ? 'Enter a valid date today or earlier (YYYY-MM-DD).' : 'Check the date you saw this price (YYYY-MM-DD).'}</Text>
+          </> : <Text style={styles.input}>{observedDate.value}</Text>}
+        </View> : null}
         {onCrop ? <View style={styles.actions}>
           <Button title="Crop photo" disabled={busy} onPress={() => { Keyboard.dismiss(); onCrop(); }} />
           {onOriginal ? <Button title="Use original" disabled={busy} onPress={onOriginal} /> : null}
