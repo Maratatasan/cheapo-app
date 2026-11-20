@@ -52,8 +52,6 @@ type ShopChange = 'ok' | 'shop_not_saved' | 'invalid_shop';
 
 async function changeShop(query: ShoppingQuery, member: ShoppingMember, action: Exclude<ShopAction, { kind: 'read' | 'candidates' }>): Promise<ShopChange> {
   const household = member.household_id;
-  // The household's link and any affected selections change together.
-  await query('SELECT id FROM cheapo.household WHERE id = $1::uuid FOR UPDATE', [household]);
   if (action.kind === 'save') {
     const { id, name, nickname, address, location } = action.shop;
     await query(`
@@ -111,7 +109,8 @@ async function changeShop(query: ShoppingQuery, member: ShoppingMember, action: 
 
 export function postgresSavedShops(transaction: ShoppingTransaction): ExecuteSavedShop {
   return (digest, action) => transaction(async query => {
-    const member = await readShoppingMember(query, digest);
+    // Hold the resolved household lock until links and selections commit together.
+    const member = await readShoppingMember(query, digest, action.kind !== 'read' && action.kind !== 'candidates');
     if (!member) return { status: 'unauthenticated' };
     if (!member.active) return { status: 'forbidden' };
     if (action.kind === 'candidates') return { status: 'candidates', shops: await findShopCandidates(query, action.query) };

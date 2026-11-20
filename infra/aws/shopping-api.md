@@ -36,7 +36,15 @@ together in the release record.
   after `secret:` as `RuntimeSecretResource`. Verify it includes the six
   character suffix and denotes the scoped login. Verify the runtime login
   cannot create, revoke, or alter shopper credentials or memberships. Leave the
-  database administrator secret with the operator.
+  database administrator secret with the operator. Confirm the restored database's
+  applied migrations and apply only new reviewed migrations in order. Record
+  each applied revision and reconcile the existing observation IDs, photo hashes,
+  and row counts. Then apply the [runtime role grants](../../apps/api/operator/runtime-role.sql)
+  using an operator login with schema ownership and role creation rights.
+  Grant `cheapo_api_runtime` to the separate login. Keep the internal
+  `cheapo_scope_guard` role unavailable for login or runtime assumption.
+  The SQL grants cover the current API routes. Review grants again when a
+  route adds a database operation.
 - The cluster must have its Data API endpoint enabled for this stack. Obtain
   approval for that change separately. Keep the database private and preserve
   its existing capacity and 15-minute idle pause settings. Confirm the role
