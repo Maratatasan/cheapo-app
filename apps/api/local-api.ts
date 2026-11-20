@@ -1,11 +1,14 @@
 import type { Pool } from 'pg';
 
-import { postgresSavedShops, type ShopTransaction } from './postgres-saved-shops.ts';
+import { createCatalogHandler, isCatalogPath } from './catalog.ts';
+import { postgresCatalog } from './postgres-catalog.ts';
+import { postgresSavedShops } from './postgres-saved-shops.ts';
+import type { ShoppingTransaction } from './postgres-shopping.ts';
 import { postgresPreferences } from './postgres.ts';
 import { createPreferencesHandler } from './preferences.ts';
 import { createSavedShopHandler, isSavedShopPath } from './saved-shops.ts';
 
-function localTransaction(pool: Pool): ShopTransaction {
+function localTransaction(pool: Pool): ShoppingTransaction {
   return async run => {
     const client = await pool.connect();
     try {
@@ -24,6 +27,13 @@ function localTransaction(pool: Pool): ShopTransaction {
 
 export function createLocalApi(pool: Pool) {
   const preferences = createPreferencesHandler(postgresPreferences(pool));
-  const shops = createSavedShopHandler(postgresSavedShops(localTransaction(pool)));
-  return (request: Request) => isSavedShopPath(new URL(request.url).pathname) ? shops(request) : preferences(request);
+  const transaction = localTransaction(pool);
+  const shops = createSavedShopHandler(postgresSavedShops(transaction));
+  const catalog = createCatalogHandler(postgresCatalog(transaction));
+  return (request: Request) => {
+    const path = new URL(request.url).pathname;
+    if (isSavedShopPath(path)) return shops(request);
+    if (isCatalogPath(path)) return catalog(request);
+    return preferences(request);
+  };
 }
