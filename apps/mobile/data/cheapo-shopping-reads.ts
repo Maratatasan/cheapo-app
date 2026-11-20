@@ -3,6 +3,7 @@ import { canonicalProductBarcode } from "@cheapo/domain/product-barcode";
 import type { PriceHistoryQuery, PriceObservationDetail } from "@cheapo/domain/price-history";
 import { CheapoAccessError, type CheapoReadSession } from "../lib/cheapo-access/client";
 import { requestInterrupted, withCheapoDeadline } from "../lib/cheapo-access/request-deadline";
+import { savedShopVersion } from './shopping-mutations';
 import { decodeHistoryObservation, decodeHistoryPage, historyObservationPath, historyPagePath } from "./cheapo-price-history";
 
 export type ReadCache = {
@@ -17,6 +18,7 @@ export type ShoppingRead<T> =
 
 type SavedShop = Shop & { testShop?: boolean };
 type SavedShopRead = { shops: SavedShop[]; currentShop?: SavedShop };
+export type EditableSavedShopRead = SavedShopRead & { versions: { shopId: string; version: string }[] };
 type ShopCandidate = Pick<Shop, "id" | "name" | "address" | "location">;
 type Decoder<T> = (raw: unknown) => T;
 const readDeadlineMs = 35_000;
@@ -46,6 +48,20 @@ function decodeSavedShops(value: unknown): SavedShopRead {
   const selected = readSavedShop(raw.currentShop);
   const currentShop = shops.find(shop => shop.id === selected.id);
   return currentShop ? { shops, currentShop } : malformed();
+}
+
+function decodeEditableSavedShops(value: unknown): EditableSavedShopRead {
+  const state = decodeSavedShops(value);
+  const { versions } = object(value);
+  if (!Array.isArray(versions) || versions.length !== state.shops.length) return malformed();
+  const shopIds = new Set(state.shops.map(shop => shop.id));
+  const paired = versions.map(raw => {
+    const { shopId, version } = object(raw);
+    const parsed = savedShopVersion.safeParse(version);
+    if (typeof shopId !== 'string' || !shopIds.delete(shopId) || !parsed.success) return malformed();
+    return { shopId, version: parsed.data };
+  });
+  return { ...state, versions: paired };
 }
 
 function decodeCandidates(value: unknown): ShopCandidate[] {
@@ -136,6 +152,8 @@ export function createCheapoShoppingReads(openSession: () => Promise<CheapoReadS
 
   return {
     loadSavedShops: (signal?: AbortSignal) => read("/v1/me/saved-shops", decodeSavedShops, () => true, signal),
+    loadEditableSavedShops: (signal?: AbortSignal) =>
+      read("/v1/me/saved-shops?includeVersions=true", decodeEditableSavedShops, () => true, signal),
     searchShopCandidates(query: string, signal?: AbortSignal) {
       return read(`/v1/shops?${new URLSearchParams({ query })}`, decodeCandidates, undefined, signal);
     },

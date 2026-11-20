@@ -6,13 +6,13 @@ import { z } from 'zod';
 export const mutationOperationId = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
 const id = z.string().regex(/^[^\s\p{Cc}]{1,128}$/u).refine(value => value !== '.' && value !== '..');
 const groupId = z.string().trim().min(1).max(128).refine(value => !/[\p{Cc}/]/u.test(value));
-const branchVersion = z.string().regex(/^[1-9][0-9]{0,9}:[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/);
+export const savedShopVersion = z.string().regex(/^[1-9][0-9]{0,9}:[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/);
 const numberVersion = z.number().int().min(0).max(2_147_483_647);
 const recordedVersion = numberVersion.min(1);
 const earlierMutation = z.strictObject({ kind: z.literal('operation'), operationId: mutationOperationId });
 const expectedNumber = z.union([z.strictObject({ kind: z.literal('version'), version: numberVersion }), earlierMutation]);
 const expectedProduct = z.union([z.strictObject({ kind: z.literal('version'), version: recordedVersion }), earlierMutation]);
-const expectedBranch = z.union([z.strictObject({ kind: z.literal('version'), version: branchVersion }), earlierMutation]);
+const expectedBranch = z.union([z.strictObject({ kind: z.literal('version'), version: savedShopVersion }), earlierMutation]);
 const priceBase = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('version'), id: z.uuid(), version: recordedVersion }),
   z.strictObject({ kind: z.literal('append'), sourceId: mutationOperationId }),
@@ -68,7 +68,7 @@ export type ShoppingMutationInput = z.input<typeof shoppingMutation>;
 type MutationAction = ShoppingMutation['action'];
 
 export type MutationRequest = { path: string; method: 'PUT' | 'PATCH' | 'DELETE'; body?: string };
-export const mutationVersion = z.union([numberVersion, branchVersion]);
+export const mutationVersion = z.union([numberVersion, savedShopVersion]);
 export const mutationReceipt = z.strictObject({
   id: id.optional(), version: mutationVersion.optional(),
 });
@@ -152,7 +152,7 @@ export function decodeMutationAcknowledgement(
     }
     case 'save-shop':
     case 'edit-shop': {
-      const reply = z.object({ shop: z.object({ id }), version: branchVersion }).safeParse(value);
+      const reply = z.object({ shop: z.object({ id }), version: savedShopVersion }).safeParse(value);
       const shopId = action.kind === 'save-shop' ? action.shop.id : action.shopId;
       if (reply.success && reply.data.shop.id === shopId) return { id: shopId, version: reply.data.version };
       return;

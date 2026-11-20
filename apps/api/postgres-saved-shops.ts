@@ -29,10 +29,14 @@ function savedFields(row: ShopRow) {
   return { ...branchFields(row), nickname: row.nickname ?? undefined, testShop: row.test_shop ?? undefined };
 }
 
-async function readSavedShops(query: ShoppingQuery, member: ShoppingMember): Promise<SavedShopState> {
-  const { rows } = await query<ShopRow & { selected: boolean }>(`
+function shopVersion(row: ShopDetailRow) {
+  return `${row.record_version}:${row.link_revision}`;
+}
+
+async function readSavedShops(query: ShoppingQuery, member: ShoppingMember, includeVersions = false): Promise<SavedShopState> {
+  const { rows } = await query<ShopDetailRow & { selected: boolean }>(`
     SELECT shop.id, shop.name, shop.address, shop.location, link.nickname,
-      link.source_test_shop AS test_shop,
+      shop.record_version, link.link_revision, link.source_test_shop AS test_shop,
       selection.shop_id IS NOT NULL AS selected
     FROM cheapo.household_saved_shop AS link
     JOIN cheapo.shop AS shop ON shop.id = link.shop_id
@@ -43,7 +47,8 @@ async function readSavedShops(query: ShoppingQuery, member: ShoppingMember): Pro
   `, [member.household_id, member.shopper_id]);
   const shops = rows.map(savedFields);
   const currentShop = shops[rows.findIndex(row => row.selected)];
-  return currentShop ? { shops, currentShop } : { shops };
+  const state = currentShop ? { shops, currentShop } : { shops };
+  return includeVersions ? { ...state, versions: rows.map(row => ({ shopId: row.id, version: shopVersion(row) })) } : state;
 }
 
 async function readSavedShop(
@@ -56,7 +61,7 @@ async function readSavedShop(
     WHERE link.household_id = $1::uuid AND link.shop_id = $2
     ${lock ? 'FOR UPDATE OF shop' : ''}
   `, [household, shopId]);
-  return row ? { shop: savedFields(row), version: `${row.record_version}:${row.link_revision}` } : undefined;
+  return row ? { shop: savedFields(row), version: shopVersion(row) } : undefined;
 }
 
 async function selectShop(query: ShoppingQuery, member: ShoppingMember, shopId: string) {
@@ -177,6 +182,9 @@ export function postgresSavedShops(transaction: ShoppingTransaction): ExecuteSav
     const member = await readShoppingMember(query, digest, !readOnly);
     if (!member) return { status: 'unauthenticated' };
     if (!member.active) return { status: 'forbidden' };
+    if (action.kind === 'read') {
+      return { status: 'ok', state: await readSavedShops(query, member, action.includeVersions) };
+    }
     if (action.kind === 'candidates') return { status: 'candidates', shops: await findShopCandidates(query, action.query) };
     if (action.kind === 'detail') {
       const detail = await readSavedShop(query, member.household_id, action.shopId);
@@ -199,10 +207,8 @@ export function postgresSavedShops(transaction: ShoppingTransaction): ExecuteSav
       const receipted = await receiptedShopChange(query, member, action);
       if (receipted) return receipted;
     }
-    if (action.kind !== 'read') {
-      const status = await changeShop(query, member, action);
-      if (status !== 'ok') return { status };
-    }
+    const status = await changeShop(query, member, action);
+    if (status !== 'ok') return { status };
     return { status: 'ok', state: await readSavedShops(query, member) };
   });
 }
