@@ -60,3 +60,13 @@ test('fails clearly if queued evidence is unreadable, the enrollment changes, or
   mockProtectedWork = true;
   await expect(loadEnrolledShoppingBackup()).rejects.toThrow('Restore the Cheapo access');
 });
+
+test('rejects a different selected owner before opening any protected queues', async () => {
+  const other = { ...mockOwner, shopperId: '64db4ca7-2366-4a16-8fee-782f26fd13b4' };
+  mockLastVerifiedOwner.mockResolvedValue(other);
+  mockPriceBackup.mockClear();
+  mockMutationBackup.mockClear();
+  await expect(loadEnrolledShoppingBackup(mockOwner)).rejects.toThrow('Cheapo access changed');
+  expect(mockPriceBackup).not.toHaveBeenCalled();
+  expect(mockMutationBackup).not.toHaveBeenCalled();
+});

@@ -24,8 +24,11 @@ function validateQueueReferences(entries: QueuedShoppingMutation[], operationIds
   }
 }
 
-export async function loadEnrolledShoppingBackup() {
+export async function loadEnrolledShoppingBackup(expectedOwner?: PriceQueueOwner) {
   const owner = await cheapoAccess?.lastVerifiedOwner();
+  if (expectedOwner && !sameOwner(expectedOwner, owner ?? null)) {
+    throw new EnrolledBackupError('Cheapo access changed during export. Start the export again.');
+  }
   if (!owner) {
     if (priceQueueRoot().exists || shoppingMutationRoot().exists) {
       throw new EnrolledBackupError('Restore the Cheapo access used for pending shopping work before exporting it.');
