@@ -92,6 +92,17 @@ Resources:
                     StringEquals:
                       aws:ResourceAccount: !Ref AWS::AccountId
                 - !Ref AWS::NoValue
+              - !If
+                - AllowEvidenceReads
+                - Effect: Allow
+                  Action: s3:PutObject
+                  Resource: !Sub 'arn:${AWS::Partition}:s3:::${EvidenceBucket}/price-evidence/*'
+                  Condition:
+                    StringEquals:
+                      aws:ResourceAccount: !Ref AWS::AccountId
+                    'Null':
+                      s3:if-none-match: 'false'
+                - !Ref AWS::NoValue
               - Effect: Allow
                 Action:
                   - logs:CreateLogStream

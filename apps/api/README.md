@@ -208,6 +208,21 @@ dimensions, and a signed download URL with a 60-second lifetime. The URL
 authorizes the specific photo. Fetch it without the Cheapo bearer header
 and keep it out of logs. Missing or out-of-scope photos return `404`.
 
+## Prepare a price evidence upload
+
+Use `PUT /v1/me/price-observations/{observationId}/photos/{role}/upload` as
+the originating shopper of an eligible saved observation. Send a JSON object
+with lower-case hex `sha256`, integer `byteCount` up to 32 MiB, `width`, and
+`height` for the selected JPEG. Each role has an immutable declaration.
+An identical replay can issue a fresh grant. A changed declaration or an
+already-saved photo for that role returns `409`.
+
+The grant response reports `availability: "pending"` and returns a 120-second
+URL plus the exact required request headers. Upload the JPEG to that URL
+using PUT and those headers. Leave the Cheapo bearer header out of the object
+request. A successful transfer still needs the separate object verification
+step before the photo can be displayed as available.
+
 ## Shopping history storage
 
 Migration `002` adds tables for the offline restore in
