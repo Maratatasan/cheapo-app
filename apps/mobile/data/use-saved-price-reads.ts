@@ -6,7 +6,7 @@ import { CheapoAccessError } from '../lib/cheapo-access/client';
 import type { PriceEvidenceRole } from './cheapo-price-photo-read';
 import { openCheapoSavedPriceReads } from './cheapo-shopping-read-device';
 import type { PriceAppendQueue } from './price-append-queue';
-import type { PendingHistoryChange } from './saved-price-history';
+import { keptSharedPrice, type PendingHistoryChange } from './saved-price-history';
 
 export type SavedPriceQueueRead = Pick<PriceAppendQueue, 'owner' | 'read'>;
 type History = {
@@ -20,7 +20,7 @@ type History = {
 };
 type Detail = { queue: SavedPriceQueueRead; id: string } & (
   { status: 'loading' | 'unavailable' } |
-  { status: 'fresh' | 'cached'; lastSyncedAt: string; observation: PriceObservationDetail; role: PriceEvidenceRole | null; photo?: EvidenceView }
+  { status: 'fresh' | 'cached'; lastSyncedAt?: string; observation: PriceObservationDetail; role: PriceEvidenceRole | null; photo?: EvidenceView }
 );
 
 export function useSavedPriceReads(queue: SavedPriceQueueRead | null, loadPriceChanges?: () => Promise<readonly PendingHistoryChange[]>) {
@@ -46,7 +46,7 @@ export function useSavedPriceReads(queue: SavedPriceQueueRead | null, loadPriceC
       const [{ entries }, changes] = await Promise.all([queue.read(), loadPriceChanges?.() ?? []]);
       session.assertCurrent();
       if (!latest()) return;
-      setHistory(previous => latest() && previous?.queue === queue ? { ...previous, entries, changes } : previous);
+      setHistory(previous => latest() && previous?.queue === queue ? { ...previous, entries } : previous);
       const result = await session.loadPriceHistory({ includeRecordedInError: true, cursor }, controller.signal);
       session.assertCurrent();
       if (!latest()) return;
@@ -60,7 +60,7 @@ export function useSavedPriceReads(queue: SavedPriceQueueRead | null, loadPriceC
       });
     } catch (error) {
       if (!latest()) return;
-      setHistory(previous => latest() && previous?.queue === queue ? { ...empty, entries: previous.entries, changes: previous.changes, status: 'unavailable' } : previous);
+      setHistory(previous => latest() && previous?.queue === queue ? { ...empty, entries: previous.entries, changes: error instanceof CheapoAccessError ? [] : previous.changes, status: 'unavailable' } : previous);
       if (error instanceof CheapoAccessError) {
         detailWork.current?.abort();
         setDetail(previous => latest() && previous?.queue === queue ? { queue, id: previous.id, status: 'unavailable' } : previous);
@@ -86,17 +86,21 @@ export function useSavedPriceReads(queue: SavedPriceQueueRead | null, loadPriceC
     setDetail({ queue, id, status: 'loading' });
     try {
       const session = await openCheapoSavedPriceReads(queue.owner);
-      const result = await session.loadPriceObservation(id, signal);
+      const [result, changes] = await Promise.all([session.loadPriceObservation(id, signal), loadPriceChanges?.() ?? []]);
       session.assertCurrent();
       if (signal.aborted) return;
-      if (result.status === 'unavailable' || !result.value.observation) {
+      const read = result.status === 'unavailable' ? undefined : result;
+      const current = read?.value.observation;
+      const kept = current || read?.status !== 'fresh' ? keptSharedPrice(id, changes, current?.version) : undefined;
+      const observation = kept ?? current;
+      if (!observation) {
         setDetail({ queue, id, status: 'unavailable' });
         return;
       }
-      const { observation } = result.value;
       const role = requestedRole && observation.photos.some(photo => photo.role === requestedRole)
         ? requestedRole : observation.selectedPhotoRole;
-      const loaded: Detail = { queue, id, status: result.status, lastSyncedAt: result.lastSyncedAt, observation, role };
+      const loaded: Detail = { queue, id, status: kept ? 'cached' : read?.status ?? 'cached',
+        lastSyncedAt: read?.lastSyncedAt, observation, role };
       setDetail(loaded);
       if (!role || !observation.photos.some(photo => photo.role === role && photo.availability !== 'pending')) return;
       try {
@@ -109,8 +113,15 @@ export function useSavedPriceReads(queue: SavedPriceQueueRead | null, loadPriceC
         if (error instanceof CheapoAccessError) throw error;
         if (!signal.aborted) setDetail({ ...loaded, photo: { role, status: 'unavailable' } });
       }
-    } catch {
-      if (!signal.aborted) setDetail({ queue, id, status: 'unavailable' });
+    } catch (error) {
+      if (signal.aborted) return;
+      setDetail({ queue, id, status: 'unavailable' });
+      if (error instanceof CheapoAccessError) {
+        historyWork.current?.abort();
+        setHistory(previous => previous?.queue === queue
+          ? { ...previous, observations: [], changes: [], status: 'unavailable', nextCursor: null, lastSyncedAt: undefined }
+          : previous);
+      }
     }
   }
 

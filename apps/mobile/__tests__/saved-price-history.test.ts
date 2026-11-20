@@ -140,3 +140,25 @@ test('projects a permitted household correction by its exact resource ID without
   expect(projectSharedPrice(peer, [correction])).toMatchObject({ display: { priceAmount: '3.50' }, pending: 'waiting' });
   expect(projectSharedPrice(peer, [{ ...correction, resourceId: undefined }])).toEqual({ display: peer, pending: undefined });
 });
+
+test('uses the chosen cloud snapshot and applies only changes that still need projection', () => {
+  const stale = { ...observation(primaryId, 'price', false), recordedInErrorReason: 'Earlier error' };
+  const snapshot = { ...observation(primaryId, 'price', false), version: 3, priceAmount: '3.45',
+    photos: [{ role: 'original' as const, width: 500, height: 300 }], cropBox: null, selectedPhotoRole: 'original' as const };
+  const kept: PendingHistoryChange = { operationId: 'kept', title: 'Keep cloud', state: 'acknowledged',
+    resourceId: snapshot.id, acceptedVersion: 3, change: { action: 'keep_cloud', observation: snapshot } };
+  const supersededValue: PendingHistoryChange = { operationId: 'older', title: 'Earlier error', state: 'acknowledged',
+    resourceId: snapshot.id, acceptedVersion: 2, change: { action: 'record_in_error', reason: 'Earlier error' } };
+  const next: PendingHistoryChange = { operationId: 'later', title: 'Update the shared price', state: 'waiting',
+    resourceId: snapshot.id, change: { action: 'correct', review: { productName: 'Later oats', price: '3.70', currency: 'GBP' } } };
+  expect(projectSharedPrice(stale, [supersededValue, kept]).display).toMatchObject({ ...snapshot, recordedInErrorReason: undefined });
+  expect(projectSharedPrice(stale, [supersededValue, kept, next])).toMatchObject({
+    display: { version: 3, priceAmount: '3.70', photos: snapshot.photos }, pending: 'waiting',
+  });
+  const fresh = { ...snapshot, version: 4, priceAmount: '3.99' };
+  expect(projectSharedPrice(fresh, [kept]).display).toEqual(fresh);
+  expect(savedPriceHistoryRows({ legacy: [], queued: [], shared: [], offlineChanges: [kept] }))
+    .toEqual([{ source: 'shared', key: `shared:${snapshot.id}`, observation: snapshot }]);
+  expect(savedPriceHistoryRows({ legacy: [], queued: [], shared: [], offlineChanges: [{ ...kept, resourceId: peerId }] }))
+    .toEqual([]);
+});

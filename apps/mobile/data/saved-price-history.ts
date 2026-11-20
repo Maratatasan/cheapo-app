@@ -1,5 +1,5 @@
 import { normalizeName } from '@cheapo/domain/names';
-import type { PriceObservation } from '@cheapo/domain/price-history';
+import type { PriceObservation, PriceObservationDetail } from '@cheapo/domain/price-history';
 
 import type { SavedPriceRecord } from './local-photo';
 import { reviewComplete } from './photo-review';
@@ -29,11 +29,29 @@ function appliesTo(change: PendingHistoryChange, row: SavedPriceHistoryRow) {
   return change.resourceId ? change.resourceId === row.receipt?.id : change.sourceId === row.record.id;
 }
 
+function keptObservation(item: PendingHistoryChange) {
+  if (item.state !== 'acknowledged' || item.change.action !== 'keep_cloud') return;
+  const { observation } = item.change;
+  if (item.resourceId === observation.id && item.acceptedVersion === observation.version) return observation;
+}
+
+export function keptSharedPrice(id: string, changes: readonly PendingHistoryChange[], version = 0) {
+  let kept: PriceObservationDetail | undefined;
+  for (const item of changes) {
+    if (item.resourceId !== id) continue;
+    const observation = keptObservation(item);
+    if (observation && observation.version > (kept?.version ?? version)) kept = observation;
+  }
+  return kept;
+}
+
 export function projectSharedPrice<T extends PriceObservation>(observation: T, changes: readonly PendingHistoryChange[]) {
-  let display = observation;
+  const kept = keptSharedPrice(observation.id, changes, observation.version);
+  let display = kept ? { ...observation, ...kept, recordedInErrorReason: kept.recordedInErrorReason } : observation;
   let pending: PendingPriceState | undefined;
   for (const item of changes) {
-    if (!appliesTo(item, { source: 'shared', key: observation.id, observation }) || !priceChangeIsNewerThan(item, observation.version)) continue;
+    if (item.change.action === 'keep_cloud') continue;
+    if (!appliesTo(item, { source: 'shared', key: observation.id, observation }) || !priceChangeIsNewerThan(item, display.version)) continue;
     if (item.state !== 'acknowledged') pending = strongestPending(pending, item.state);
     const change = item.change;
     if (change.action === 'correct') {
@@ -54,6 +72,7 @@ export function projectLocalPrice(row: LocalHistoryRow, changes: readonly Pendin
   let pending: PendingPriceState | undefined;
   let recordedInErrorReason: string | undefined;
   for (const item of changes) {
+    if (item.change.action === 'keep_cloud') continue;
     if (!appliesTo(item, row) || !priceChangeIsNewerThan(item, row.source === 'queued' ? row.receipt?.version : undefined)) continue;
     if (item.state !== 'acknowledged') pending = strongestPending(pending, item.state);
     const change = item.change;
@@ -71,15 +90,25 @@ export function projectLocalPrice(row: LocalHistoryRow, changes: readonly Pendin
 
 // The caller supplies queue entries and observations from the same verified
 // phone owner. The preserved local link is useful for local evidence and edits.
-export function savedPriceHistoryRows({ legacy, queued, shared }: {
+export function savedPriceHistoryRows({ legacy, queued, shared, offlineChanges = [] }: {
   legacy: readonly SavedPriceRecord[];
   queued: ReadonlyArray<{ record: SavedPriceRecord; receipt?: PriceAppendReceipt }>;
   shared: readonly PriceObservation[];
+  offlineChanges?: readonly PendingHistoryChange[];
 }): SavedPriceHistoryRow[] {
   const sharedById = new Map<string, SharedHistoryRow>();
   for (const observation of shared) {
     const existing = sharedById.get(observation.id);
     if (!existing || observation.version > existing.observation.version) {
+      sharedById.set(observation.id, { source: 'shared', key: `shared:${observation.id}`, observation });
+    }
+  }
+  const cachedIds = new Set(sharedById.keys());
+  for (const item of offlineChanges) {
+    const observation = keptObservation(item);
+    if (!observation || cachedIds.has(observation.id)) continue;
+    const previous = sharedById.get(observation.id);
+    if (!previous || observation.version > previous.observation.version) {
       sharedById.set(observation.id, { source: 'shared', key: `shared:${observation.id}`, observation });
     }
   }

@@ -9,7 +9,7 @@ import { SharedPriceEvidence, type EvidenceView } from '../component/shared-pric
 import { SavedPriceHistoryList } from '../component/saved-price-history-list';
 import { ui } from '../component/results/theme';
 import type { PriceEvidenceRole } from '../data/cheapo-price-photo-read';
-import { projectSharedPrice, savedPriceHistoryRows, type PendingHistoryChange } from '../data/saved-price-history';
+import { keptSharedPrice, projectSharedPrice, savedPriceHistoryRows, type PendingHistoryChange } from '../data/saved-price-history';
 
 const observation: PriceObservationDetail = {
   id: 'fa91641f-d265-4a3b-9695-4ff553ab5138', sourceId: 'example-oats', ownedByCurrentShopper: true, version: 1,
@@ -107,5 +107,27 @@ export const OpenPendingHistory: Story = {
     await expect(canvas.getByText('Saved on this phone · Waiting to sync')).toBeVisible();
     await expect(canvas.getByText('£3.05')).toBeVisible();
     await expect(canvas.getByLabelText('Cropped price photo')).toBeVisible();
+  },
+};
+
+export const KeptCloudOffline: Story = {
+  render: () => {
+    const chosen = { ...observation, version: 2, priceAmount: '3.45', selectedPhotoRole: 'original' as const };
+    const changes: PendingHistoryChange[] = [{ operationId: 'example-cloud-choice', title: 'Keep cloud', resourceId: chosen.id,
+      state: 'acknowledged', acceptedVersion: chosen.version, change: { action: 'keep_cloud', observation: chosen } }];
+    const kept = keptSharedPrice(observation.id, changes);
+    if (!kept) throw Error('Expected the saved example price.');
+    return <View style={{ width: '100%', maxWidth: frame.width, height: frame.height }}>
+      <SafeAreaProvider initialMetrics={{ frame, insets }}>
+        <SharedPriceEvidence observation={kept} cached activeRole="original"
+          photo={{ role: 'original', status: 'cached', uri: images.original }} onPhotoRole={() => {}}
+          onRetryPhoto={() => {}} onBack={() => {}} />
+      </SafeAreaProvider>
+    </View>;
+  },
+  play: async ({ canvas }) => {
+    await expect(canvas.getByText('£3.45')).toBeVisible();
+    await expect(canvas.getByText('Showing saved details')).toBeVisible();
+    await expect(canvas.getByLabelText('Original price photo')).toBeVisible();
   },
 };
