@@ -69,7 +69,7 @@ async function writeSavedDraft(directory: Directory, draft: SavedPriceRecord) {
   await manifest.write(JSON.stringify(draft));
 }
 
-function validSavedDraft(value: unknown): value is SavedPriceRecord {
+export function isSavedPriceRecord(value: unknown): value is SavedPriceRecord {
   if (!value || typeof value !== 'object') return false;
   const draft = value as SavedPriceRecord;
   const asset = (photo?: PhotoAsset) => photo && typeof photo.uri === 'string' && photo.uri.startsWith('file:') && photo.mimeType === 'image/jpeg' && Number.isFinite(photo.width) && photo.width > 0 && Number.isFinite(photo.height) && photo.height > 0;
@@ -94,7 +94,7 @@ async function readSavedDraft(file: File): Promise<SavedPriceRecord | null> {
   try {
     if (!file.exists) return null;
     const value: unknown = JSON.parse(await file.text());
-    if (!validSavedDraft(value)) return null;
+    if (!isSavedPriceRecord(value)) return null;
     return !value.original || (new File(value.original.uri).exists && new File(value.selected.uri).exists) ? value : null;
   } catch { return null; }
 }
@@ -135,7 +135,7 @@ export function linkSavedPriceToBarcode(id: string, barcode: string, target: Lin
 }
 
 export async function saveManualPrice(record: ManualPriceRecord): Promise<ManualPriceRecord> {
-  if (!validSavedDraft(record)) throw Error('Enter valid product and price details.');
+  if (!isSavedPriceRecord(record)) throw Error('Enter valid product and price details.');
   const directory = savedPhotoDirectory();
   directory.create({ intermediates: true, idempotent: true });
   const manifest = new File(directory, `${record.id}.json`);
