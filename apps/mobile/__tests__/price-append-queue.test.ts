@@ -7,6 +7,7 @@ import { createPriceEvidenceSync } from '../data/price-evidence-sync';
 import { createPriceRecords } from '../data/price-records';
 import { readPendingPrices } from '../data/pending-price-sync';
 import type { PricePhotoIntent } from '../data/cheapo-price-photo-transfer';
+import { openCheapoShopping } from '../data/shopping-sync-runtime';
 
 const mockFiles = new Map<string, string>();
 let mockFailedPublication = /$a/;
@@ -363,5 +364,104 @@ it('keeps the evidence plan on another enrollment and retries an interrupted rol
   expect(transfer.mock.calls).toEqual([
     [intents[0], expect.any(Object), undefined], [intents[1], expect.any(Object), undefined],
     [intents[1], expect.any(Object), undefined],
+  ]);
+});
+
+const queuedShop = { id: shop.id, name: shop.displayName };
+const queuedProduct = { id: record.productId, name: record.review.productName };
+const operationTime = '2026-11-20T12:10:00.000Z';
+
+it('holds a price behind its shop and product, then applies its offline edit using the append receipt', async () => {
+  let shopOnline = false;
+  const request = jest.fn<Promise<Response>, [string, RequestInit]>(async (path, init) => {
+    const sent = JSON.parse(String(init.body));
+    if (path === `/v1/me/saved-shops/${shop.id}`) {
+      expect(sent.operationId).toBe('create-shop');
+      return shopOnline ? Response.json({ shop: queuedShop, version: '1:fa91641f-d265-4a3b-9695-4ff553ab5138' }, { status: 201 })
+        : new Response(null, { status: 503 });
+    }
+    if (path === `/v1/products/${record.productId}`) {
+      expect(sent.operationId).toBe('create-product');
+      return Response.json({ product: queuedProduct, version: 1 }, { status: 201 });
+    }
+    if (path === '/v1/me/price-observations') return Response.json(receipt, { status: 201 });
+    expect(path).toBe(`/v1/me/price-observations/${receipt.id}`);
+    expect(sent).toMatchObject({ operationId: 'edit-price', expectedVersion: 1, review: { price: '1.85' } });
+    return Response.json({ observation: { id: receipt.id, version: 2 } });
+  });
+  const openShoppingWriteSession = jest.fn(async () => ({ owner, assertCurrent() {}, request }));
+  const access = { lastVerifiedOwner: async () => owner, openShoppingWriteSession };
+  const selected = (await openCheapoShopping(access))!;
+  await selected.priceRecords.saveManual(record);
+  await selected.mutationQueue.enqueue({ operationId: 'create-shop', title: shop.displayName, createdAt: operationTime,
+    action: { kind: 'save-shop', shop: queuedShop } });
+  await selected.mutationQueue.enqueue({ operationId: 'create-product', title: record.review.productName, createdAt: operationTime,
+    action: { kind: 'create-product', product: queuedProduct } });
+  await selected.mutationQueue.enqueue({ operationId: 'edit-price', title: 'Edit rice price', createdAt: operationTime,
+    action: { kind: 'price', priceKey: record.id, base: { kind: 'append', sourceId: record.id },
+      change: { action: 'correct', review: { productName: record.review.productName, price: '1.85', currency: 'GBP' } } } });
+
+  const first = await selected.retry();
+  expect(first.state).toBe('pending');
+  expect(first.items.map(({ state }) => state)).toEqual(['waiting', 'failed', 'waiting']);
+  expect(request.mock.calls.map(([path]) => path)).toEqual([`/v1/products/${record.productId}`, `/v1/me/saved-shops/${shop.id}`]);
+  expect(openShoppingWriteSession).toHaveBeenCalledTimes(1);
+  expect(await selected.loadPriceChanges()).toMatchObject([{ sourceId: record.id, change: { review: { price: '1.85' } } }]);
+
+  shopOnline = true;
+  const reopened = (await openCheapoShopping(access))!;
+  expect(await reopened.retry()).toEqual({ state: 'complete', items: [] });
+  expect(request.mock.calls.slice(2).map(([path]) => path)).toEqual([
+    `/v1/me/saved-shops/${shop.id}`, '/v1/me/price-observations', `/v1/me/price-observations/${receipt.id}`,
+  ]);
+  expect(openShoppingWriteSession).toHaveBeenCalledTimes(2);
+  expect(await reopened.loadPriceChanges()).toEqual([]);
+  await reopened.retry();
+  expect(openShoppingWriteSession).toHaveBeenCalledTimes(2);
+});
+
+it('coalesces full passes and checks that a queued read still belongs to the selected shopper', async () => {
+  let remembered = owner;
+  let release!: (response: Response) => void;
+  let began!: () => void;
+  const sending = new Promise<void>(resolve => { began = resolve; });
+  const request = jest.fn<Promise<Response>, [string, RequestInit]>()
+    .mockImplementationOnce(() => new Promise(resolve => { release = resolve; began(); }))
+    .mockImplementation(async () => Response.json({ shop: queuedShop, version: '1:fa91641f-d265-4a3b-9695-4ff553ab5138' }));
+  const openShoppingWriteSession = jest.fn(async () => ({ owner, assertCurrent() {}, request }));
+  const shopping = (await openCheapoShopping({ lastVerifiedOwner: async () => remembered, openShoppingWriteSession }))!;
+  await shopping.priceRecords.saveManual(record);
+  const initial = shopping.retry();
+  await sending;
+  await shopping.mutationQueue.enqueue({ operationId: 'next-shop', title: shop.displayName, createdAt: operationTime,
+    action: { kind: 'save-shop', shop: queuedShop } });
+  const again = shopping.retry();
+  expect(again).toBe(initial);
+  release(Response.json(receipt, { status: 201 }));
+  expect(await again).toEqual({ state: 'complete', items: [] });
+  expect(request.mock.calls.map(([path]) => path)).toEqual(['/v1/me/price-observations', `/v1/me/saved-shops/${shop.id}`]);
+  remembered = other;
+  await expect(shopping.readPending()).rejects.toThrow('Cheapo access changed');
+  await expect(shopping.loadPriceChanges()).rejects.toThrow('Cheapo access changed');
+});
+
+it('keeps pending read overlays in dependency order even for same-time edits and separate server identities', async () => {
+  const runtime = (await openCheapoShopping({ lastVerifiedOwner: async () => owner, openShoppingWriteSession: jest.fn() }))!;
+  await runtime.priceRecords.saveManual(record);
+  await runtime.priceQueue.acknowledge(record.id, receipt);
+  await runtime.mutationQueue.enqueue({ operationId: 'z-first', title: 'Edit rice', createdAt: operationTime,
+    action: { kind: 'price', priceKey: record.id, base: { kind: 'append', sourceId: record.id },
+      change: { action: 'correct', review: { productName: 'Rice', price: '1.80', currency: 'GBP' } } } });
+  await runtime.mutationQueue.enqueue({ operationId: 'a-later', title: 'Flag rice', createdAt: operationTime,
+    action: { kind: 'price', priceKey: record.id, base: { kind: 'operation', operationId: 'z-first' },
+      change: { action: 'record_in_error', reason: 'Wrong shelf' } } });
+  const otherId = 'a9208dad-5a8e-4966-812c-879a550706c2';
+  await runtime.mutationQueue.enqueue({ operationId: 'unrelated', title: 'Another rice price', createdAt: operationTime,
+    action: { kind: 'price', priceKey: record.id, base: { kind: 'version', id: otherId, version: 3 },
+      change: { action: 'record_in_error', reason: 'Duplicate' } } });
+  expect(await runtime.loadPriceChanges()).toMatchObject([
+    { operationId: 'z-first', sourceId: record.id, resourceId: receipt.id },
+    { operationId: 'a-later', sourceId: record.id, resourceId: receipt.id },
+    { operationId: 'unrelated', sourceId: undefined, resourceId: otherId },
   ]);
 });

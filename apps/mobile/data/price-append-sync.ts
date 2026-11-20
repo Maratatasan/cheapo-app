@@ -1,49 +1,28 @@
 import { CheapoAccessError, type CheapoAccess } from '../lib/cheapo-access/client';
-import type { PriceAppendQueue } from './price-append-queue';
+import { sameShoppingOwner, type PriceAppendQueue } from './price-append-queue';
+import { readShoppingWriteReply } from './shopping-write-reply';
 
 type OpenSession = CheapoAccess['openShoppingWriteSession'];
 type SyncResult = 'complete' | 'blocked' | 'failed';
-const appendDeadlineMs = 45_000;
 const appendPath = '/v1/me/price-observations';
 
-async function sendAppend(request: Awaited<ReturnType<OpenSession>>['request'], body: string) {
-  const controller = new AbortController();
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => {
-      controller.abort();
-      reject(Error('Cheapo did not acknowledge this price in time.'));
-    }, appendDeadlineMs);
-  });
-  const attempt = async () => {
-    const response = await request(appendPath, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body, signal: controller.signal,
-    });
-    const { status } = response;
-    const receipt: unknown = status === 200 || status === 201 ? await response.json() : undefined;
-    return { status, receipt };
-  };
-  try {
-    return await Promise.race([attempt(), timeout]);
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-export function createPriceAppendSync(queue: PriceAppendQueue, openSession: OpenSession) {
+export function createPriceAppendSync(
+  queue: PriceAppendQueue, openSession: OpenSession, canSend: (body: string) => boolean = () => true,
+) {
   async function synchronize(): Promise<SyncResult> {
     const { entries, recovery } = await queue.read();
-    const pending = entries.flatMap(({ record, body, receipt }) => body && !receipt ? [{ sourceId: record.id, body }] : []);
+    const pending = entries.flatMap(({ record, body, receipt }) => body && !receipt && canSend(body) ? [{ sourceId: record.id, body }] : []);
     if (!pending.length) return recovery.length ? 'failed' : 'complete';
 
     const { owner, request, assertCurrent } = await openSession();
-    if (owner.origin !== queue.owner.origin || owner.householdId !== queue.owner.householdId
-      || owner.shopperId !== queue.owner.shopperId) return 'blocked';
+    if (!sameShoppingOwner(owner, queue.owner)) return 'blocked';
 
     let failed = false;
     for (const entry of pending) {
       try {
-        const { status, receipt } = await sendAppend(request, entry.body);
+        const { status, body: receipt } = await readShoppingWriteReply(request, appendPath, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: entry.body,
+        }, status => status === 200 || status === 201);
         assertCurrent();
         if (status === 401 || status === 403) return 'blocked';
         if (receipt) {
