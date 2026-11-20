@@ -8,8 +8,6 @@ import { after, before, test } from 'node:test';
 import { Pool } from 'pg';
 
 import { createLocalApi } from '../local-api.ts';
-import { postgresPreferences } from '../postgres.ts';
-import { createPreferencesHandler } from '../preferences.ts';
 import { localHttpServer } from '../server.ts';
 
 const host = process.env.CHEAPO_TEST_PG_SOCKET;
@@ -259,7 +257,7 @@ test('reopens the shopper’s choice through a fresh API instance and second cre
   assert.deepEqual(await request('A', group, 'PUT', 'wash'), ok('wash'));
 
   const newPool = new Pool(connection);
-  const newServer = localHttpServer(createPreferencesHandler(postgresPreferences(newPool)));
+  const newServer = localHttpServer(createLocalApi(newPool));
   newServer.listen(0, '127.0.0.1');
   await once(newServer, 'listening');
   try {
@@ -526,4 +524,71 @@ test('versions shared branch edits and household nicknames without exposing othe
     operationId: 'stale-before-relink', expectedVersion: legacyDetail.version, details: { nickname: 'Old device' },
   })).status, 409);
   assert.equal((await savedShopRequest('D', path, 'PATCH', update)).status, 403);
+});
+
+test('versions a private preference across phone credentials and preserves the clear tombstone', async () => {
+  const group = 'versioned coffee';
+  const address = server.address();
+  assert(address && typeof address !== 'string');
+
+  const readOrEdit = async (letter: string, patch?: object, key = group) => {
+    const response = await fetch(`http://127.0.0.1:${address.port}/v1/me/comparison-preferences/${encodeURIComponent(key)}`, {
+      method: patch ? 'PATCH' : 'GET',
+      headers: { Authorization: `Bearer ${token(letter)}`, 'Content-Type': 'application/json' },
+      body: patch ? JSON.stringify(patch) : undefined,
+    });
+    return { status: response.status, body: await response.json(), version: response.headers.get('ETag') };
+  };
+  assert.deepEqual(await readOrEdit('A'), { status: 200, body: { basis: null }, version: '"0"' });
+  const first = { operationId: 'first-preference-save', expectedVersion: 0, basis: 'kg' };
+  const accepted = { status: 200, body: { basis: 'kg', version: 1 }, version: '"1"' };
+  assert.deepEqual(await Promise.all([readOrEdit('A', first), readOrEdit('G', first)]), [accepted, accepted]);
+
+  const stale = { operationId: 'stale-preference-save', expectedVersion: 0, basis: 'item' };
+  assert.deepEqual(await readOrEdit('G', stale), {
+    status: 409, version: null, body: { error: 'version_conflict', currentVersion: 1, current: { basis: 'kg' } },
+  });
+  assert.deepEqual(await readOrEdit('A', { ...first, basis: 'item' }), {
+    status: 409, body: { error: 'operation_conflict' }, version: null,
+  });
+  assert.deepEqual(await readOrEdit('G', first, 'other product group'), {
+    status: 409, body: { error: 'operation_conflict' }, version: null,
+  });
+
+  const clear = { operationId: 'versioned-clear', expectedVersion: 1, basis: null };
+  assert.deepEqual(await readOrEdit('G', clear), { status: 200, body: { basis: null, version: 2 }, version: '"2"' });
+  assert.deepEqual(await readOrEdit('A', first), accepted);
+  assert.deepEqual(await readOrEdit('A'), { status: 200, body: { basis: null }, version: '"2"' });
+  assert.deepEqual(await readOrEdit('B'), { status: 200, body: { basis: null }, version: '"0"' });
+  assert.equal((await readOrEdit('F', first)).status, 401);
+  assert.equal((await readOrEdit('D', first)).status, 403);
+  assert.equal((await readOrEdit('A', { ...first, shopperId: sam })).status, 400);
+
+  const raceGroup = 'first setting race';
+  const race = await Promise.all([
+    readOrEdit('A', { operationId: 'race-phone-one', expectedVersion: 0, basis: '100g' }, raceGroup),
+    readOrEdit('G', { operationId: 'race-phone-two', expectedVersion: 0, basis: 'item' }, raceGroup),
+  ]);
+  assert.deepEqual(race.map(result => result.status).sort(), [200, 409]);
+  const applied = race.find(result => result.status === 200)?.body as { basis: string; version: number };
+  assert.deepEqual(race.find(result => result.status === 409)?.body, {
+    error: 'version_conflict', currentVersion: applied.version, current: { basis: applied.basis },
+  });
+
+  assert.deepEqual(await request('G', group, 'PUT', 'wash'), ok('wash'));
+  assert.deepEqual(await request('G', group, 'PUT', 'wash'), ok('wash'));
+  assert.deepEqual(await request('A', group, 'DELETE'), ok(null));
+  assert.deepEqual(await request('A', group, 'DELETE'), ok(null));
+  assert.deepEqual(await readOrEdit('G'), { status: 200, body: { basis: null }, version: '"4"' });
+  assert.equal((await readOrEdit('G', { ...clear, operationId: 'stale-after-legacy-delete', expectedVersion: 0 })).status, 409);
+  const { rows } = await pool.query(`
+    SELECT version, before_basis, after_basis FROM cheapo.comparison_preference_revision
+    WHERE shopper_id = $1 AND product_group_id = $2 ORDER BY version
+  `, [alex, group]);
+  assert.deepEqual(rows, [
+    { version: 1, before_basis: null, after_basis: 'kg' },
+    { version: 2, before_basis: 'kg', after_basis: null },
+    { version: 3, before_basis: null, after_basis: 'wash' },
+    { version: 4, before_basis: 'wash', after_basis: null },
+  ]);
 });
