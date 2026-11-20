@@ -1,4 +1,5 @@
 import { priceAppendSchema } from '@cheapo/domain/price-append';
+import { packagePriceBases } from '@cheapo/domain/package-measures';
 import { z } from 'zod';
 
 import { CheapoAccessError, type CheapoAccess } from '../lib/cheapo-access/client';
@@ -8,8 +9,8 @@ import { createPriceAppendSync } from './price-append-sync';
 import { createPriceEvidenceSync } from './price-evidence-sync';
 import { createPriceRecords } from './price-records';
 import { openShoppingMutationQueue, type ShoppingMutationQueue } from './shopping-mutation-queue';
-import { decodeMutationAcknowledgement, mutationVersion } from './shopping-mutations';
-import { readPendingPriceChanges } from './shopping-pending-price-changes';
+import { decodeMutationAcknowledgement, mutationVersion, type MutationRequest, type ShoppingMutation } from './shopping-mutations';
+import { readPriceChangeOverlay } from './shopping-pending-price-changes';
 import { readShoppingWriteReply } from './shopping-write-reply';
 
 type SyncAccess = Pick<CheapoAccess, 'lastVerifiedOwner' | 'openShoppingWriteSession'>;
@@ -18,13 +19,33 @@ type MutationTrouble = { id: string; operationId: string; title: string; state: 
 export type PendingShoppingChange = PendingPriceItem | MutationTrouble;
 type SyncSnapshot = { state: 'complete' | 'blocked' | 'pending'; items: PendingShoppingChange[] };
 
-function readConflict(value: unknown) {
+const knownBasis = z.enum(packagePriceBases).nullable();
+
+function readConflict(intent: ShoppingMutation, request: MutationRequest, value: unknown) {
   if (!value || typeof value !== 'object' || !('error' in value) || value.error !== 'version_conflict'
     || !('currentVersion' in value) || !('current' in value)) return;
   const version = mutationVersion.safeParse(value.currentVersion);
   const current = z.json().safeParse(value.current);
-  if (version.success && current.success) {
-    return { kind: 'conflict' as const, currentVersion: version.data, current: current.data };
+  if (!version.success || !current.success || !current.data || typeof current.data !== 'object' || Array.isArray(current.data)) return;
+  const action = intent.action;
+  const snapshot = current.data;
+  const currentVersion = version.data;
+  const result = { kind: 'conflict' as const, currentVersion, current: snapshot };
+  switch (action.kind) {
+    case 'price':
+      if (typeof currentVersion === 'number' && currentVersion > 0 && snapshot.id === request.path.split('/').at(-1)
+        && snapshot.version === currentVersion) return result;
+      break;
+    case 'edit-product':
+      if (typeof currentVersion === 'number' && currentVersion > 0 && snapshot.id === action.product.id) return result;
+      break;
+    case 'edit-shop':
+    case 'unlink-shop':
+      if (typeof currentVersion === 'string' && snapshot.id === action.shopId) return result;
+      break;
+    case 'preference':
+      if (typeof currentVersion === 'number' && knownBasis.safeParse(snapshot.basis).success) return result;
+      break;
   }
 }
 
@@ -53,7 +74,7 @@ async function flushShoppingChanges(
         }, code => code === 200 || code === 201 || code === 409);
         session.assertCurrent();
         if (status === 401 || status === 403) return 'blocked';
-        const conflict = status === 409 ? readConflict(body) : undefined;
+        const conflict = status === 409 ? readConflict(intent, request, body) : undefined;
         if (conflict) {
           await mutations.settle(operationId, conflict);
           continue;
@@ -124,7 +145,7 @@ export function createShoppingSync(access: SyncAccess, priceQueue: PriceAppendQu
 
   async function loadPriceChanges() {
     await assertOwner();
-    const changes = await readPendingPriceChanges(priceQueue, mutationQueue);
+    const changes = await readPriceChangeOverlay(priceQueue, mutationQueue);
     await assertOwner();
     return changes;
   }

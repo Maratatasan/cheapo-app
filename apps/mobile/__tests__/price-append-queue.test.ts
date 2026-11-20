@@ -8,6 +8,7 @@ import { createPriceRecords } from '../data/price-records';
 import { readPendingPrices } from '../data/pending-price-sync';
 import type { PricePhotoIntent } from '../data/cheapo-price-photo-transfer';
 import { openCheapoShopping } from '../data/shopping-sync-runtime';
+import { priceChangeIsNewerThan } from '../data/shopping-pending-price-changes';
 
 const mockFiles = new Map<string, string>();
 let mockFailedPublication = /$a/;
@@ -415,7 +416,13 @@ it('holds a price behind its shop and product, then applies its offline edit usi
     `/v1/me/saved-shops/${shop.id}`, '/v1/me/price-observations', `/v1/me/price-observations/${receipt.id}`,
   ]);
   expect(openShoppingWriteSession).toHaveBeenCalledTimes(2);
-  expect(await reopened.loadPriceChanges()).toEqual([]);
+  const offline = (await openCheapoShopping({ ...access, openShoppingWriteSession: async () => { throw Error('Offline'); } }))!;
+  const [savedEdit] = await offline.loadPriceChanges();
+  expect(savedEdit).toMatchObject({ state: 'acknowledged', resourceId: receipt.id, acceptedVersion: 2, change: { review: { price: '1.85' } } });
+  expect(priceChangeIsNewerThan(savedEdit, undefined)).toBe(true);
+  expect(priceChangeIsNewerThan(savedEdit, 1)).toBe(true);
+  expect(priceChangeIsNewerThan(savedEdit, 2)).toBe(false);
+  expect(priceChangeIsNewerThan(savedEdit, 3)).toBe(false);
   await reopened.retry();
   expect(openShoppingWriteSession).toHaveBeenCalledTimes(2);
 });
@@ -464,4 +471,44 @@ it('keeps pending read overlays in dependency order even for same-time edits and
     { operationId: 'a-later', sourceId: record.id, resourceId: receipt.id },
     { operationId: 'unrelated', sourceId: undefined, resourceId: otherId },
   ]);
+});
+
+it('holds mismatched conflict replies and preserves the full valid version for the requested record', async () => {
+  const unrelatedPrice = 'a9208dad-5a8e-4966-812c-879a550706c2';
+  const version = '2:fa91641f-d265-4a3b-9695-4ff553ab5138';
+  let validReplies = false;
+  const request = async (path: string) => {
+    let currentVersion: string | number = 2;
+    let current: object;
+    if (path.includes('price-observations')) {
+      current = { id: validReplies ? receipt.id : unrelatedPrice, version: 2, review: { price: '2.75', packSize: '600 g' } };
+    } else if (path.includes('saved-shops')) {
+      currentVersion = version;
+      current = { id: validReplies ? shop.id : 'other-shop', name: 'New market', nickname: 'Our branch' };
+    } else if (path.includes('comparison-preferences')) {
+      current = { basis: validReplies ? 'kg' : 'case' };
+    } else {
+      current = { id: validReplies ? record.productId : 'other-product', name: 'Short grain rice', variety: 'Short grain' };
+    }
+    return Response.json({ error: 'version_conflict', currentVersion, current }, { status: 409 });
+  };
+  const runtime = (await openCheapoShopping({ lastVerifiedOwner: async () => owner,
+    openShoppingWriteSession: async () => ({ owner, request, assertCurrent() {} }) }))!;
+  await runtime.mutationQueue.enqueue({ operationId: 'price-edit', title: 'Price', createdAt: operationTime,
+    action: { kind: 'price', priceKey: receipt.id, base: { kind: 'version', id: receipt.id, version: 1 },
+      change: { action: 'record_in_error', reason: 'Wrong shelf' } } });
+  await runtime.mutationQueue.enqueue({ operationId: 'shop-edit', title: 'Shop', createdAt: operationTime,
+    action: { kind: 'edit-shop', shopId: shop.id, details: { nickname: 'Local' },
+      base: { kind: 'version', version: '1:fa91641f-d265-4a3b-9695-4ff553ab5138' } } });
+  await runtime.mutationQueue.enqueue({ operationId: 'product-edit', title: 'Product', createdAt: operationTime,
+    action: { kind: 'edit-product', product: queuedProduct, base: { kind: 'version', version: 1 } } });
+  await runtime.mutationQueue.enqueue({ operationId: 'preference-edit', title: 'Preference', createdAt: operationTime,
+    action: { kind: 'preference', groupId: 'rice', basis: 'item', base: { kind: 'version', version: 1 } } });
+  expect((await runtime.retry()).items.map(({ state }) => state)).toEqual(['failed', 'failed', 'failed', 'failed']);
+  expect((await runtime.mutationQueue.read()).entries.every(({ outcome }) => !outcome)).toBe(true);
+  validReplies = true;
+  expect((await runtime.retry()).items.map(({ state }) => state)).toEqual(['conflict', 'conflict', 'conflict', 'conflict']);
+  const { entries } = await runtime.mutationQueue.read();
+  expect(entries.find(({ intent }) => intent.operationId === 'price-edit')?.outcome).toEqual({ kind: 'conflict', currentVersion: 2,
+    current: { id: receipt.id, version: 2, review: { price: '2.75', packSize: '600 g' } } });
 });

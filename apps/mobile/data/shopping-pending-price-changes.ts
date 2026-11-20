@@ -9,8 +9,12 @@ export type PendingPriceChange = {
   sourceId?: string;
   resourceId?: string;
   change: PriceAction['change'];
-  state: 'waiting' | 'failed' | 'conflict' | 'recovery';
-};
+} & ({ state: 'waiting' | 'failed' | 'conflict' | 'recovery' }
+  | { state: 'acknowledged'; acceptedVersion: number });
+
+export function priceChangeIsNewerThan(change: PendingPriceChange, observedVersion: number | undefined) {
+  return change.state !== 'acknowledged' || observedVersion === undefined || observedVersion < change.acceptedVersion;
+}
 
 function originalEdit(entry: QueuedShoppingMutation, index: ReadonlyMap<string, QueuedShoppingMutation>) {
   let original = entry;
@@ -38,7 +42,7 @@ function existingPriceId(entry: QueuedShoppingMutation, index: ReadonlyMap<strin
   }
 }
 
-export async function readPendingPriceChanges(prices: PriceAppendQueue, mutations: ShoppingMutationQueue) {
+export async function readPriceChangeOverlay(prices: PriceAppendQueue, mutations: ShoppingMutationQueue) {
   const [{ entries: observations }, { entries, recovery }] = await Promise.all([prices.read(), mutations.read()]);
   const index = new Map(entries.map(entry => [entry.intent.operationId, entry]));
   const records = new Map(observations.map(entry => [entry.record.id, entry.receipt]));
@@ -47,15 +51,23 @@ export async function readPendingPriceChanges(prices: PriceAppendQueue, mutation
   for (const entry of entries) {
     const { intent, outcome, resolution, superseded, failure } = entry;
     const { action, operationId, title } = intent;
-    if (action.kind !== 'price' || resolution || superseded || outcome?.kind === 'applied') continue;
+    if (action.kind !== 'price' || resolution || superseded) continue;
     const existingId = existingPriceId(entry, index);
     const localReceipt = records.get(action.priceKey);
     const provenLocal = records.has(action.priceKey) && (!existingId || localReceipt?.id === existingId);
     const sourceId = action.base.kind === 'append' ? action.base.sourceId : provenLocal ? action.priceKey : undefined;
     const resourceId = existingId ?? (sourceId ? records.get(sourceId)?.id : undefined);
     if (!sourceId && !resourceId) continue;
+    const change = { operationId, title, sourceId, resourceId, change: action.change };
+    const order = originalEdit(entry, index);
+    if (outcome?.kind === 'applied') {
+      if (typeof outcome.receipt.version === 'number') {
+        pending.push({ choice: { ...change, state: 'acknowledged', acceptedVersion: outcome.receipt.version }, order });
+      }
+      continue;
+    }
     const state = unreadable.has(operationId) ? 'recovery' : outcome?.kind === 'conflict' ? 'conflict' : failure ? 'failed' : 'waiting';
-    pending.push({ choice: { operationId, title, sourceId, resourceId, change: action.change, state }, order: originalEdit(entry, index) });
+    pending.push({ choice: { ...change, state }, order });
   }
   pending.sort((a, b) => a.order.createdAt.localeCompare(b.order.createdAt) || a.order.operationId.localeCompare(b.order.operationId));
   const byOriginalId = new Map(pending.map(item => [item.order.operationId, item]));
