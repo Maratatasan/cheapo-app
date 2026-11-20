@@ -21,7 +21,7 @@ function Preview({ fixture }: { fixture: Fixture }) {
       },
     };
   }, [fixture]);
-  const legacyCleanup = fixture === "legacy" ? async () => ({ removedPrices: 8, keptPrices: 2, failedParts: 0 }) : undefined;
+  const legacyCleanup = fixture === "legacy" ? async () => ({ removedPrices: 8, keptPrices: 2, failedParts: 0, barcodeCatalog: "kept" as const, savedShopsCleared: true }) : undefined;
   return (
     <View style={{ width: "100%", maxWidth: 420, height: 600, alignSelf: "center" }}>
       <StorageCache cache={cache} legacyCleanup={legacyCleanup} onBack={() => {}} />

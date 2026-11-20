@@ -72,8 +72,9 @@ On phones, **Storage & cache** shows the measured size of downloaded shopping
 data and derived crops. **Clear cache** removes replaceable copies. Saved
 originals, credentials, pending uploads and conflict choices use protected storage.
 An enrolled phone can confirm **Remove old phone data** from **Storage & cache**.
-It clears reviewed phone-only history and the old shop and barcode stores.
-It preserves unfinished drafts, protected queued price evidence, shared history,
+It clears eligible reviewed phone-only history and the old shop list. It retains
+barcode matches if a local record still needs them. It preserves unfinished
+drafts, protected queued price evidence, shared history,
 sign-ins, and recovery exports.
 
 ## Experiments and planned boundaries

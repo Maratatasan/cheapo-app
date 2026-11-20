@@ -141,7 +141,7 @@ export function StorageCache({ cache, onBack, bottomInset = 0, legacyCleanup }: 
           <Text accessibilityRole="header" style={styles.heading}>Old phone-only shopping data</Text>
           {cleanup.status === "confirming" ? <View style={styles.confirmation}>
             <Text accessibilityRole="header" style={styles.heading}>Remove old phone data?</Text>
-            <Text style={ui.body}>This removes reviewed phone-only prices and their photos, old saved shops, and old barcode matches.
+            <Text style={ui.body}>This removes reviewed phone-only prices and their photos, old saved shops, and barcode matches that are safe to remove.
               Shared history, unfinished drafts, pending work, sign-ins, exports, and the phone gallery are kept.</Text>
             <PageButton title="Remove old records" onPress={() => void confirmLegacyCleanup()} />
             <PageButton title="Cancel removal" secondary onPress={() => setCleanup({ status: "idle" })} />
@@ -150,9 +150,12 @@ export function StorageCache({ cache, onBack, bottomInset = 0, legacyCleanup }: 
               <Text accessibilityLiveRegion="polite" style={ui.body}>
                 Removed {cleanup.result.removedPrices} old price records. Kept {cleanup.result.keptPrices} protected prices or drafts.
               </Text>
+              {cleanup.result.savedShopsCleared ? <Text style={ui.body}>Old saved shops were cleared.</Text> : null}
+              {cleanup.result.barcodeCatalog === "kept" ? <Text style={ui.body}>Old barcode matches were kept for retained prices.</Text> : null}
+              {cleanup.result.barcodeCatalog === "cleared" ? <Text style={ui.body}>Old barcode matches were cleared.</Text> : null}
               {cleanup.result.failedParts > 0 ? <Text accessibilityRole="alert" style={styles.warning}>
                 Some old data could not be removed. Try again to finish.
-              </Text> : <Text style={ui.body}>Old saved shops and barcode matches were cleared.</Text>}
+              </Text> : null}
             </> : null}
             {cleanup.status === "blocked" ? <Text accessibilityRole="alert" style={styles.warning}>
               Could not verify protected shopping data. No old data was removed.

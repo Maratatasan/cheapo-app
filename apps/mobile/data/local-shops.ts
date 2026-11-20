@@ -66,8 +66,11 @@ async function persist(snapshot: ShopSnapshot): Promise<SavedShopState> {
   }
 }
 
-export function clearLegacySavedShops() {
-  return serialize(clearShopSnapshot);
+export function clearLegacySavedShops(assertOwner: () => Promise<void>) {
+  return serialize(async () => {
+    await assertOwner();
+    await clearShopSnapshot();
+  });
 }
 
 export function loadSavedShops(): Promise<SavedShopState> {

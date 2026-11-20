@@ -94,8 +94,9 @@ function serialize<T>(operation: () => Promise<T>): Promise<T> {
   return result;
 }
 
-export function clearLegacyProductCatalog() {
+export function clearLegacyProductCatalog(assertOwner: () => Promise<void>) {
   return serialize(async () => {
+    await assertOwner();
     let failures = 0;
     for (const path of [legacyProductsFile(), productsDirectory(), correctionsDirectory()]) {
       try {

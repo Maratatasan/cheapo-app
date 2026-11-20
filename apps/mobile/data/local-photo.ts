@@ -113,7 +113,7 @@ type LegacyPriceCleanup = { removedPrices: number; keptPrices: number; failedPar
 
 export function clearLegacyPriceRecords(withProtection: (
   clear: (protectedIds: ReadonlySet<string>) => Promise<LegacyPriceCleanup>,
-) => Promise<LegacyPriceCleanup>) {
+) => Promise<LegacyPriceCleanup>, assertOwner: () => Promise<void>) {
   // Acquire the local price lock before the outbox lock, as saving a photo does.
   return serializePriceWrite(() => withProtection(async protectedIds => {
     const summary: LegacyPriceCleanup = { removedPrices: 0, keptPrices: 0, failedParts: 0 };
@@ -128,6 +128,7 @@ export function clearLegacyPriceRecords(withProtection: (
       files.push(entry);
       groups.set(id, files);
     }
+    const eligible: { photos: File[]; backup?: File; primary?: File }[] = [];
     for (const [id, files] of groups) {
       const primary = files.find(file => file.name === `${id}.json`);
       const backup = files.find(file => file.name === `${id}.json.bak`);
@@ -137,10 +138,14 @@ export function clearLegacyPriceRecords(withProtection: (
         summary.keptPrices++;
         continue;
       }
+      eligible.push({ photos: files.filter(file => file.name.endsWith('.jpg')), backup, primary });
+    }
+    await assertOwner();
+    for (const { photos, backup, primary } of eligible) {
       try {
         // Keep a readable manifest until all its photos are removed. This
         // identifies the same eligible record after an interrupted cleanup.
-        for (const file of files) if (file.name.endsWith('.jpg')) file.delete();
+        for (const photo of photos) photo.delete();
         backup?.delete();
         primary?.delete();
         summary.removedPrices++;
