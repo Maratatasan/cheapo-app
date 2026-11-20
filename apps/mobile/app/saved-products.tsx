@@ -29,7 +29,7 @@ export function SavedProductsScreen({ priceQueue = null, loadPriceChanges, expor
   const [error, setError] = useState(false);
   const focus = useRef<AbortController | null>(null);
   const [openedId, setOpenedId] = useState<string>();
-  const { history, detail, refresh: refreshShared, open: openShared, close: closeShared, abort: abortShared } = useSavedPriceReads(priceQueue, loadPriceChanges);
+  const { history, detail, refresh: refreshShared, open: openShared, close: closeShared, abort: abortShared, loadThumbnail } = useSavedPriceReads(priceQueue, loadPriceChanges);
   const changes = history?.changes ?? [];
   const rows = useMemo(() => savedPriceHistoryRows({
     legacy: drafts ?? [], queued: history?.entries ?? [], shared: history?.observations ?? [],
@@ -135,7 +135,7 @@ export function SavedProductsScreen({ priceQueue = null, loadPriceChanges, expor
           ) : null}
         </ScrollView>
       ) : (
-        <SavedPriceHistoryList rows={rows} changes={changes} onOpen={item => {
+        <SavedPriceHistoryList rows={rows} changes={changes} loadSharedThumbnail={priceQueue ? loadThumbnail : undefined} onOpen={item => {
           if (item.source === 'shared') {
             setOpenedId(undefined);
             void openShared(item.observation.id);

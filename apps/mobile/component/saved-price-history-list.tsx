@@ -1,5 +1,6 @@
 import { normalizeName } from '@cheapo/domain/names';
-import type { ReactElement } from 'react';
+import type { PriceObservation } from '@cheapo/domain/price-history';
+import { useCallback, useEffect, useState, type ReactElement } from 'react';
 import { FlatList, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import type { SavedPriceRecord } from '../data/local-photo';
@@ -30,28 +31,67 @@ export function SavedPriceDetails({ draft }: { draft: SavedPriceRecord }) {
   );
 }
 
-export function SavedPriceHistoryList({ rows, changes, onOpen, header, empty, footer }: {
+type ThumbnailLoader = (id: string, changes: readonly PendingHistoryChange[], signal: AbortSignal) => Promise<string | undefined>;
+const cardViewability = { minimumViewTime: 120, itemVisiblePercentThreshold: 20 };
+
+function SharedPriceThumbnail({ observation, changes, visible, load }: {
+  observation: PriceObservation;
+  changes: readonly PendingHistoryChange[];
+  visible: boolean;
+  load: ThumbnailLoader;
+}) {
+  const [result, setResult] = useState<{ observation: PriceObservation; changes: typeof changes; load: ThumbnailLoader; uri?: string }>();
+  const current = result?.observation === observation && result.changes === changes && result.load === load ? result : undefined;
+
+  useEffect(() => {
+    if (!visible || current || !observation.photos.some(photo => photo.availability !== 'pending')) return;
+    const controller = new AbortController();
+    function complete(uri?: string) {
+      if (!controller.signal.aborted) setResult({ observation, changes, load, uri });
+    }
+    void load(observation.id, changes, controller.signal).then(complete, () => complete());
+    return () => controller.abort();
+  }, [observation, changes, visible, load, current]);
+
+  return current?.uri
+    ? <Image accessibilityLabel="Saved price thumbnail" source={{ uri: current.uri }} style={styles.thumbnail}
+      onError={() => setResult(previous => previous === current ? { ...current, uri: undefined } : previous)} />
+    : <View style={styles.thumbnail} />;
+}
+
+export function SavedPriceHistoryList({ rows, changes, onOpen, loadSharedThumbnail, header, empty, footer }: {
   rows: SavedPriceHistoryRow[];
   changes: readonly PendingHistoryChange[];
   onOpen(row: SavedPriceHistoryRow): void;
+  loadSharedThumbnail?: ThumbnailLoader;
   header?: ReactElement;
   empty?: ReactElement;
   footer?: ReactElement;
 }) {
-  return <FlatList style={ui.page} contentContainerStyle={ui.content} data={rows} keyExtractor={row => row.key}
+  const [visibleKeys, setVisibleKeys] = useState<ReadonlySet<string>>(new Set());
+  const onViewableItemsChanged = useCallback(({ viewableItems }: { viewableItems: readonly { key: string }[] }) => {
+    setVisibleKeys(new Set(viewableItems.map(item => item.key)));
+  }, []);
+
+  return <FlatList viewabilityConfig={cardViewability} onViewableItemsChanged={onViewableItemsChanged} extraData={visibleKeys}
+    style={ui.page} contentContainerStyle={ui.content} data={rows} keyExtractor={row => row.key}
     ListHeaderComponent={header} ListEmptyComponent={empty} ListFooterComponent={footer}
     renderItem={({ item }) => {
       if (item.source === 'shared') {
         const { display, pending } = projectSharedPrice(item.observation, changes);
         return (
           <Pressable accessibilityRole="button" accessibilityLabel={`Open ${display.productName ?? 'shared price'}`}
-            onPress={() => onOpen(item)} style={ui.card}>
-            <Text style={styles.name}>{display.productName ?? 'Shared price'}</Text>
-            {display.shopDisplayName ? <Text style={ui.body}>{display.shopDisplayName}</Text> : null}
-            {display.recordedInErrorReason ? <Text style={ui.small}>Recorded in error</Text> : null}
-            <PendingPriceNotice state={pending} />
-            <PriceDisplay price={display.priceAmount === null ? null : Number(display.priceAmount)}
-              currency={display.currency} unit_price={display.unitPrice} />
+            onPress={() => onOpen(item)} style={[ui.card, styles.card]}>
+            {loadSharedThumbnail ? <SharedPriceThumbnail observation={item.observation} changes={changes}
+              visible={visibleKeys.has(item.key)} load={loadSharedThumbnail} /> : null}
+            <View style={styles.details}>
+              <Text style={styles.name}>{display.productName ?? 'Shared price'}</Text>
+              {display.shopDisplayName ? <Text style={ui.body}>{display.shopDisplayName}</Text> : null}
+              {display.recordedInErrorReason ? <Text style={ui.small}>Recorded in error</Text> : null}
+              <PendingPriceNotice state={pending} />
+              <PriceDisplay price={display.priceAmount === null ? null : Number(display.priceAmount)}
+                currency={display.currency} unit_price={display.unitPrice} />
+            </View>
           </Pressable>
         );
       }

@@ -73,6 +73,10 @@ export const SwitchAndRefresh: Story = {
   },
 };
 
+async function loadStoryThumbnail(id: string) {
+  return id === observation.id ? images.crop : undefined;
+}
+
 function HistoryPreview() {
   const historyFrame = { ...frame, height: 720 };
   const [opened, setOpened] = useState<PriceObservationDetail>();
@@ -90,7 +94,7 @@ function HistoryPreview() {
       {detail ? <SharedPriceEvidence observation={detail.display} lastSyncedAt="2026-01-02T10:00:00.000Z" cached
         activeRole={role} photo={{ role, status: 'cached', uri: images[role] }} pendingChange={detail.pending}
         onPhotoRole={setRole} onRetryPhoto={() => {}} onBack={() => setOpened(undefined)} />
-        : <SavedPriceHistoryList rows={rows} changes={changes} onOpen={row => {
+        : <SavedPriceHistoryList rows={rows} changes={changes} loadSharedThumbnail={loadStoryThumbnail} onOpen={row => {
           if (row.source === 'shared') setOpened(row.observation.id === observation.id ? observation : peer);
         }} header={<View><Text accessibilityRole="header" style={ui.title}>Saved products</Text>
           <Text style={ui.small}>Last synced 2 Jan 2026, 10:00</Text><Text style={ui.small}>Showing saved shared prices</Text></View>} />}
@@ -98,7 +102,13 @@ function HistoryPreview() {
   </View>;
 }
 
-export const SavedHistory: Story = { render: () => <HistoryPreview /> };
+export const SavedHistory: Story = {
+  render: () => <HistoryPreview />,
+  play: async ({ canvas }) => {
+    await expect(await canvas.findByLabelText('Saved price thumbnail')).toBeVisible();
+    await expect(canvas.getByRole('button', { name: 'Open Thick-cut oats' })).toBeVisible();
+  },
+};
 export const OpenPendingHistory: Story = {
   render: () => <HistoryPreview />,
   play: async ({ canvas, userEvent }) => {
