@@ -1,5 +1,5 @@
-import type { CatalogProduct, ExecuteCatalog } from './catalog.ts';
-import { readShoppingMember, type ShoppingTransaction } from './postgres-shopping.ts';
+import type { CatalogAction, CatalogProduct, CatalogResult, ExecuteCatalog } from './catalog.ts';
+import { readShoppingMember, type ShoppingMember, type ShoppingQuery, type ShoppingTransaction } from './postgres-shopping.ts';
 
 type ProductRow = {
   id: string;
@@ -10,9 +10,11 @@ type ProductRow = {
   variety: string | null;
   pack: CatalogProduct['pack'] | null;
   comparable_group_id: string | null;
+  record_version: number;
 };
 
-const columns = 'id, gtin, name, product_type, brand, variety, pack, comparable_group_id';
+const productColumns = 'id, gtin, name, product_type, brand, variety, pack, comparable_group_id';
+const resultColumns = productColumns + ', record_version';
 
 function productFromRow(row: ProductRow): CatalogProduct {
   return {
@@ -27,27 +29,84 @@ function productFromRow(row: ProductRow): CatalogProduct {
   };
 }
 
+function productValues({ id, barcode, name, productType, brand, variety, pack, comparableGroupId }: CatalogProduct) {
+  return [id, barcode ?? null, name, productType ?? null, brand ?? null, variety ?? null, pack ?? null, comparableGroupId ?? null];
+}
+
+async function lockBarcode(query: ShoppingQuery, barcode?: string) {
+  if (barcode) await query(
+    'SELECT 1 FROM pg_advisory_xact_lock(hashtextextended($1::text, 0::bigint))',
+    [`cheapo:product-barcode:${barcode}`],
+  );
+}
+
+async function correctProduct(
+  query: ShoppingQuery, member: ShoppingMember, action: Extract<CatalogAction, { kind: 'correct' }>,
+): Promise<CatalogResult> {
+  const { product, expectedVersion, operationId } = action;
+  const id = product.id;
+  const { rows: [replay] } = await query<{ matches: boolean; product: CatalogProduct; version: number }>(`
+    SELECT product_id = $4 AND operation_request = $5::jsonb AS matches, after_state AS product, version
+    FROM cheapo.product_revision
+    WHERE household_id = $1::uuid AND actor_shopper_id = $2::uuid AND operation_id = $3
+  `, [member.household_id, member.shopper_id, operationId, id, action]);
+  if (replay) return replay.matches
+    ? { status: 'corrected', product: replay.product, version: replay.version }
+    : { status: 'operation_conflict' };
+
+  await lockBarcode(query, product.barcode);
+  const { rows: [before] } = await query<ProductRow>(
+    `SELECT ${resultColumns} FROM cheapo.product WHERE id = $1 FOR UPDATE`, [id],
+  );
+  if (!before) return { status: 'not_found' };
+  if (before.record_version !== expectedVersion) {
+    return { status: 'version_conflict', current: productFromRow(before), currentVersion: before.record_version };
+  }
+
+  if (product.barcode) {
+    const { rows: [collision] } = await query<ProductRow>(
+      `SELECT ${resultColumns} FROM cheapo.product WHERE gtin = $1 AND id <> $2`, [product.barcode, id],
+    );
+    if (collision) return { status: 'conflict', product: productFromRow(collision) };
+  }
+  const { rows: [after] } = await query<ProductRow>(`
+    UPDATE cheapo.product
+    SET gtin = $2, name = $3, product_type = $4, brand = $5, variety = $6,
+      pack = $7::jsonb, comparable_group_id = $8, record_version = record_version + 1
+    WHERE id = $1
+    RETURNING ${resultColumns}
+  `, productValues(product));
+  const updatedProduct = productFromRow(after);
+  await query(`
+    INSERT INTO cheapo.product_revision
+      (product_id, version, household_id, actor_shopper_id, operation_id, operation_request, before_state, after_state)
+    VALUES ($1, $2::int, $3::uuid, $4::uuid, $5, $6::jsonb, $7::jsonb, $8::jsonb)
+  `, [id, after.record_version, member.household_id, member.shopper_id, operationId, action, productFromRow(before), updatedProduct]);
+  return { status: 'corrected', product: updatedProduct, version: after.record_version };
+}
+
 export function postgresCatalog(transaction: ShoppingTransaction): ExecuteCatalog {
   return (digest, action) => transaction(async query => {
-    const member = await readShoppingMember(query, digest);
+    const member = await readShoppingMember(query, digest, action.kind === 'correct');
     if (!member) return { status: 'unauthenticated' };
     if (!member.active) return { status: 'forbidden' };
+    if (action.kind === 'correct') return correctProduct(query, member, action);
     if (action.kind === 'find') {
       const column = action.key === 'barcode' ? 'gtin' : 'id';
-      const { rows: [row] } = await query<ProductRow>(`SELECT ${columns} FROM cheapo.product WHERE ${column} = $1`, [action.value]);
-      return { status: 'ok', product: row ? productFromRow(row) : null };
+      const { rows: [row] } = await query<ProductRow>(`SELECT ${resultColumns} FROM cheapo.product WHERE ${column} = $1`, [action.value]);
+      return { status: 'ok', product: row ? productFromRow(row) : null, version: row?.record_version };
     }
 
-    const { id, barcode, name, productType, brand, variety, pack, comparableGroupId } = action.product;
-    const values = [id, barcode ?? null, name, productType ?? null, brand ?? null, variety ?? null, pack ?? null, comparableGroupId ?? null];
+    await lockBarcode(query, action.product.barcode);
+    const values = productValues(action.product);
     const { rows: [inserted] } = await query<ProductRow>(`
-      INSERT INTO cheapo.product (${columns}) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)
-      ON CONFLICT DO NOTHING RETURNING ${columns}
+      INSERT INTO cheapo.product (${productColumns}) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)
+      ON CONFLICT DO NOTHING RETURNING ${resultColumns}
     `, values);
-    if (inserted) return { status: 'ok', product: productFromRow(inserted) };
+    if (inserted) return { status: 'ok', product: productFromRow(inserted), version: inserted.record_version };
 
     const { rows: [existing] } = await query<ProductRow & { identical: boolean }>(`
-      SELECT ${columns},
+      SELECT ${resultColumns},
         id = $1 AND gtin IS NOT DISTINCT FROM $2 AND name = $3
         AND product_type IS NOT DISTINCT FROM $4 AND brand IS NOT DISTINCT FROM $5
         AND variety IS NOT DISTINCT FROM $6 AND pack IS NOT DISTINCT FROM $7::jsonb
@@ -56,6 +115,8 @@ export function postgresCatalog(transaction: ShoppingTransaction): ExecuteCatalo
       ORDER BY (gtin = $2) DESC NULLS LAST LIMIT 1
     `, values);
     if (!existing) throw Error('Conflicting product changed during creation. Retry the request.');
-    return { status: existing.identical ? 'ok' : 'conflict', product: productFromRow(existing) };
+    return existing.identical
+      ? { status: 'ok', product: productFromRow(existing), version: existing.record_version }
+      : { status: 'conflict', product: productFromRow(existing) };
   });
 }

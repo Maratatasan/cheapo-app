@@ -152,6 +152,22 @@ conflicting ID, barcode, or review payload returns `409` with the existing
 canonical product for review. Use a separate correction operation to change
 saved details. No lookup or creation matches products by name.
 
+### Correct a canonical product
+
+Product reads return the current version in an `ETag` such as `"1"`.
+`PATCH /v1/products/{id}` takes `operationId`, `expectedVersion` and a
+`product` object with the complete reviewed catalog fields. Omit an
+optional field to clear it. The path ID stays stable and the catalog
+continues to resolve one product for each canonical GTIN.
+
+A successful patch returns `product` and `version`. An identical operation
+replays its original result. `409 version_conflict` includes
+`currentVersion` and `current`. A GTIN already tied to a different
+product returns `409 product_conflict`, and a changed request under
+an existing operation ID returns `409 operation_conflict`. Audit revisions
+retain prior values and actor identity. Previously saved observations keep
+their original review and product links.
+
 ## Price observation history
 
 Call `GET /v1/me/price-observations` with a Cheapo bearer credential to list

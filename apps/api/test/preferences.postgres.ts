@@ -409,3 +409,61 @@ test('caps candidate results and treats searches as literal text', async () => {
   assert.deepEqual(await shopCandidates('A', '%%'), { status: 200, body: { shops: [] } });
   assert.equal((await shopCandidates('A', ' ')).status, 400);
 });
+
+test('corrects a canonical product and barcode at a stable ID with replay, conflict, and actor audit', async () => {
+  const id = 'catalog-v2-milk';
+  const original = { name: 'Milk', productType: 'Dairy', barcode: '036000291452' };
+  const revised = { name: 'Whole milk', productType: 'Dairy', barcode: '8712345000783', pack: { quantity: 1, unit: 'l' } };
+  await catalogRequest('A', `/${id}`, 'PUT', original);
+  const address = server.address();
+  assert(address && typeof address !== 'string');
+  const get = await fetch(`http://127.0.0.1:${address.port}/v1/products/${id}`, {
+    headers: { Authorization: `Bearer ${token('B')}` },
+  });
+  assert.equal(get.headers.get('ETag'), '"1"');
+  await get.json();
+
+  const edit = { operationId: 'product-edit-v2', expectedVersion: 1, product: revised };
+  const expected = { status: 200, body: { version: 2,
+    product: { ...revised, id, barcode: '08712345000783' } } };
+  assert.deepEqual(await Promise.all([
+    catalogRequest('B', `/${id}`, 'PATCH', edit),
+    catalogRequest('B', `/${id}`, 'PATCH', edit),
+  ]), [expected, expected]);
+  assert.deepEqual(await catalogRequest('A', '?gtin=036000291452'), { status: 200, body: { product: null } });
+  assert.deepEqual(await catalogRequest('A', '?gtin=8712345000783'), { status: 200, body: { product: expected.body.product } });
+  assert.deepEqual(await catalogRequest('A', `/${id}`, 'PATCH', { ...edit, product: original }), {
+    status: 409, body: { error: 'version_conflict', currentVersion: 2, current: expected.body.product },
+  });
+  assert.deepEqual(await catalogRequest('B', `/${id}`, 'PATCH', { ...edit, product: original }), {
+    status: 409, body: { error: 'operation_conflict' },
+  });
+  assert.equal((await catalogRequest('D', `/${id}`, 'PATCH', edit)).status, 403);
+  const next = { operationId: 'product-edit-v3', expectedVersion: 2, product: { name: 'Whole milk, 1 litre' } };
+  assert.equal((await catalogRequest('A', `/${id}`, 'PATCH', next)).status, 200);
+  assert.deepEqual(await catalogRequest('B', `/${id}`, 'PATCH', edit), expected);
+  const { rows } = await pool.query(`
+    SELECT actor_shopper_id, before_state, after_state FROM cheapo.product_revision WHERE product_id = $1 ORDER BY version
+  `, [id]);
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].actor_shopper_id, sam);
+  assert.equal(rows[0].before_state.barcode, '00036000291452');
+  assert.deepEqual(rows[0].after_state, expected.body.product);
+  assert.equal(rows[1].actor_shopper_id, alex);
+});
+
+test('keeps a barcode unique across concurrent catalog creation and correction', async () => {
+  const first = '/catalog-competing-edit';
+  const second = '/catalog-competing-create';
+  assert.equal((await catalogRequest('A', first, 'PUT', { name: 'First cereal' })).status, 200);
+  const match = { barcode: '5901234123457', name: 'Seed cereal', productType: 'Cereal' };
+  const results = await Promise.all([
+    catalogRequest('A', first, 'PATCH', { operationId: 'add-catalog-barcode', expectedVersion: 1, product: match }),
+    catalogRequest('C', second, 'PUT', match),
+  ]);
+  assert.deepEqual(results.map(result => result.status).sort(), [200, 409]);
+  const agreed = await catalogRequest('B', '?gtin=5901234123457');
+  const [winner] = results.filter(result => result.status === 200);
+  const returnedProduct = (winner.body as { product: { id: string } }).product;
+  assert.deepEqual(agreed.body, { product: returnedProduct });
+});

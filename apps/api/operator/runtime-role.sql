@@ -45,9 +45,13 @@ GRANT INSERT (household_id, shopper_id, shop_id), UPDATE (shop_id), DELETE
   ON cheapo.shopper_current_shop TO cheapo_api_runtime;
 GRANT INSERT (shopper_id, product_group_id, basis), UPDATE (basis), DELETE
   ON cheapo.comparison_preference TO cheapo_api_runtime;
-GRANT SELECT (id, gtin, name, product_type, brand, variety, pack, comparable_group_id),
-  INSERT (id, gtin, name, product_type, brand, variety, pack, comparable_group_id)
+GRANT SELECT (id, gtin, name, product_type, brand, variety, pack, comparable_group_id, record_version),
+  INSERT (id, gtin, name, product_type, brand, variety, pack, comparable_group_id),
+  UPDATE (gtin, name, product_type, brand, variety, pack, comparable_group_id, record_version)
   ON cheapo.product TO cheapo_api_runtime;
+GRANT SELECT (product_id, version, household_id, actor_shopper_id, operation_id, operation_request, after_state),
+  INSERT (product_id, version, household_id, actor_shopper_id, operation_id, operation_request, before_state, after_state)
+  ON cheapo.product_revision TO cheapo_api_runtime;
 
 GRANT SELECT ON cheapo.price_photo_upload TO cheapo_api_runtime;
 GRANT INSERT (household_id, shopper_id, observation_id, role, sha256, byte_count, width, height)
