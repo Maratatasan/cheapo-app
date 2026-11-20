@@ -4,6 +4,10 @@ import { createCheapoShoppingReads } from "../data/cheapo-shopping-reads";
 const origin = "https://cheapo.example";
 const first = `cheapo_${"A".repeat(43)}`;
 const second = `cheapo_${"B".repeat(43)}`;
+const identity = {
+  householdId: "93b93988-a027-483e-8c4d-ed58a163fbfa",
+  shopperId: "d002d3a7-2744-4414-8336-afc644ec6878",
+};
 
 function setup() {
   let enrollment: string | null = JSON.stringify({ origin, credential: first });
@@ -69,7 +73,7 @@ test("does not reuse another enrollment's snapshots or store the credential in t
   const persisted = JSON.stringify([...cache]);
   expect(persisted).not.toContain(first);
   expect([...cache.keys()]).toEqual(["fixture-scope-one\0/v1/me/saved-shops"]);
-  download.mockResolvedValueOnce(Response.json({ basis: null }));
+  download.mockResolvedValueOnce(Response.json(identity));
   await access.enroll(second);
   download.mockRejectedValueOnce(new Error("Offline"));
   expect(await reads.loadSavedShops()).toEqual({ status: "unavailable" });
@@ -85,7 +89,7 @@ test("discards an old in-flight read when the phone re-enrolls", async () => {
   const reading = start().loadSavedShops();
   await requestStarted;
 
-  download.mockResolvedValueOnce(Response.json({ basis: null }));
+  download.mockResolvedValueOnce(Response.json(identity));
   await access.enroll(second);
   complete(Response.json({ shops: [{ id: "old", name: "Old household" }] }));
   await expect(reading).rejects.toThrow("Cheapo access changed");

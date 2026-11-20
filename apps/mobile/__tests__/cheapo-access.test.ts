@@ -4,11 +4,15 @@ import { parseCheapoApiOrigin } from "../lib/cheapo-access/origin";
 const origin = "https://cheapo.example";
 const first = `cheapo_${"A".repeat(43)}`;
 const replacement = `cheapo_${"B".repeat(43)}`;
+const identity = {
+  householdId: "93b93988-a027-483e-8c4d-ed58a163fbfa",
+  shopperId: "d002d3a7-2744-4414-8336-afc644ec6878",
+};
 
-function fixtures() {
-  let stored: string | null = null;
+function fixtures(initial: string | null = null) {
+  let stored: string | null = initial;
   const transport = jest.fn<Promise<Response>, [string, RequestInit]>();
-  transport.mockImplementation(async () => Response.json({ basis: null }));
+  transport.mockImplementation(async () => Response.json(identity));
   const storage = {
     getItem: async () => stored,
     setItem: jest.fn(async (_key: string, value: string) => { stored = value; }),
@@ -36,15 +40,88 @@ test("checks a privately delivered credential and restores it after restart", as
 
   await connection.enroll(first + "\n");
   const [url, request] = transport.mock.calls[0];
-  expect(new URL(url).origin).toBe(origin);
+  expect(url).toBe(`${origin}/v1/me`);
   expect(request.redirect).toBe("error");
   expect(request.credentials).toBe("omit");
   expect(new Headers(request.headers).get("Authorization")).toBe(`Bearer ${first}`);
 
   const restarted = createCheapoAccess(origin, storage, transport);
+  expect(await restarted.lastVerifiedOwner()).toEqual({ origin, ...identity });
+  expect(transport).toHaveBeenCalledTimes(1);
   expect(await restarted.check()).toBe("connected");
   await restarted.clear();
   expect(await connection.check()).toBe("missing");
+});
+
+test("adopts a legacy enrollment only after the service verifies its IDs", async () => {
+  const legacy = JSON.stringify({ origin, credential: first });
+  const { storage, transport } = fixtures(legacy);
+  const access = createCheapoAccess(origin, storage, transport);
+  await expect(access.lastVerifiedOwner()).resolves.toBeNull();
+  transport.mockRejectedValueOnce(Error("offline"));
+  await expect(access.check()).resolves.toBe("unavailable");
+  expect(await storage.getItem()).toBe(legacy);
+  await expect(access.check()).resolves.toBe("connected");
+  expect(await access.lastVerifiedOwner()).toEqual({ origin, ...identity });
+  expect(JSON.parse((await storage.getItem())!)).toEqual({ origin, credential: first, identity });
+});
+
+test("binds a queued write to the credential and owner verified in the same session", async () => {
+  const { storage, transport } = fixtures();
+  const access = createCheapoAccess(origin, storage, transport);
+  await access.enroll(first);
+  const firstSession = await access.openPriceAppendSession();
+  expect(firstSession.owner).toEqual({ origin, ...identity });
+  await access.enroll(replacement);
+  expect(await access.lastVerifiedOwner()).toEqual(firstSession.owner);
+  const serialized = JSON.stringify({ sourceId: "fixture-1" });
+  await expect(firstSession.post(serialized)).rejects.toThrow(/access changed/);
+  const newSession = await access.openPriceAppendSession();
+  expect(newSession.owner).toEqual(firstSession.owner);
+  transport.mockResolvedValueOnce(new Response(null, { status: 403 }));
+  await expect(newSession.post(serialized)).rejects.toThrow(/access ended/);
+  const [url, request] = transport.mock.calls.at(-1)!;
+  expect(url).toBe(`${origin}/v1/me/price-observations`);
+  expect(request.method).toBe("POST");
+  expect(request.body).toBe(serialized);
+  expect(new Headers(request.headers).get("Authorization")).toBe(`Bearer ${replacement}`);
+  expect(transport.mock.calls.filter(([, options]) => options.method === "POST")).toHaveLength(1);
+});
+
+test("rejects owner changes on a probe and cannot persist a legacy upgrade after clear", async () => {
+  const { storage, transport } = fixtures(JSON.stringify({ origin, credential: first }));
+  const access = createCheapoAccess(origin, storage, transport);
+  let release!: (response: Response) => void;
+  let started!: () => void;
+  const startedProbe = new Promise<void>(resolve => { started = resolve; });
+  transport.mockImplementationOnce(() => new Promise(resolve => { release = resolve; started(); }));
+  const checking = access.check();
+  await startedProbe;
+  await access.clear();
+  release(Response.json(identity));
+  expect(await checking).toBe("unavailable");
+  expect(await storage.getItem()).toBeNull();
+
+  await access.enroll(first);
+  transport.mockResolvedValueOnce(Response.json({ ...identity, shopperId: "64db4ca7-3962-4a16-8fee-782f26fd13b4" }));
+  await expect(access.openPriceAppendSession()).rejects.toThrow(/access changed/);
+  expect(await access.lastVerifiedOwner()).toEqual({ origin, ...identity });
+});
+
+test("invalidates a session opened while a different enrollment was still being checked", async () => {
+  const { storage, transport } = fixtures();
+  const access = createCheapoAccess(origin, storage, transport);
+  await access.enroll(first);
+  let confirm!: (response: Response) => void;
+  transport.mockImplementationOnce(() => new Promise(resolve => { confirm = resolve; }));
+  const enrolling = access.enroll(replacement);
+  const previous = await access.openPriceAppendSession();
+  const different = { ...identity, shopperId: "64db4ca7-3962-4a16-8fee-782f26fd13b4" };
+  confirm(Response.json(different));
+  await enrolling;
+  expect(await access.lastVerifiedOwner()).toEqual({ origin, ...different });
+  await expect(previous.post('{}')).rejects.toThrow(/access changed/);
+  expect(transport.mock.calls.filter(([, options]) => options.method === "POST")).toHaveLength(0);
 });
 
 test("blocks off-origin requests and cannot reuse the credential on a different build origin", async () => {
