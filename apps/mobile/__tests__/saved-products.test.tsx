@@ -9,6 +9,7 @@ import { emptyReview, loadSavedPriceRecords, type LocalPhotoDraft, type ManualPr
 import { openCheapoSavedPriceReads } from '../data/cheapo-shopping-read-device';
 import type { PendingHistoryChange } from '../data/saved-price-history';
 import { useSavedPriceReads } from '../data/use-saved-price-reads';
+import { CheapoAccessError } from '../lib/cheapo-access/client';
 
 const mockPush = jest.fn();
 let mockFocusRevision = 0;
@@ -100,6 +101,36 @@ test('opens shared history and only the selected photo, applying the current own
   await fireEvent.press(screen.getByRole('button', { name: 'Open this phone’s copy' }));
   expect(await screen.findByRole('button', { name: 'Edit Basmati rice' })).toBeOnTheScreen();
   expect(screen.getByLabelText('Saved photo')).toHaveProp('source', { uri: selected.uri });
+});
+
+test('reopens a kept cloud record offline without an old detail cache and hides it after access denial', async () => {
+  jest.mocked(loadSavedPriceRecords).mockResolvedValue([]);
+  const queue = { owner, read: jest.fn().mockResolvedValue({ entries: [], recovery: [] }) };
+  const chosen = { ...peer, version: 3, priceAmount: '3.45', selectedPhotoRole: 'original' as const };
+  const keepCloud: PendingHistoryChange = { operationId: 'keep-peer', title: 'Keep cloud', state: 'acknowledged',
+    resourceId: chosen.id, acceptedVersion: chosen.version, change: { action: 'keep_cloud', observation: chosen } };
+  const session = {
+    assertCurrent: jest.fn(),
+    loadPriceHistory: jest.fn().mockResolvedValue({ status: 'unavailable' }),
+    loadPriceObservation: jest.fn().mockResolvedValueOnce({ status: 'unavailable' })
+      .mockRejectedValueOnce(new CheapoAccessError('unauthorized')),
+    loadPhoto: jest.fn().mockResolvedValue(cached({ uri: 'file:///cache/kept-original.jpg' })),
+  };
+  jest.mocked(openCheapoSavedPriceReads).mockResolvedValue(session);
+  await render(<SafeAreaProvider initialMetrics={safeArea}><SavedProductsScreen priceQueue={queue}
+    loadPriceChanges={async () => [keepCloud]} /></SafeAreaProvider>);
+
+  await fireEvent.press(await screen.findByRole('button', { name: 'Open Peer rice' }));
+  expect(await screen.findByLabelText('Original price photo')).toHaveProp('source', { uri: 'file:///cache/kept-original.jpg' });
+  expect(screen.getByText('£3.45')).toBeOnTheScreen();
+  expect(screen.getByText('Showing saved details')).toBeOnTheScreen();
+  expect(screen.queryByText(/Last synced/)).not.toBeOnTheScreen();
+  await fireEvent.press(screen.getByRole('button', { name: 'Crop' }));
+  expect(await screen.findByText('Shared details unavailable')).toBeOnTheScreen();
+  expect(screen.queryByText('£3.45')).not.toBeOnTheScreen();
+  expect(session.loadPhoto).toHaveBeenCalledTimes(1);
+  await fireEvent.press(screen.getByRole('button', { name: 'Back to saved products' }));
+  expect(screen.queryByRole('button', { name: 'Open Peer rice' })).not.toBeOnTheScreen();
 });
 
 test('keeps the local list when a former owner’s shared detail resolves after the provider is cleared', async () => {

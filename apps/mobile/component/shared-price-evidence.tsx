@@ -16,7 +16,7 @@ export type EvidenceView = { role: PriceEvidenceRole } & (
 
 type Props = {
   observation: PriceObservationDetail;
-  lastSyncedAt: string;
+  lastSyncedAt?: string;
   cached: boolean;
   activeRole: PriceEvidenceRole | null;
   photo?: EvidenceView;
@@ -50,7 +50,7 @@ export function SharedPriceEvidence({
   const loaded = (selected?.status === 'fresh' || selected?.status === 'cached') && selected.uri !== failedUri;
   const pending = photoRole?.availability === 'pending';
   const loading = selected?.status === 'loading' || (!pending && photoRole && !selected);
-  const lastSyncedLabel = formatDate(lastSyncedAt, true);
+  const lastSyncedLabel = lastSyncedAt ? formatDate(lastSyncedAt, true) : undefined;
   const recordedDate = formatDate(observation.capturedAt);
   const name = normalizeName(observation.productName) ?? 'Saved price';
   const details = [observation.review?.brand, observation.review?.variety, observation.review?.packSize]

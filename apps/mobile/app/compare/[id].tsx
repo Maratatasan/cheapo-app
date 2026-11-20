@@ -11,7 +11,7 @@ import { ShopComparison } from '@/component/results/shop-comparison';
 import { marketColor, ui } from '@/component/results/theme';
 import { openCheapoSavedPriceReads } from '@/data/cheapo-shopping-read-device';
 import { loadSavedPriceRecords } from '@/data/local-photo';
-import { comparisonRowFromSavedHistory, savedPriceHistoryRows, type PendingHistoryChange, type SavedPriceHistoryRow } from '@/data/saved-price-history';
+import { comparisonRowFromSavedHistory, keptSharedPrice, savedPriceHistoryRows, type PendingHistoryChange, type SavedPriceHistoryRow } from '@/data/saved-price-history';
 import { CheapoAccessError } from '@/lib/cheapo-access/client';
 
 type Runtime = ReturnType<typeof useCheapoShopping>;
@@ -68,7 +68,7 @@ async function readOffers(reader: Reader, state: ComparisonState, initialQuery: 
     }
   }
   return { ...state, input, reference, unavailable: false, lastSyncedAt: page.lastSyncedAt,
-    cached: page.status === 'cached' || Boolean(cursor && state.cached),
+    cached: page.status === 'cached' || Boolean(state.cached),
     next: page.value.nextCursor ? { reader, query, cursor: page.value.nextCursor } : undefined };
 }
 
@@ -108,12 +108,15 @@ export default function SavedComparison() {
       const detail = canonicalId ? await reader.loadPriceObservation(canonicalId, signal) : undefined;
       reader.assertCurrent();
       if (!latest()) return;
-      const cloudReference = detail && detail.status !== 'unavailable' ? detail.value.observation : null;
+      const observed = detail && detail.status !== 'unavailable' ? detail.value.observation : null;
+      const kept = canonicalId && (observed || detail?.status !== 'fresh')
+        ? keptSharedPrice(canonicalId, changes, observed?.version) : undefined;
+      const cloudReference = kept ?? observed;
       const input: LocalInputs = { ...localInput, shared: cloudReference ? [cloudReference] : [] };
       const selected = cloudReference ? savedPriceHistoryRows(input).find(row => row.key === `shared:${cloudReference.id}`) : localReference;
       const query = selected && comparisonQuery(comparisonRowFromSavedHistory(selected, changes));
       const selectedPhotoUri = localReference?.source !== 'shared' ? localReference?.record.selected?.uri : undefined;
-      const initial = { key, runtime: shopping, input, reference: selected, changes, photoUri: selectedPhotoUri };
+      const initial = { key, runtime: shopping, input, reference: selected, changes, photoUri: selectedPhotoUri, cached: Boolean(kept) };
       setState(initial);
       const offers = await readOffers(reader, initial, query, signal, latest);
       if (!latest()) return;

@@ -31,6 +31,7 @@ export function SavedProductsScreen({ priceQueue = null, loadPriceChanges }: {
   const changes = history?.changes ?? [];
   const rows = useMemo(() => savedPriceHistoryRows({
     legacy: drafts ?? [], queued: history?.entries ?? [], shared: history?.observations ?? [],
+    offlineChanges: history?.status === 'cached' || history?.status === 'unavailable' ? history.changes : undefined,
   }), [drafts, history]);
   const linkedLocal = rows.find(row => row.source === 'shared' && row.observation.id === detail?.id);
   const openedRow = rows.flatMap(row => row.source === 'shared' ? (row.linkedLocal ? [row.linkedLocal] : []) : [row])
