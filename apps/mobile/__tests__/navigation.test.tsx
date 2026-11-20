@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { Platform } from "react-native";
 import { fireEvent, render as renderScreen, screen } from "@testing-library/react-native";
 import DeveloperTools from "../app/developer-tools";
 import HomeScreen from "../app/index";
@@ -9,7 +10,7 @@ import type { ShopRepository } from "../data/shop-repository";
 
 const mockPush = jest.fn();
 const mockReplace = jest.fn();
-const mockExtra = { directAuthTest: false };
+const mockExtra = { directAuthTest: false, fieldTest: false, cheapoApiOrigin: "" };
 const testShopRepository = {
   loadSavedShops: jest.fn<ReturnType<ShopRepository["loadSavedShops"]>, []>(),
   saveShop: jest.fn(),
@@ -55,6 +56,8 @@ beforeEach(() => {
   mockPush.mockReset();
   mockReplace.mockReset();
   mockExtra.directAuthTest = false;
+  mockExtra.fieldTest = false;
+  mockExtra.cheapoApiOrigin = "";
   jest.mocked(loadSavedShops).mockResolvedValue({ shops: [] });
   jest.mocked(saveShop).mockReset();
   jest.mocked(updateShop).mockReset();
@@ -199,4 +202,21 @@ test("cancels removal safely and clears the current shop only after confirmed re
   expect(screen.getByText("No saved shops yet")).toBeOnTheScreen();
   await fireEvent.press(screen.getByRole("button", { name: "Cancel" }));
   expect(screen.getByRole("button", { name: "Select current shop" })).toBeOnTheScreen();
+});
+
+test("exposes device enrollment only in configured Android Field builds without removing ChatGPT", async () => {
+  const platform = jest.replaceProperty(Platform, "OS", "android");
+  mockExtra.fieldTest = true;
+  try {
+    await render(<HomeScreen />);
+    expect(screen.queryByRole("button", { name: /cheapo access/i })).not.toBeOnTheScreen();
+    mockExtra.cheapoApiOrigin = "https://cheapo.example";
+    await screen.rerender(<HomeScreen />);
+    await fireEvent.press(screen.getByRole("button", { name: /cheapo access/i }));
+    expect(mockPush).toHaveBeenLastCalledWith("/cheapo-access");
+    await fireEvent.press(screen.getByRole("button", { name: /chatgpt/i }));
+    expect(mockPush).toHaveBeenLastCalledWith("/direct-auth");
+  } finally {
+    platform.restore();
+  }
 });

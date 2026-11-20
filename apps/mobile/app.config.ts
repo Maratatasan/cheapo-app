@@ -13,7 +13,7 @@ export default function configure({ config }: ConfigContext): ExpoConfig {
     scheme: 'cheapofield',
     android: { ...config.android, package: 'com.maratatasan.cheapo.field', versionCode: 10 },
     plugins: [...(config.plugins ?? []), 'expo-secure-store'],
-    extra: { ...config.extra, fieldTest: true },
+    extra: { ...config.extra, fieldTest: true, cheapoApiOrigin: process.env.CHEAPO_API_ORIGIN },
   };
   if (!authTest) return config as ExpoConfig;
   return {

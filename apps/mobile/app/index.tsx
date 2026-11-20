@@ -1,16 +1,19 @@
 import { useState } from "react";
-import { Button, Platform } from "react-native";
+import { Button, Platform, View } from "react-native";
 import { Stack, useRouter } from "expo-router";
 import Constants from "expo-constants";
 import { ShopChooser, ShopLoadFeedback } from "@/component/shop/shop-chooser";
 import { ShopHome } from "@/component/shop/shop-home";
 import { useSavedShops } from "@/hooks/use-saved-shops";
+import { fieldCheapoApiOrigin } from "@/lib/cheapo-access/config";
+import { ui } from "@/component/results/theme";
 
 export default function Index() {
   const router = useRouter();
   const [choosing, setChoosing] = useState(false);
   const { shopRepository, shops, setShops, readError, retry } = useSavedShops();
   const showDeveloperTools = Constants.expoConfig?.extra?.directAuthTest === true;
+  const showCheapoAccess = fieldCheapoApiOrigin() !== null;
   const fieldTest = Platform.OS === "android" && Constants.expoConfig?.extra?.fieldTest === true;
 
   return (
@@ -21,7 +24,12 @@ export default function Index() {
           headerTransparent: { ios: false },
           headerRight: showDeveloperTools
             ? () => <Button title="Developer tools" onPress={() => router.push("/developer-tools")} />
-            : fieldTest ? () => <Button title="ChatGPT" onPress={() => router.push("/direct-auth")} />
+            : fieldTest ? () => (
+                <View style={ui.row}>
+                  <Button title="ChatGPT" onPress={() => router.push("/direct-auth")} />
+                  {showCheapoAccess ? <Button title="Cheapo access" onPress={() => router.push("/cheapo-access")} /> : null}
+                </View>
+              )
             : undefined,
         }}
       />
