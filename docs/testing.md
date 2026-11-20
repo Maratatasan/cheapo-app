@@ -30,8 +30,10 @@ physical-device results separately. [CI standard](ci.md) · [UI verification](ui
 ## Live release checks
 
 - Use restored records for read checks. Check the expected stable ID, a valid
-  response structure and retrievable photo evidence when listed. Prices and returned photo
-  bytes can change, so fixed values belong in controlled fixtures.
+  response structure and retrievable photo evidence when listed. Prices and
+  selected photo references may change. Verify downloaded evidence against the
+  hash supplied by the service. Fixed prices or photo selections belong in
+  controlled fixtures.
 - Keep synthetic data in UI previews, disposable local PostgreSQL and CI. Use
   ordinary live routes and read-only checks for smoke. A genuine shopping save
   or correction chosen by the owner provides live write evidence during
