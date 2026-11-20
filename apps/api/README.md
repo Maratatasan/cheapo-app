@@ -65,6 +65,28 @@ Phone enrollment, hosting and the comparison selector are follow-up work in
 [#150](https://github.com/Maratatasan/cheapo-app/issues/150). The service has no
 shop, price or photo operations in this slice.
 
+## Issue or revoke beta phone access
+
+A trusted operator can run the credential command using an authorized
+PostgreSQL connection after applying migration `003`. Use the existing
+household and shopper IDs for the intended member and choose a future UTC
+expiration such as a date in the format `YYYY-MM-DDTHH:MM:SSZ`.
+
+```sh
+pnpm --filter @cheapo/api exec node operator/device-credential.ts issue "$household_id" "$shopper_id" "$expires_at"
+pnpm --filter @cheapo/api exec node operator/device-credential.ts revoke "$credential_id"
+```
+
+Issue a separate credential for each phone. The issue command returns the
+credential ID for your revocation records and a path to a temporary delivery
+file readable only by your OS user. Hand the file's contents directly to the
+intended shopper through an approved private handoff and delete the file and
+its temporary directory after enrollment. Keep the credential value out of
+shell commands, logs, and issue reports. If delivery is interrupted or the
+credential is exposed, revoke its ID and issue a replacement. Revoking one ID
+preserves the member's data and other phone credentials. Checking an ID for
+revocation does not require the token.
+
 ## Shopping history storage
 
 Migration `002` adds tables for the offline restore in

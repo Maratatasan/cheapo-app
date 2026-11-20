@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { once } from 'node:events';
+import { readFile, rm, stat } from 'node:fs/promises';
+import { dirname } from 'node:path';
 import { after, before, test } from 'node:test';
 import { Pool } from 'pg';
 
@@ -54,11 +57,15 @@ after(async () => {
 });
 
 async function request(letter: string, group: string, method = 'GET', basis?: string, target = server) {
+  return requestWithToken(token(letter), group, method, basis, target);
+}
+
+async function requestWithToken(credential: string, group: string, method = 'GET', basis?: string, target = server) {
   const address = target.address();
   assert(address && typeof address !== 'string');
   const response = await fetch(`http://127.0.0.1:${address.port}/v1/me/comparison-preferences/${encodeURIComponent(group)}`, {
     method,
-    headers: { Authorization: `Bearer ${token(letter)}`, 'Content-Type': 'application/json' },
+    headers: { Authorization: `Bearer ${credential}`, 'Content-Type': 'application/json' },
     body: basis === undefined ? undefined : JSON.stringify({ basis }),
   });
   return { status: response.status, body: await response.json() };
@@ -113,4 +120,70 @@ test('retries replacement and clearing without changing another shopper’s pref
   assert.deepEqual(await request('A', group, 'DELETE'), ok(null));
   assert.deepEqual(await request('A', group), ok(null));
   assert.deepEqual(await request('B', group), ok('kg'));
+});
+
+function deviceCommand(...args: string[]) {
+  return spawnSync(process.execPath, ['operator/device-credential.ts', ...args], {
+    encoding: 'utf8',
+    cwd: new URL('..', import.meta.url),
+    env: { ...process.env, PGHOST: host, PGPORT: '5432', PGUSER: 'cheapo_test', PGDATABASE: 'postgres' },
+  });
+}
+
+function runDeviceCommand(...args: string[]): string {
+  const result = deviceCommand(...args);
+  assert.equal(result.status, 0, result.stderr);
+  return result.stdout;
+}
+
+test('issues separate credentials through the operator command and revokes only the selected phone', async () => {
+  const expiresAt = new Date(Date.now() + 86_400_000).toISOString();
+  async function issuePhone(shopper = alex, home = household) {
+    const output = runDeviceCommand('issue', home, shopper, expiresAt);
+    const { credentialId, deliveryFile } = JSON.parse(output);
+    try {
+      assert.equal((await stat(deliveryFile)).mode & 0o777, 0o600);
+      assert.equal((await stat(dirname(deliveryFile))).mode & 0o777, 0o700);
+      const credential = (await readFile(deliveryFile, 'utf8')).trimEnd();
+      assert.match(credential, /^cheapo_[A-Za-z0-9_-]{43}$/);
+      assert.equal(output.includes(credential), false, 'Token is absent from command output');
+      const { rows } = await pool.query('SELECT * FROM cheapo.shopper_credential WHERE id = $1', [credentialId]);
+      assert.equal(rows[0].token_digest, createHash('sha256').update(credential).digest('hex'));
+      assert.equal(rows[0].shopper_id, shopper);
+      assert.equal(rows[0].household_id, home);
+      assert.equal(new Date(rows[0].expires_at).toISOString(), expiresAt);
+      assert.equal(JSON.stringify(rows).includes(credential), false, 'Token is absent from persisted metadata');
+      return { credential, credentialId };
+    } finally {
+      await rm(dirname(deliveryFile), { recursive: true });
+    }
+  }
+
+  const first = await issuePhone();
+  const second = await issuePhone();
+  const otherHouse = await issuePhone(robin, otherHousehold);
+  assert.equal(first.credential === second.credential, false, 'Each phone receives a unique token');
+  assert.notEqual(first.credentialId, second.credentialId);
+  const group = 'operator test product group';
+  assert.deepEqual(await requestWithToken(first.credential, group, 'PUT', 'wash'), ok('wash'));
+  assert.deepEqual(await requestWithToken(otherHouse.credential, group), ok(null));
+  assert.deepEqual(await requestWithToken(second.credential, group), ok('wash'));
+
+  runDeviceCommand('revoke', first.credentialId);
+  runDeviceCommand('revoke', first.credentialId);
+  assert.deepEqual(await requestWithToken(first.credential, group), {
+    status: 401, body: { error: 'unauthenticated' },
+  });
+  assert.deepEqual(await requestWithToken(second.credential, group), ok('wash'));
+});
+
+test('denies issuing credentials for inactive or unrelated memberships and past expiry', () => {
+  const future = new Date(Date.now() + 86_400_000).toISOString();
+  const past = new Date(Date.now() - 86_400_000).toISOString();
+  for (const args of [[household, robin, future], [otherHousehold, alex, future], [household, alex, past]]) {
+    const result = deviceCommand('issue', ...args);
+    assert.equal(result.status, 1);
+    assert.equal(result.stdout, '');
+    assert.match(result.stderr, /requires an active membership and a future expiry/);
+  }
 });

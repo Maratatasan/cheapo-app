@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { readCredentialDigest } from './credential.ts';
 
 // Keep aligned with the comparison bases used for confirmed package measures.
 const allowedBases = ['kg', '100g', 'litre', '100mL', 'item', 'wash'] as const;
@@ -17,7 +17,6 @@ export type ExecutePreference = (
 
 const maxBodyBytes = 512;
 const pathPattern = /^\/v1\/me\/comparison-preferences\/([^/]+)$/;
-const bearerPattern = /^Bearer (cheapo_[A-Za-z0-9_-]{43})$/i;
 
 function json(body: object, status = 200, headers: Record<string, string> = {}) {
   return Response.json(body, { status, headers: { 'Cache-Control': 'no-store', ...headers } });
@@ -81,15 +80,14 @@ export function createPreferencesHandler(execute: ExecutePreference) {
       return json({ error: 'method_not_allowed' }, 405, { Allow: 'GET, PUT, DELETE' });
     }
 
-    const token = bearerPattern.exec(request.headers.get('Authorization') ?? '')?.[1];
-    if (!token) return unauthorized();
+    const tokenDigest = readCredentialDigest(request.headers.get('Authorization'));
+    if (!tokenDigest) return unauthorized();
     const productGroupId = decodeGroupId(match[1]);
     if (!productGroupId) return json({ error: 'invalid_group' }, 400);
 
     const basis = operation === 'PUT' ? await readBody(request) : null;
     if (basis instanceof Response) return basis;
 
-    const tokenDigest = createHash('sha256').update(token).digest('hex');
     let result: PreferenceResult;
     try {
       result = await execute(tokenDigest, productGroupId, operation, basis);

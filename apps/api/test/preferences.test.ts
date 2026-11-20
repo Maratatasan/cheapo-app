@@ -21,11 +21,11 @@ test('rejects a preference write with a caller-supplied identity', async () => {
 });
 
 test('requires a Cheapo credential before looking up preferences', async () => {
-  const response = await handle(new Request(route, {
-    headers: { authorization: 'Bearer another-service-token' },
-  }));
-  assert.equal(response.status, 401);
-  assert.equal(response.headers.get('WWW-Authenticate'), 'Bearer');
+  for (const headers of [undefined, { authorization: 'Bearer another-service-token' }]) {
+    const response = await handle(new Request(route, { headers }));
+    assert.equal(response.status, 401);
+    assert.equal(response.headers.get('WWW-Authenticate'), 'Bearer');
+  }
 });
 
 test('rejects unsupported basis values before querying PostgreSQL', async () => {
