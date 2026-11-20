@@ -59,6 +59,7 @@ it('binds the original and crop to the matching receipt using the protected file
   ]);
   expect(photos[1].sha256).not.toBe(photos[0].sha256);
   expect(await describePriceEvidence({ ...record, selected: original }, receipt)).toEqual([photos[0]]);
+  expect(await describePriceEvidence(record, { ...receipt, deriveCropFromOriginal: true })).toEqual([photos[0]]);
   await expect(describePriceEvidence(record, { ...receipt, sourceId: 'another-price' })).rejects.toThrow('acknowledgement');
   await expect(describePriceEvidence({ ...record, original: { ...original, uri: original.uri.replace('/documents/', '/cache/') } }, receipt)).rejects.toThrow('saved photo');
 });

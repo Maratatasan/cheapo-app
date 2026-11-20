@@ -394,3 +394,111 @@ test('retains immutable imported original and crop references while choosing a n
   assert.deepEqual(observation.photos, [{ role: 'original', width: 800, height: 600 }, { role: 'crop', width: 400, height: 300 }]);
   assert.deepEqual(await physical(), before);
 });
+
+test('completes only the owner’s imported draft, preserving its ID and private original', async () => {
+  const route = '/v1/me/price-observations';
+  const source = 'imported-draft-without-shop';
+  const capturedAt = '2026-01-20T09:30:00.123456Z';
+  const resource = '19000000-0000-4000-8000-000000000028';
+  const originalKey = importedEvidenceKey(household, owner, uploadMetadata.sha256);
+  await operator.query(`
+    INSERT INTO cheapo.price_observation (household_id, shopper_id, id, resource_id, captured_at, status, source_test_shop)
+    VALUES ($1, $2, $3, $4, $5, 'draft', false), ($1, $2, 'test-draft', gen_random_uuid(), $5, 'draft', true)
+  `, [household, owner, source, resource, capturedAt]);
+  await operator.query(`
+    INSERT INTO cheapo.price_photo (household_id, shopper_id, observation_id, role, storage_key, sha256, byte_count, width, height)
+    VALUES ($1, $2, $3, 'original', $4, $5, $6, $7, $8), ($1, $2, $3, 'crop', $9, repeat('1', 64), 900, 400, 300)
+  `, [household, owner, source, originalKey, uploadMetadata.sha256, uploadMetadata.byteCount,
+    uploadMetadata.width, uploadMetadata.height, importedEvidenceKey(household, owner, '1'.repeat(64))]);
+  const input = {
+    sourceId: source, capturedAt, shopId: 'recrop-market', shopDisplayName: 'Re-crop Market',
+    review: { productName: 'Completed imported oats', price: '2.75', currency: 'GBP' },
+    cropBox: { left: 0.1, top: 0.3, right: 0.8, bottom: 0.65 },
+  };
+  const append = (actor: string, value = input) => api(new Request('http://localhost' + route, {
+    method: 'POST', headers: { Authorization: `Bearer ${token(actor)}`, 'Content-Type': 'application/json' }, body: JSON.stringify(value),
+  }));
+  assert.equal((await photo(resource, 'original', 'B')).status, 404);
+  assert.equal((await append('A', { ...input, capturedAt: '2026-01-20T09:30:00Z' })).status, 409);
+  assert.equal((await append('A', { ...input, shopId: 'missing-shop' })).status, 422);
+  assert.equal((await append('A', { ...input, sourceId: 'test-draft' })).status, 409);
+  assert.equal((await append('C')).status, 422);
+  const peerPrice = await append('B');
+  assert.equal(peerPrice.status, 201);
+  assert.notEqual((await peerPrice.json() as { id: string }).id, resource);
+  assert.equal((await photo(resource, 'original', 'B')).status, 404);
+
+  const replies = await Promise.all([append('A'), append('A')]);
+  assert.deepEqual(replies.map(reply => reply.status).sort(), [200, 201]);
+  const receipt = { id: resource, sourceId: source, version: 2, deriveCropFromOriginal: true };
+  for (const reply of replies) assert.deepEqual(await reply.json(), receipt);
+  assert.deepEqual(await (await append('A')).json(), receipt);
+  assert.equal((await append('A', { ...input, review: { ...input.review, price: '2.90' } })).status, 409);
+  assert.deepEqual(await visiblePhotos(resource, 'crop'), [
+    { role: 'original', width: 800, height: 600 }, { role: 'crop', width: 400, height: 300 },
+  ]);
+
+  const signedBefore = uploads.length;
+  assert.deepEqual(await (await prepare(resource, 'A')).json(), { role: 'original', availability: 'available' });
+  for (const metadata of [
+    { ...uploadMetadata, sha256: '0'.repeat(64) }, { ...uploadMetadata, byteCount: 1 }, { ...uploadMetadata, width: 801 },
+  ]) assert.equal((await prepare(resource, 'A', metadata)).status, 409);
+  assert.equal(uploads.length, signedBefore);
+  assert.equal((await photo(resource, 'original', 'B')).status, 200);
+  assert.equal(signed.at(-1), originalKey);
+  const { rows: [revision] } = await operator.query(`
+    SELECT before_state->>'status' AS "priorStatus", before_state->>'shop_id' AS "priorShop",
+      after_state->>'priceAmount' AS "newPrice", after_state->>'cropSource' AS "newSelection"
+    FROM cheapo.price_observation_revision WHERE resource_id = $1 AND version = 2
+  `, [resource]);
+  assert.deepEqual(revision, { priorStatus: 'draft', priorShop: null, newPrice: '2.75', newSelection: 'original' });
+});
+
+test('completes an imported draft without archived evidence and reserves normal uploads', async () => {
+  const id = '19000000-0000-4000-8000-000000000029';
+  const source = 'imported-draft-with-no-original';
+  const capturedAt = '2026-01-20T10:30:00.123456Z';
+  await operator.query(`
+    INSERT INTO cheapo.price_observation (household_id, shopper_id, id, resource_id, captured_at, status, source_test_shop)
+    VALUES ($1, $2, $3, $4, $5, 'draft', false)
+  `, [household, owner, source, id, capturedAt]);
+  const append = await api(new Request('http://localhost/v1/me/price-observations', {
+    method: 'POST', headers: { Authorization: `Bearer ${token('A')}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sourceId: source, capturedAt, shopId: 'recrop-market', shopDisplayName: 'Re-crop Market',
+      review: { productName: 'Retained unphotographed draft', price: '2.55', currency: 'GBP' } }),
+  }));
+  assert.equal(append.status, 201);
+  assert.deepEqual(await append.json(), { sourceId: source, id, version: 2 });
+  const planned = await prepare(id, 'A');
+  assert.equal(planned.status, 200);
+  assert.equal((await planned.json() as { availability: string }).availability, 'pending');
+});
+
+test('completes a restored draft with a full-frame selection and retains the archived crop', async () => {
+  const id = '19000000-0000-4000-8000-000000000030';
+  const source = 'imported-draft-full-frame';
+  const capturedAt = '2026-01-20T11:30:00.123456Z';
+  await operator.query(`
+    INSERT INTO cheapo.price_observation (household_id, shopper_id, id, resource_id, captured_at, status, source_test_shop, crop_box)
+    VALUES ($1, $2, $3, $4, $5, 'draft', false, '{"left":0.2,"top":0.2,"right":0.8,"bottom":0.8}')
+  `, [household, owner, source, id, capturedAt]);
+  await operator.query(`
+    INSERT INTO cheapo.price_photo (household_id, shopper_id, observation_id, role, storage_key, sha256, byte_count, width, height)
+    VALUES ($1, $2, $3, 'original', $4, repeat('8', 64), 2000, 800, 600),
+      ($1, $2, $3, 'crop', $5, repeat('3', 64), 720, 480, 360)
+  `, [household, owner, source, importedEvidenceKey(household, owner, '8'.repeat(64)),
+    importedEvidenceKey(household, owner, '3'.repeat(64))]);
+  const route = 'http://localhost/v1/me/price-observations';
+  const append = await api(new Request(route, {
+    method: 'POST', headers: { Authorization: `Bearer ${token('A')}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sourceId: source, capturedAt, shopId: 'recrop-market', shopDisplayName: 'Re-crop Market',
+      review: { productName: 'Selected full frame', price: '2.80', currency: 'GBP' },
+      cropBox: { left: 0, top: 0, right: 1, bottom: 1 } }),
+  }));
+  assert.equal(append.status, 201);
+  assert.deepEqual(await append.json(), { id, sourceId: source, version: 2, deriveCropFromOriginal: true });
+  const checked = await api(new Request(route + '/' + id, { headers: { Authorization: `Bearer ${token('B')}` } }));
+  const { observation } = priceHistoryDetail.parse(await checked.json());
+  assert.deepEqual([observation.selectedPhotoRole, observation.cropSource, observation.cropBox], ['original', 'original', null]);
+  assert.deepEqual(observation.photos.map(asset => asset.role), ['original', 'crop']);
+});

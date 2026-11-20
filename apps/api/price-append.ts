@@ -4,7 +4,7 @@ import { json, readJson, unauthorized } from './api-http.ts';
 
 export { matchesReviewedUnitPrice, reviewedPrice, reviewedUnitPrice } from '@cheapo/domain/price-append';
 
-export type PriceIdentity = { id: string; sourceId: string; version: number };
+export type PriceIdentity = { id: string; sourceId: string; version: number; deriveCropFromOriginal?: true };
 type PriceAppendResult =
   | { status: 'created' | 'replayed'; identity: PriceIdentity }
   | { status: 'unauthenticated' | 'forbidden' | 'invalid_reference' | 'source_conflict' };
