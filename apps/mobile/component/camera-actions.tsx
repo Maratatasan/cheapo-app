@@ -68,7 +68,7 @@ export function CameraPermissionActions({ onGrant, choosePhoto, disabled, childr
   );
 }
 
-export function CameraCaptureActions({ ready, capturing, choosing, onCapture, onFlip, choosePhoto, children }: {
+export function CameraCaptureActions({ ready, capturing, choosing, onCapture, onFlip, choosePhoto, children, mode = 'price' }: {
   ready: boolean;
   capturing: boolean;
   choosing: boolean;
@@ -76,15 +76,16 @@ export function CameraCaptureActions({ ready, capturing, choosing, onCapture, on
   onFlip: () => void;
   choosePhoto?: ReactNode;
   children?: ReactNode;
+  mode?: 'price' | 'product';
 }) {
   const photoPending = capturing || choosing;
   return (
     <SafeAreaView edges={["bottom"]} style={styles.footer}>
-      <Text style={styles.guide}>Fit product name, price and weight/size inside the frame.</Text>
-      <Text style={styles.guide}>The full original is kept. Adjust the crop after capture.</Text>
+      <Text style={styles.guide}>{mode === 'product' ? 'Fit the packaging or barcode inside the frame.' : 'Fit product name, price and weight/size inside the frame.'}</Text>
+      {mode === 'price' ? <Text style={styles.guide}>The full original is kept. Adjust the crop after capture.</Text> : null}
       <CameraActionButton
         primary
-        label={capturing ? "Taking picture…" : ready ? "Take Picture of Price" : "Preparing camera…"}
+        label={capturing ? "Taking picture…" : ready ? mode === 'product' ? 'Take Product Photo' : 'Take Picture of Price' : "Preparing camera…"}
         onPress={onCapture}
         disabled={!ready || photoPending}
         busy={capturing || !ready}

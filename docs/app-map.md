@@ -5,18 +5,20 @@ in planned work.
 
 ## Current user flow
 
-The [Home route](../apps/mobile/app/index.tsx) shows the current shop and opens
-Scan, Find product by barcode on mobile, or the sample price browser. Home restores the saved selection when focused. Use **Change shop → Edit** to
+The [Home route](../apps/mobile/app/index.tsx) shows the current shop. On mobile,
+**Scan item** starts a packaging photo lookup, and **Find product by barcode**
+opens the dedicated scanner. The sample price browser remains available. Home restores the saved selection when focused. Use **Change shop → Edit** to
 update a shop's name, nickname, or address, or remove it from the saved shop list.
 Removal clears the current selection if that shop was selected. Previous price
 records and photos keep their saved shop details.
 
 ```mermaid
 flowchart TD
-    Home --> Scan
+    Home --> PackagePhoto["Scan item · take or choose packaging photo"]
+    PackagePhoto -->|Known exact barcode| Compare
     Home --> Lookup["Find product by barcode"]
     Lookup --> Barcode
-    Scan --> CurrentShop{"Current shop?"}
+    Scan["Scan shelf label"] --> CurrentShop{"Current shop?"}
     CurrentShop -->|No| ChooseShop["Select or add a shop"]
     ChooseShop --> Source["Take or choose a photo"]
     CurrentShop -->|Yes| Source
@@ -57,9 +59,10 @@ flowchart TD
 
 | Responsibility | Current implementation |
 | --- | --- |
-| Current shop | [Home](../apps/mobile/app/index.tsx) and [Scan](../apps/mobile/app/scan.tsx) use a [shared chooser](../apps/mobile/component/shop/shop-chooser.tsx). The [shop repository](data-repositories.md) supplies the saved list and current selection. Scan waits for a selection before opening the camera, including from a direct link. |
+| Current shop | [Home](../apps/mobile/app/index.tsx) and price capture in [Scan](../apps/mobile/app/scan.tsx) use a [shared chooser](../apps/mobile/component/shop/shop-chooser.tsx). The [shop repository](data-repositories.md) supplies the saved list and current selection. Shelf-label capture needs a current shop, including from a direct link. Packaging lookup can start without one. |
 | Home barcode lookup | [Find product by barcode](../apps/mobile/app/find-product.tsx) opens the existing barcode scanner from mobile Home. Lookup and comparison work without a current shop, and an existing selection supplies the current-shop price action. **Scan label** asks for a shop when needed. |
 | Camera | The [Scan route](../apps/mobile/app/scan.tsx) mounts the [camera component](../apps/mobile/component/camera.tsx), which owns permissions, preview, capture, retake, and the photo workflow. |
+| Packaging photo lookup | [Photo product lookup](../apps/mobile/component/photo-product-lookup.tsx) checks a barcode decoded from the original Android photo or entered by the shopper. The exact result can open the existing comparison without a price. Returning keeps the photo and barcode in the lookup screen. |
 | Shared Android enrollment | [Cheapo access](../apps/mobile/app/cheapo-access.tsx) verifies an operator-issued credential. The [connected provider](../apps/mobile/component/connected-shopping-provider.tsx) selects the protected owner and runs sync on app start, foregrounding and regained connectivity. The phone talks to the HTTPS API. PostgreSQL stores shopping records and private object storage holds photo evidence. |
 | Protected sync | The [shopping runtime](../apps/mobile/data/shopping-sync-runtime.ts) drains price, catalog, shop and preference changes after local commits. Photo evidence syncs separately. [Pending sync](../apps/mobile/app/pending-sync.tsx) shows failed changes, missing shops and conflicts. If another shopper saves the same barcode first, the pending price and photos stay protected until the shopper reviews and reuses the matching product. An [existing price edit](../apps/mobile/app/edit-price/%5Bid%5D.tsx) uses the same record and version, with a reversible Recorded in error flag. |
 | Photos | The [crop editor](../apps/mobile/component/photo-crop.tsx) uses [crop geometry](../apps/mobile/data/crop-geometry.ts) and [image manipulation](../apps/mobile/lib/photo-crop.ts). It derives a JPEG from the original and keeps both available in the draft. |

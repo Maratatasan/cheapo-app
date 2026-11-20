@@ -1,5 +1,5 @@
 import { View, StyleSheet, Platform } from "react-native";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { shopDisplayName } from "@cheapo/domain/names";
 import { CameraComponent } from "@/component/camera";
 import { BarcodeScan } from "@/component/barcode-scan";
@@ -10,6 +10,15 @@ import { photoShopCountry } from "@/lib/direct-auth/shop-country";
 export default function ScanScreen() {
   const router = useRouter();
   const { mode } = useLocalSearchParams<{ mode?: string }>();
+  if (mode === "lookup" && Platform.OS !== "web") return <>
+    <Stack.Screen options={{ title: "Find product from a photo" }} />
+    <CameraComponent productLookup={{ onCompare: barcode => router.push({ pathname: "/find-product", params: { barcode } }) }} />
+  </>;
+  return <PriceScanScreen mode={mode} />;
+}
+
+function PriceScanScreen({ mode }: { mode?: string }) {
+  const router = useRouter();
   const { shopRepository, shops, setShops, readError, retry } = useSavedShops();
   if (!shops) return <ShopLoadFeedback error={readError} onRetry={retry} />;
 
