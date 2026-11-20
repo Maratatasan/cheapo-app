@@ -29,6 +29,8 @@ import { calculatePackUnitPrice, emptyReview, reviewComplete, type ManualReview 
 import { useEnrolledCatalog } from '@/hooks/use-enrolled-catalog';
 import { useComparisonPreference } from '@/hooks/use-comparison-preference';
 import { usePriceSaveNotice } from '@/hooks/use-price-save-notice';
+import { useProductPhotoSource } from '@/hooks/use-product-presentation-photo';
+import { useProductPhotoUri } from '@/hooks/use-product-photo-uri';
 import type { PhotoSavePending } from '@/data/price-records';
 import type { CheapoShoppingRuntime } from '@/data/shopping-sync-runtime';
 
@@ -123,6 +125,9 @@ export function BarcodeScan({ currentShop, onScanLabel, initialBarcode }: {
   const selectedGroup = shopping && result?.kind === 'known' && !entry && !barcodeEdit
     ? comparisonPreferenceGroup(result.product.comparableGroupId, result.product.productType) : undefined;
   const preference = useComparisonPreference(shopping, selectedGroup);
+  const productPhotos = useProductPhotoSource(shopping?.owner);
+  const canonicalPhoto = useProductPhotoUri(productPhotos,
+    result?.kind === 'known' && !entry && !barcodeEdit ? result.product.id : undefined, focused);
   const photoId = referencePhoto?.id;
   const photoVersion = referencePhoto?.version;
   useEffect(() => {
@@ -371,8 +376,10 @@ export function BarcodeScan({ currentShop, onScanLabel, initialBarcode }: {
                 preference,
                 exactProductId: result.history && !result.product.productType ? result.product.id : undefined,
                 product: { name: result.product.name, pack: packLabel(result.product.pack),
-                  photo: sharedPhoto && sharedPhoto.owner === shopping && sharedPhoto.id === photoId && sharedPhoto.version === photoVersion
-                    ? { uri: sharedPhoto.uri } : result.photo ? { uri: result.photo } : undefined },
+                  photo: canonicalPhoto ? { uri: canonicalPhoto }
+                    : sharedPhoto && sharedPhoto.owner === shopping && sharedPhoto.id === photoId && sharedPhoto.version === photoVersion
+                      ? { uri: sharedPhoto.uri } : result.photo ? { uri: result.photo } : undefined,
+                  photoLabel: canonicalPhoto ? `Product photo for ${result.product.name}` : undefined },
                 onEdit: id => {
                   const source = ['shared', 'queued', 'legacy'].find(kind => result.history && id.startsWith(`${kind}:`));
                   router.push({ pathname: '/edit-price/[id]', params: {

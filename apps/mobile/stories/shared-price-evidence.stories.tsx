@@ -24,6 +24,10 @@ const images = {
   original: new URL('./fixtures/price-label-original.jpg', import.meta.url).href,
   crop: new URL('./fixtures/price-label-crop.jpg', import.meta.url).href,
 };
+function loadStoryProductPhoto(id: string) {
+  const uri = Promise.resolve(id === observation.productId ? images.original : undefined);
+  return { cached: uri, current: uri };
+}
 const insets = { top: 0, left: 0, bottom: 0, right: 0 };
 const frame = { x: 0, y: 0, width: 428, height: 675 };
 
@@ -77,7 +81,7 @@ async function loadStoryThumbnail(id: string) {
   return id === observation.id ? images.crop : undefined;
 }
 
-function HistoryPreview() {
+function HistoryPreview({ canonicalPhotos = false }: { canonicalPhotos?: boolean }) {
   const historyFrame = { ...frame, height: 720 };
   const [opened, setOpened] = useState<PriceObservationDetail>();
   const [role, setRole] = useState<PriceEvidenceRole>('crop');
@@ -86,7 +90,7 @@ function HistoryPreview() {
     unitPrice: { amount: 0.61, unit: '100g' },
   } }];
   const peer = { ...observation, id: '5353588d-923b-4f09-903d-f72adeaded5a', ownedByCurrentShopper: false,
-    productName: 'Thick-cut oats', shopDisplayName: 'Peer Market' };
+    productName: canonicalPhotos ? observation.productName : 'Thick-cut oats', shopDisplayName: 'Peer Market' };
   const rows = savedPriceHistoryRows({ legacy: [], queued: [], shared: [observation, peer] });
   const detail = opened && projectSharedPrice(opened, changes);
   return <View style={{ width: '100%', maxWidth: historyFrame.width, height: historyFrame.height }}>
@@ -94,7 +98,8 @@ function HistoryPreview() {
       {detail ? <SharedPriceEvidence observation={detail.display} lastSyncedAt="2026-01-02T10:00:00.000Z" cached
         activeRole={role} photo={{ role, status: 'cached', uri: images[role] }} pendingChange={detail.pending}
         onPhotoRole={setRole} onRetryPhoto={() => {}} onBack={() => setOpened(undefined)} />
-        : <SavedPriceHistoryList rows={rows} changes={changes} loadSharedThumbnail={loadStoryThumbnail} onOpen={row => {
+        : <SavedPriceHistoryList rows={rows} changes={changes} loadSharedThumbnail={loadStoryThumbnail}
+          productPhotos={canonicalPhotos ? loadStoryProductPhoto : undefined} onOpen={row => {
           if (row.source === 'shared') setOpened(row.observation.id === observation.id ? observation : peer);
         }} header={<View><Text accessibilityRole="header" style={ui.title}>Saved products</Text>
           <Text style={ui.small}>Last synced 2 Jan 2026, 10:00</Text><Text style={ui.small}>Showing saved shared prices</Text></View>} />}
@@ -107,6 +112,22 @@ export const SavedHistory: Story = {
   play: async ({ canvas }) => {
     await expect(await canvas.findByLabelText('Saved price thumbnail')).toBeVisible();
     await expect(canvas.getByRole('button', { name: 'Open Thick-cut oats' })).toBeVisible();
+  },
+};
+export const SharedProductPhoto: Story = {
+  render: () => <HistoryPreview canonicalPhotos />,
+  play: async ({ canvas }) => {
+    await waitFor(() => expect(canvas.getAllByLabelText('Product photo')).toHaveLength(2));
+    await expect(canvas.getByText('Example Market')).toBeVisible();
+    await expect(canvas.getByText('Peer Market')).toBeVisible();
+  },
+};
+export const ProductPhotoKeepsPriceEvidence: Story = {
+  render: () => <HistoryPreview canonicalPhotos />,
+  play: async ({ canvas, userEvent }) => {
+    await waitFor(() => expect(canvas.getAllByLabelText('Product photo')).toHaveLength(2));
+    await userEvent.click(canvas.getAllByRole('button', { name: 'Open Whole rolled oats' })[0]);
+    await expect(await canvas.findByLabelText('Cropped price photo')).toBeVisible();
   },
 };
 export const OpenPendingHistory: Story = {
