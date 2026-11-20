@@ -14,6 +14,7 @@ import { openCheapoSavedPriceReads } from '@/data/cheapo-shopping-read-device';
 import { loadSavedPriceRecords } from '@/data/local-photo';
 import { comparisonRowFromSavedHistory, keptSharedPrice, projectSharedPrice, savedPriceHistoryRows, type PendingHistoryChange, type SavedPriceHistoryRow } from '@/data/saved-price-history';
 import { viewedPricePhotoRoles } from '@/data/selected-price-photo-read';
+import { useComparisonPreference, useSavedPriceComparisonGroup } from '@/hooks/use-comparison-preference';
 import { CheapoAccessError } from '@/lib/cheapo-access/client';
 
 type Runtime = ReturnType<typeof useCheapoShopping>;
@@ -216,6 +217,8 @@ export default function SavedComparison() {
   const referenceRow = findReference(rows, current?.reference);
   const reference = referenceRow && comparisonRowFromSavedHistory(referenceRow, changes);
   const comparisons = rows.flatMap(row => comparisonRowFromSavedHistory(row, changes) ?? []);
+  const group = useSavedPriceComparisonGroup(shopping, reference?.productId, reference?.productType);
+  const preference = useComparisonPreference(shopping, group);
 
   return (
     <>
@@ -237,6 +240,7 @@ export default function SavedComparison() {
             <>
               <ShopComparison key={reference.id} reference={reference} comparisons={comparisons}
                 exactProductId={!reference.productType ? reference.productId ?? undefined : undefined}
+                preference={preference}
                 product={{ name: reference.product, pack: reference.pack, photo: current.photoUri ? { uri: current.photoUri } : undefined }}
                 onEdit={recordId => {
                   const row = recordId === referenceRow.key ? referenceRow : rows.find(item => item.key === recordId);

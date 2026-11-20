@@ -1,8 +1,10 @@
 import { Fragment, useState } from "react";
 import { Image, Pressable, StyleSheet, Text, View, type ImageSourcePropType } from "react-native";
-import { comparePrices, normalizedUnitPrice, type ComparisonPrice } from "@/data/comparison-prices";
+import { packagePriceBases } from "@cheapo/domain";
+import { comparePrices, comparisonUnitPrice, type ComparisonPrice } from "@/data/comparison-prices";
 import { dateLabel, knownUnitPrice, observationShopLabel, priceLabel, unitPriceLabel, type PriceValues } from "@/data/observation";
 import type { ProductMetadata } from "@/data/product-metadata";
+import { ComparisonBasis, type ComparisonBasisPreference } from "./comparison-basis";
 import { DisplayState } from "./display-state";
 import { SampleNotice } from "./sample-notice";
 import type { ShopCardProps } from "./shop-card";
@@ -16,6 +18,7 @@ export type ShopComparisonProps = {
   reference?: ComparisonRow;
   catalogProduct?: ProductMetadata;
   exactProductId?: string;
+  preference?: ComparisonBasisPreference;
   state?: "ready" | "loading" | "error";
   onRetry?: () => void;
   onEdit?: (id: string) => void;
@@ -82,6 +85,7 @@ export function ShopComparison({
   reference,
   catalogProduct,
   exactProductId,
+  preference,
   state = "ready",
   onRetry,
   onEdit,
@@ -91,9 +95,13 @@ export function ShopComparison({
   const photo = product.photo;
   const [sameVariety, setSameVariety] = useState(false);
   const [sameBrand, setSameBrand] = useState(false);
-  const ranked = comparePrices(comparisons, reference, { sameVariety, sameBrand }, catalogProduct, exactProductId);
+  const basis = preference?.basis ?? undefined;
+  const ranked = comparePrices(comparisons, reference, { sameVariety, sameBrand }, catalogProduct, exactProductId, basis);
   const selection = catalogProduct ?? reference;
-  const referenceUnitPrice = normalizedUnitPrice(reference?.unit_price);
+  const referenceUnitPrice = comparisonUnitPrice(reference, basis);
+  const applicableRows = preference ? [reference, ...ranked.groups.flatMap(group => group.entries.map(({ row }) => row)),
+    ...ranked.unranked, ...ranked.differentBasis] : [];
+  const availableBases = packagePriceBases.filter(choice => applicableRows.some(row => Boolean(comparisonUnitPrice(row, choice))));
   const lowestAlternative = ranked.groups.length === 1 ? ranked.groups[0].entries[0]?.unitPrice.amount : undefined;
   const lowest = referenceUnitPrice && lowestAlternative !== undefined ? Math.min(referenceUnitPrice.amount, lowestAlternative) : undefined;
   const referenceLowest = lowest !== undefined && referenceUnitPrice?.amount === lowest;
@@ -126,7 +134,8 @@ export function ShopComparison({
               {reference.capturedOn ? <Text style={styles.small}>Recorded {dateLabel(reference.capturedOn)}</Text> : null}
               {!catalogProduct ? <Text style={styles.small}>{[reference.productType, reference.variety, reference.brand].filter(Boolean).join(" · ")}</Text> : null}
               <View style={styles.referenceActions}>
-                <ComparisonPrices prices={{ price: reference.price, currency: reference.currency, unit_price: referenceUnitPrice ?? reference.unit_price ?? null }}
+                <ComparisonPrices prices={{ price: reference.price, currency: reference.currency,
+                  unit_price: referenceUnitPrice ?? (basis ? null : reference.unit_price ?? null) }}
                   savedUnit={reference.unit_price?.unit} cheapest={referenceLowest} />
                 {onEdit ? <ComparisonEdit label={`Edit ${product.name} at ${referenceShop}`} onPress={() => onEdit(reference.id)} /> : null}
               </View>
@@ -138,6 +147,7 @@ export function ShopComparison({
       {sample ? <SampleNotice /> : null}
 
       <Text accessibilityRole="header" style={styles.heading}>Compare shop prices</Text>
+      {preference && state === "ready" ? <ComparisonBasis preference={preference} available={availableBases} /> : null}
       {selection && state === "ready" ? (
         <>
           {!sample ? <Text style={styles.small}>Saved prices · Check when each price was recorded.</Text> : null}
@@ -198,7 +208,7 @@ export function ShopComparison({
           {ranked.unranked.length > 0 ? (
             <>
               <Text accessibilityRole="header" style={styles.group}>Unranked prices</Text>
-              <Text style={styles.small}>{reference && !referenceUnitPrice
+              <Text style={styles.small}>{basis ? "These prices have no confirmed rate for the selected basis." : reference && !referenceUnitPrice
                 ? "The selected product has no comparable unit price."
                 : "These prices have no comparable unit price."}</Text>
               <View style={styles.offers}>

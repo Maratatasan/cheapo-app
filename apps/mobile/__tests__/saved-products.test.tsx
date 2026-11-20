@@ -9,11 +9,26 @@ import SavedComparison from '../app/compare/[id]';
 import { emptyReview, loadSavedPriceRecords, type LocalPhotoDraft, type ManualPriceRecord } from '../data/local-photo';
 import { openCheapoSavedPriceReads } from '../data/cheapo-shopping-read-device';
 import type { PendingHistoryChange } from '../data/saved-price-history';
+import type { QueuedShoppingMutation } from '../data/shopping-mutation-queue';
+import { shoppingMutation, type ShoppingMutationInput } from '../data/shopping-mutations';
 import { useSavedPriceReads } from '../data/use-saved-price-reads';
 import { CheapoAccessError } from '../lib/cheapo-access/client';
 import { exportSavedShopping } from '../lib/saved-shopping-export';
 
 const mockPush = jest.fn();
+const mockPreferenceRead = jest.fn();
+const mockPreferenceProduct = jest.fn();
+const mockPreferenceEntries: QueuedShoppingMutation[] = [];
+const mockPreferenceQueue = {
+  read: jest.fn(async () => ({ entries: mockPreferenceEntries, recovery: [] })),
+  enqueue: jest.fn(async (input: ShoppingMutationInput) => { mockPreferenceEntries.push({ intent: shoppingMutation.parse(input) }); }),
+};
+const mockPreferenceRuntime = {
+  mutationQueue: mockPreferenceQueue,
+  assertOwner: jest.fn(async () => {}),
+  subscribeSync: jest.fn(() => jest.fn()),
+  retry: jest.fn(async () => {}),
+};
 let mockFocusRevision = 0;
 const mockCacheClearListeners = new Set<() => void>();
 let mockCompareParams: { id: string; source?: string } = { id: 'rice' };
@@ -33,7 +48,9 @@ jest.mock('expo-router', () => ({
   Stack: { Screen: () => null },
   useFocusEffect: (callback: () => void) => require('react').useEffect(callback, [callback, mockFocusRevision]),
 }));
-jest.mock('../component/cheapo-shopping-provider', () => ({ useCheapoShopping: () => mockShoppingRuntime }));
+jest.mock('../component/cheapo-shopping-provider', () => ({
+  useCheapoShopping: () => mockShoppingRuntime && Object.assign(mockShoppingRuntime, mockPreferenceRuntime),
+}));
 
 jest.mock('expo-file-system', () => ({}));
 jest.mock('../data/cheapo-shopping-read-cache', () => ({
@@ -44,8 +61,12 @@ jest.mock('../data/cheapo-shopping-read-cache', () => ({
     },
   },
 }));
-jest.mock('../data/cheapo-shopping-read-device', () => ({ openCheapoSavedPriceReads: jest.fn() }));
 jest.mock('../lib/saved-shopping-export', () => ({ exportSavedShopping: jest.fn() }));
+jest.mock('expo-crypto', () => ({ randomUUID: () => 'comparison-preference' }));
+jest.mock('../data/cheapo-shopping-read-device', () => ({
+  openCheapoSavedPriceReads: jest.fn(),
+  createOwnerShoppingReads: () => ({ findProductById: mockPreferenceProduct, loadComparisonPreference: mockPreferenceRead }),
+}));
 jest.mock('../data/local-photo', () => ({
   ...jest.requireActual('../data/local-photo'),
   loadSavedPriceRecords: jest.fn(),
@@ -75,6 +96,13 @@ const lastSyncedAt = '2026-11-12T13:00:00Z';
 const safeArea = { frame: { x: 0, y: 0, width: 425, height: 680 }, insets: { top: 0, left: 0, bottom: 0, right: 0 } };
 const cached = <T,>(value: T) => ({ status: 'cached' as const, value, lastSyncedAt });
 
+beforeEach(() => {
+  mockPreferenceProduct.mockReset().mockResolvedValue({ status: 'unavailable' });
+  mockPreferenceRead.mockReset().mockResolvedValue({ status: 'unavailable' });
+  mockPreferenceQueue.enqueue.mockClear();
+  mockPreferenceEntries.length = 0;
+});
+
 afterEach(() => {
   mockCompareParams = { id: 'rice' };
   mockShoppingRuntime = null;
@@ -96,6 +124,53 @@ test('exports the selected owner’s protected work through the actual Android S
   } finally {
     platform.restore();
   }
+});
+
+test('checks and saves the personal preference from the existing shared comparison', async () => {
+  jest.mocked(loadSavedPriceRecords).mockResolvedValue([]);
+  const observation = { ...shared, photos: [], selectedPhotoRole: null };
+  mockCompareParams = { id: shared.id, source: 'shared' };
+  mockShoppingRuntime = { owner, priceQueue: { read: jest.fn().mockResolvedValue({ entries: [], recovery: [] }) }, loadPriceChanges: async () => [] };
+  mockPreferenceProduct.mockResolvedValue(cached({ product: { id: shared.productId, name: 'Basmati rice', comparableGroupId: 'dry-rice' } }));
+  mockPreferenceRead.mockResolvedValue(cached({ basis: '100g', version: 2 }));
+  jest.mocked(openCheapoSavedPriceReads).mockResolvedValue({
+    assertCurrent: jest.fn(),
+    loadPriceHistory: jest.fn().mockResolvedValue(cached({ observations: [observation], nextCursor: null })),
+    loadPriceObservation: jest.fn().mockResolvedValue(cached({ observation })),
+    loadPhoto: jest.fn(),
+    loadSelectedPhoto: jest.fn(),
+  });
+  await render(<SafeAreaProvider initialMetrics={safeArea}><SavedComparison /></SafeAreaProvider>);
+  expect(await screen.findByRole('radio', { name: 'Per 100 g', checked: true })).toBeOnTheScreen();
+  expect(mockPreferenceRead).toHaveBeenCalledWith('dry-rice', expect.anything());
+  await fireEvent.press(screen.getByRole('radio', { name: 'Automatic' }));
+  expect(mockPreferenceQueue.enqueue).toHaveBeenCalledWith(expect.objectContaining({
+    action: { kind: 'preference', groupId: 'dry-rice', basis: null, base: { kind: 'version', version: 2 } },
+  }));
+  expect(screen.getByRole('radio', { name: 'Automatic', checked: true })).toBeOnTheScreen();
+});
+
+test('drops replaceable preference state on clear and retains the protected queued choice', async () => {
+  jest.mocked(loadSavedPriceRecords).mockResolvedValue([]);
+  const observation = { ...shared, productId: null, photos: [], selectedPhotoRole: null };
+  mockCompareParams = { id: shared.id, source: 'shared' };
+  mockShoppingRuntime = { owner, priceQueue: { read: jest.fn().mockResolvedValue({ entries: [], recovery: [] }) }, loadPriceChanges: async () => [] };
+  mockPreferenceRead.mockResolvedValue(cached({ basis: 'kg', version: 1 }));
+  jest.mocked(openCheapoSavedPriceReads).mockResolvedValue({
+    assertCurrent: jest.fn(),
+    loadPriceHistory: jest.fn().mockResolvedValue(cached({ observations: [observation], nextCursor: null })),
+    loadPriceObservation: jest.fn().mockResolvedValue(cached({ observation })),
+    loadPhoto: jest.fn(),
+    loadSelectedPhoto: jest.fn(),
+  });
+  await render(<SafeAreaProvider initialMetrics={safeArea}><SavedComparison /></SafeAreaProvider>);
+  expect(await screen.findByRole('radio', { name: 'Per kg', checked: true })).toBeOnTheScreen();
+  await fireEvent.press(screen.getByRole('radio', { name: 'Per 100 g' }));
+  expect(screen.getByText(/Preference last synced/)).toBeOnTheScreen();
+  await act(() => { for (const listener of mockCacheClearListeners) listener(); });
+  expect(screen.queryByText(/Preference last synced/)).not.toBeOnTheScreen();
+  expect(mockPreferenceEntries[0].intent.action).toMatchObject({ kind: 'preference', basis: '100g', groupId: 'type:dry rice' });
+  expect(mockPreferenceRead).toHaveBeenCalledTimes(1);
 });
 
 test('opens shared history and only the selected photo, applying the current owner’s pending correction', async () => {
