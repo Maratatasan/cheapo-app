@@ -7,7 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import type { Product } from '@cheapo/domain';
 import { AddBarcodeProduct, type BarcodeProductDetails } from './add-barcode-product';
 import { BarcodeEditor, BarcodeResultActions } from './barcode-editor';
-import { DisplayState } from './results/display-state';
+import { BarcodeLookupFeedback } from './barcode-lookup-feedback';
 import { ShopComparison, type ComparisonRow } from './results/shop-comparison';
 import { CurrentShopPrice } from './results/current-shop-price';
 import { CameraComponent } from './camera';
@@ -22,9 +22,11 @@ import { addLocalProduct, findLocalProductByBarcode, replaceLocalProductBarcode 
 import { canonicalProductBarcode } from '@/data/product-barcode';
 import { comparisonRowFromDraft } from '@/data/saved-comparison';
 import { calculatePackUnitPrice, emptyReview, reviewComplete, type ManualReview } from '@/data/photo-review';
+import { useEnrolledCatalog } from '@/hooks/use-enrolled-catalog';
 
 type ScanResult =
-  | { kind: 'loading' | 'error' }
+  | { kind: 'loading' }
+  | { kind: 'error'; detail?: string }
   | { kind: 'unknown'; barcode: string }
   | { kind: 'known'; barcode: string; product: Product; comparisons: ComparisonRow[]; reference?: ComparisonRow;
       currentPrice?: Pick<ComparisonRow, 'price' | 'currency'> & { capturedOn: string }; photo?: string };
@@ -56,6 +58,7 @@ async function loadComparison(
 export function BarcodeScan({ currentShop, onScanLabel }: { currentShop?: DraftShop; onScanLabel: () => void }) {
   const router = useRouter();
   const shopping = useCheapoShopping();
+  const catalog = useEnrolledCatalog();
   const loadPrices = shopping?.priceRecords.loadAll ?? loadSavedPriceRecords;
   const shopId = currentShop?.id;
   const [permission, requestPermission] = useCameraPermissions();
@@ -101,7 +104,7 @@ export function BarcodeScan({ currentShop, onScanLabel }: { currentShop?: DraftS
     setSavedOnPhone(false);
     setResult({ kind: 'loading' });
     try {
-      const product = await findLocalProductByBarcode(barcode);
+      const product = catalog ? await catalog.findByBarcode(barcode, signal) : await findLocalProductByBarcode(barcode);
       if (signal.aborted) return;
       if (!product) {
         setResult({ kind: 'unknown', barcode });
@@ -111,8 +114,8 @@ export function BarcodeScan({ currentShop, onScanLabel }: { currentShop?: DraftS
       if (signal.aborted) return;
       selected.current = { product, barcode };
       setResult(comparison);
-    } catch {
-      if (!signal.aborted) setResult({ kind: 'error' });
+    } catch (error) {
+      if (!signal.aborted) setResult({ kind: 'error', detail: catalog && error instanceof Error ? error.message : undefined });
     }
   }
 
@@ -142,7 +145,8 @@ export function BarcodeScan({ currentShop, onScanLabel }: { currentShop?: DraftS
     setSaving(true);
     setBarcodeEdit({ ...barcodeEdit, error: undefined });
     try {
-      const product = await replaceLocalProductBarcode(barcodeEdit.target.id, barcodeEdit.current, proposed);
+      const product = catalog ? await catalog.replaceBarcode(barcodeEdit.target, proposed)
+        : await replaceLocalProductBarcode(barcodeEdit.target.id, barcodeEdit.current, proposed);
       if (signal.aborted) return;
       selected.current = { product, barcode: proposed };
       setResult(current => current?.kind === 'known' ? { ...current, product, barcode: proposed } : current);
@@ -182,7 +186,9 @@ export function BarcodeScan({ currentShop, onScanLabel }: { currentShop?: DraftS
     setSaving(true);
     setSaveError(undefined);
     try {
-      await addLocalProduct({ ...details, id: entry.id, barcode: entry.barcode });
+      const product = { ...details, id: entry.id, barcode: entry.barcode };
+      if (catalog) await catalog.save(product);
+      else await addLocalProduct(product);
       if (!signal.aborted) scanAgain();
     } catch (error) {
       if (!signal.aborted) setSaveError(error instanceof Error ? error.message : 'Could not save this product. Try again.');
@@ -274,15 +280,15 @@ export function BarcodeScan({ currentShop, onScanLabel }: { currentShop?: DraftS
               onEdit={id => router.push({ pathname: '/edit-price/[id]', params: { id } })} />
           </>
         ) : result.kind === 'loading' ? (
-          <DisplayState kind="loading" title="Looking up barcode" description="Checking products saved on this phone." />
+          <BarcodeLookupFeedback state="loading" enrolled={Boolean(catalog)} />
         ) : result.kind === 'unknown' ? (
           <>
             <BarcodeResultActions barcode={result.barcode} onLookup={() => setBarcodeEdit({ current: result.barcode, mode: 'choose' })} />
-            <DisplayState kind="empty" title="Product not found" description="This barcode is not in your saved products."
-              actionLabel="Add product" onAction={() => setEntry({ kind: 'product', id: randomUUID(), barcode: result.barcode })} />
+            <BarcodeLookupFeedback state="missing" enrolled={Boolean(catalog)}
+              onAdd={() => setEntry({ kind: 'product', id: randomUUID(), barcode: result.barcode })} />
           </>
         ) : (
-          <DisplayState kind="error" title="Couldn’t look up barcode" description="Try scanning again." />
+          <BarcodeLookupFeedback state="error" enrolled={Boolean(catalog)} detail={result.detail} />
         )}
       </ScrollView>
       {result.kind !== 'loading' ? <SafeAreaView edges={['bottom']} style={styles.actions}>
