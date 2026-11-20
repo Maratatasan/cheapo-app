@@ -42,7 +42,8 @@ function runtime(owner: PriceQueueOwner, name: string) {
   return {
     owner, retry: jest.fn().mockResolvedValue({ state: 'complete', items: [] }),
     readPending: jest.fn().mockResolvedValue([{ id: 'price:sample', sourceId: 'sample', title: name, state: 'waiting' }]),
-    subscribeSync: jest.fn().mockReturnValue(jest.fn()),
+    productPrices: { pendingDrafts: jest.fn().mockResolvedValue([]) },
+    subscribeSync: jest.fn(() => jest.fn()),
   };
 }
 
@@ -61,13 +62,14 @@ it('mounts the actual Pending route only for the selected owner and drops the ol
   expect(await screen.findByText('First phone price')).toBeOnTheScreen();
   expect(first.retry).toHaveBeenCalledTimes(1);
   const stopFirst = mockWatch.mock.results[0].value;
-  const stopFirstRead = first.subscribeSync.mock.results[0].value;
+  const stopFirstReads = first.subscribeSync.mock.results.map(result => result.value);
 
   await act(() => mockEnrollmentChanged(shopperTwo));
   expect(screen.getByText('Opening shopping')).toBeOnTheScreen();
   expect(screen.queryByText('First phone price')).toBeNull();
   expect(stopFirst).toHaveBeenCalledTimes(1);
-  expect(stopFirstRead).toHaveBeenCalledTimes(1);
+  expect(stopFirstReads).toHaveLength(2);
+  stopFirstReads.forEach(stop => expect(stop).toHaveBeenCalledTimes(1));
   await act(() => finishNext());
   expect(await screen.findByText('Second phone price')).toBeOnTheScreen();
   expect(second.retry).toHaveBeenCalledTimes(1);
