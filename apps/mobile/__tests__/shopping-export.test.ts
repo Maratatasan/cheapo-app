@@ -187,3 +187,56 @@ test('never opens sharing after cancellation', async () => {
   expect(shareAsync).not.toHaveBeenCalled();
   expect(mockDelete).toHaveBeenCalledTimes(1);
 });
+
+test('writes an enrolled recovery ZIP with both source records, full photos and exact queue bytes', async () => {
+  const enrolled = {
+    ...complete, productId: 'remote-product', review: { ...complete.review!, price: '02.39', packSize: ' 500 g ' },
+  };
+  const owner = {
+    origin: 'https://shopping.example',
+    householdId: '93b93988-a027-483e-8c4d-ed58a163fbfa',
+    shopperId: 'd002d3a7-2744-4414-8336-afc644ec6878',
+  };
+  const intent = ' { "operationId": "fix-rice" }\n';
+  const pending = '{"operationId":';
+  const price = ' { "body": "{\\"price\\":\\"02.39\\"}" }\n';
+  const raw = [
+    { path: 'recovery/prices/rice.price.json', bytes: new TextEncoder().encode(price) },
+    { path: 'recovery/mutations/fix-rice.request.json', bytes: new TextEncoder().encode(intent) },
+    { path: 'recovery/mutations/fix-rice.resolution.json.stage.pending', bytes: new TextEncoder().encode(pending) },
+    { path: 'recovery/mutations/partial.intent.json.stage.pending', bytes: new Uint8Array() },
+  ];
+  const assertCurrentOwner = jest.fn(async () => {});
+  await exportShoppingData(new AbortController().signal, shopRepository, async () => ({
+    owner, records: [enrolled], files: raw, priceRecovery: [], mutationRecovery: [], assertCurrentOwner,
+  }));
+  const [[uri]] = jest.mocked(shareAsync).mock.calls;
+  const archive = unzipSync(Buffer.concat(mockWrites.get(uri)!));
+  const manifest = JSON.parse(new TextDecoder().decode(archive['manifest.json']));
+  expect(manifest.version).toBe(4);
+  expect(manifest.records[0].id).toBe(enrolled.id);
+  expect(manifest.records[0].productId).toBe(complete.productId);
+  expect(manifest.recovery).toMatchObject({
+    owner, queueFiles: raw.map(entry => entry.path),
+    interruptedFiles: raw.slice(2).map(entry => entry.path),
+    records: [{ id: enrolled.id, productId: 'remote-product',
+      review: { price: '02.39', packSize: ' 500 g ' },
+      photos: { original: { path: 'enrolled-photos/1/original.jpg' }, selectedPath: 'enrolled-photos/1/crop.jpg' },
+    }],
+  });
+  expect(archive['enrolled-photos/1/original.jpg']).toEqual(mockFiles.get(original.uri));
+  expect(archive['enrolled-photos/1/crop.jpg']).toEqual(mockFiles.get(crop.uri));
+  for (const { path, bytes } of raw) expect(archive[path]).toEqual(bytes);
+  expect(assertCurrentOwner).toHaveBeenCalledTimes(1);
+});
+
+test('retains source files and withholds an enrolled archive when the owner changes before sharing', async () => {
+  const assertCurrentOwner = jest.fn(async () => { throw Error('Owner changed.'); });
+  await expect(exportShoppingData(new AbortController().signal, shopRepository, async () => ({
+    owner: { origin: 'https://shopping.example', householdId: 'fixture-household', shopperId: 'fixture-shopper' },
+    records: [], files: [], priceRecovery: [], mutationRecovery: [], assertCurrentOwner,
+  }))).rejects.toThrow('Could not export');
+  expect(shareAsync).not.toHaveBeenCalled();
+  expect(mockDelete).toHaveBeenCalledTimes(1);
+  expect([...mockFiles.keys()]).toEqual([original.uri, crop.uri]);
+});

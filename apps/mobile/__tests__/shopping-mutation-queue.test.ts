@@ -349,7 +349,7 @@ it('keeps original and replacement conflict files in the active owner backup', a
   mockFiles.set(scope + 'credential.json', 'outside the queue format');
   await (await openShoppingMutationQueue({ ...owner, shopperId: '64db4ca7-3962-4a16-8fee-782f26fd13b4' })).enqueue(createProduct);
 
-  const entries = await queue.backupFiles();
+  const entries = await queue.backup(async snapshot => snapshot.files);
   const copies = Object.fromEntries(entries.map(file => [file.name, new TextDecoder().decode(file.bytes)]));
   expect(Object.keys(copies)).toHaveLength(6);
   expect(copies[`${editPrice.operationId}.intent.json`]).toBe(mockFiles.get(intentFile));
@@ -370,7 +370,27 @@ it('blocks a backup containing access credentials or a signed transfer URL in an
     'https://storage.example/evidence?X-Amz-Signature=fixture-signature',
   ]) {
     mockFiles.set(staged, sample);
-    await expect(queue.backupFiles()).rejects.toThrow('private access information');
+    await expect(queue.backup(async snapshot => snapshot.files)).rejects.toThrow('private access information');
     expect(mockFiles.get(staged)).toBe(sample);
   }
+});
+
+it('holds the mutation publication lock until the dependent price snapshot finishes', async () => {
+  const queue = await openShoppingMutationQueue(owner);
+  await queue.enqueue(createProduct);
+  const captured = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const backup = queue.backup(async snapshot => {
+    captured.resolve();
+    await release.promise;
+    return snapshot.files;
+  });
+  await captured.promise;
+  const later = queue.enqueue({ ...createProduct, operationId: 'later-catalog-creation' });
+  await Promise.resolve();
+  expect([...mockFiles.keys()].some(path => path.includes('later-catalog-creation'))).toBe(false);
+  release.resolve();
+  expect((await backup).map(file => file.name)).toEqual([`${createProduct.operationId}.intent.json`]);
+  await later;
+  expect((await queue.read()).entries).toHaveLength(2);
 });
