@@ -4,6 +4,7 @@ import { View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { PhotoProductLookup, type ProductPhotoLookupProps } from '../component/photo-product-lookup';
+import { ProductIdentitySuggestion } from '../component/photo-analysis-review';
 
 const photo = { uri: new URL('./fixtures/price-label-original.jpg', import.meta.url).href,
   width: 700, height: 490, mimeType: 'image/jpeg' as const };
@@ -65,6 +66,24 @@ export const PossiblePackagingMatch: Story = {
     await expect(compare).toBeVisible();
     await expect(args.candidateLookup?.findCandidates).toHaveBeenCalledWith(
       expect.objectContaining({ name: 'Rolled oats', packSize: '500 g' }), expect.any(AbortSignal));
+    await expect(args.candidateLookup?.onCompare).not.toHaveBeenCalled();
+  },
+};
+
+export const ReviewPackagingSuggestions: Story = {
+  args: { decoded: { status: 'empty' }, candidateLookup: {
+    findCandidates: fn(async () => ({ candidates: [catalogCandidate], truncated: false })), onCompare: fn(),
+    renderIdentitySuggestions: (onApply, disabled) => <ProductIdentitySuggestion disabled={disabled} onApply={onApply}
+      draft={{ product: 'Oat cereal', productType: null, variety: null, brand: 'Sample', packSize: '500 g',
+        uncertainty: 'Check the front of the pack for the full name.', alternatives: { product: ['Rolled oats'] } }} />,
+  } },
+  play: async ({ args, canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole('button', { name: 'Find by packaging details' }));
+    const alternative = canvas.getByRole('radio', { name: 'Product name: Rolled oats' });
+    await userEvent.click(alternative);
+    await expect(alternative).toBeChecked();
+    await expect(canvas.getByLabelText('Product name')).toHaveValue('');
+    await expect(args.candidateLookup?.findCandidates).not.toHaveBeenCalled();
     await expect(args.candidateLookup?.onCompare).not.toHaveBeenCalled();
   },
 };

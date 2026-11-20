@@ -30,7 +30,11 @@ jest.mock('../data/local-products', () => ({
 const mockChoosePhoto = jest.fn();
 let mockFieldPhotoAnalysisEnabled = false;
 const mockRequestPhotoDraft = jest.fn();
-jest.mock('../lib/direct-auth/photo-analysis', () => ({ requestPhotoDraft: (...args: unknown[]) => mockRequestPhotoDraft(...args) }));
+const mockRequestProductIdentityDraft = jest.fn();
+jest.mock('../lib/direct-auth/photo-analysis', () => ({
+  requestPhotoDraft: (...args: unknown[]) => mockRequestPhotoDraft(...args),
+  requestProductIdentityDraft: (...args: unknown[]) => mockRequestProductIdentityDraft(...args),
+}));
 jest.mock('../lib/direct-auth/phone-session', () => ({
   get fieldPhotoAnalysisEnabled() { return mockFieldPhotoAnalysisEnabled; },
   phoneAuth: {
@@ -84,6 +88,7 @@ describe("CameraComponent", () => {
     mockPermission = null;
     mockFieldPhotoAnalysisEnabled = false;
     mockRequestPhotoDraft.mockReset();
+    mockRequestProductIdentityDraft.mockReset();
     mockSaveLocalPhoto.mockReset();
     mockAddLocalProduct.mockReset();
     mockFindLocalProduct.mockReset().mockResolvedValue(undefined);
@@ -261,6 +266,59 @@ describe("CameraComponent", () => {
     expect(screen.getByRole('button', { name: 'Compare saved prices' })).toBeOnTheScreen();
     await fireEvent.press(screen.getByRole('button', { name: 'Retake photo' }));
     expect(screen.getByRole('button', { name: 'Choose photo' })).toBeOnTheScreen();
+  });
+
+  it('applies a deliberately chosen packaging suggestion before a separate catalog check and product choice', async () => {
+    mockPermission = { granted: false };
+    mockFieldPhotoAnalysisEnabled = true;
+    mockChoosePhoto.mockResolvedValue({ uri: 'file:///package.jpg', width: 1200, height: 800, mimeType: 'image/jpeg' });
+    mockRequestProductIdentityDraft.mockResolvedValue({ product: 'Oat cereal', brand: null, variety: null,
+      productType: null, packSize: '500 g', uncertainty: '', alternatives: { product: ['Rolled oats'] } });
+    const candidate = { kind: 'catalog', product: { id: 'oats', name: 'Market rolled oats', comparableGroupId: 'oats-group' } } as const;
+    const findCandidates = jest.fn(async () => ({ candidates: [candidate], truncated: false }));
+    const onCompare = jest.fn();
+    await render(<CameraComponent productLookup={{ onCompare: jest.fn(), candidateLookup: { findCandidates, onCompare } }} />);
+
+    await fireEvent.press(screen.getByRole('button', { name: 'Choose photo' }));
+    await fireEvent.press(await screen.findByRole('button', { name: 'Find by packaging details' }));
+    await fireEvent.changeText(screen.getByLabelText('Brand (optional)'), 'Market');
+    expect(mockRequestProductIdentityDraft).not.toHaveBeenCalled();
+    await fireEvent.press(screen.getByRole('button', { name: 'Analyse packaging photo' }));
+    await fireEvent.press(await screen.findByRole('radio', { name: 'Product name: Rolled oats' }));
+    expect(screen.getByLabelText('Product name')).toHaveDisplayValue('');
+    await fireEvent.press(screen.getByRole('button', { name: 'Use suggested details' }));
+
+    expect(screen.getByLabelText('Product name')).toHaveDisplayValue('Rolled oats');
+    expect(screen.getByLabelText('Brand (optional)')).toHaveDisplayValue('Market');
+    expect(findCandidates).not.toHaveBeenCalled();
+    expect(mockRequestProductIdentityDraft).toHaveBeenCalledWith({ accessToken: 'test-token',
+      image: 'data:image/jpeg;base64,/9j/', signal: expect.any(AbortSignal) });
+    expect(mockRequestPhotoDraft).not.toHaveBeenCalled();
+    expect(mockSaveLocalPhoto).not.toHaveBeenCalled();
+
+    await fireEvent.press(screen.getByRole('button', { name: 'Check catalog' }));
+    const compare = await screen.findByRole('button', { name: 'Compare Market rolled oats' });
+    expect(onCompare).not.toHaveBeenCalled();
+    await fireEvent.press(compare);
+    expect(onCompare).toHaveBeenCalledWith(candidate);
+    expect(screen.getByLabelText('Product photo')).toHaveProp('source', { uri: 'file:///package.jpg' });
+  });
+
+  it('keeps manual packaging entry usable when optional analysis fails', async () => {
+    mockPermission = { granted: false };
+    mockFieldPhotoAnalysisEnabled = true;
+    mockChoosePhoto.mockResolvedValue({ uri: 'file:///package.jpg', width: 1200, height: 800, mimeType: 'image/jpeg' });
+    mockRequestProductIdentityDraft.mockRejectedValue(Error('Photo analysis temporarily unavailable.'));
+    const findCandidates = jest.fn(async () => ({ candidates: [], truncated: false }));
+    await render(<CameraComponent productLookup={{ onCompare: jest.fn(), candidateLookup: { findCandidates, onCompare: jest.fn() } }} />);
+    await fireEvent.press(screen.getByRole('button', { name: 'Choose photo' }));
+    await fireEvent.press(await screen.findByRole('button', { name: 'Find by packaging details' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Analyse packaging photo' }));
+    expect(await screen.findByText('Photo analysis temporarily unavailable.')).toBeOnTheScreen();
+    await fireEvent.changeText(screen.getByLabelText('Product name'), 'Oats');
+    await fireEvent.press(screen.getByRole('button', { name: 'Check catalog' }));
+    expect(await screen.findByText('No matching products found')).toBeOnTheScreen();
+    expect(mockSaveLocalPhoto).not.toHaveBeenCalled();
   });
 
   it('keeps the packaging photo and newer code when an older lookup finishes or the service is unavailable', async () => {
