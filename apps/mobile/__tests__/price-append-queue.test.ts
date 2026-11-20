@@ -3,7 +3,9 @@ import { Directory, File, Paths } from 'expo-file-system';
 import { emptyReview, type ManualPriceRecord } from '../data/local-photo';
 import { openPriceAppendQueue } from '../data/price-append-queue';
 import { createPriceAppendSync } from '../data/price-append-sync';
+import { createPriceEvidenceSync } from '../data/price-evidence-sync';
 import { createPriceRecords } from '../data/price-records';
+import type { PricePhotoIntent } from '../data/cheapo-price-photo-transfer';
 
 const mockFiles = new Map<string, string>();
 let mockFailedPublication = /$a/;
@@ -69,6 +71,23 @@ function fixtureSession(post: (serialized: string, signal?: AbortSignal) => Prom
       return post(init.body, init.signal ?? undefined);
     },
   };
+}
+
+async function photoEvidence() {
+  const directory = new Directory(Paths.document, 'price-photos');
+  const originalFile = new File(directory, `${record.id}-original.jpg`);
+  const selectedFile = new File(directory, `${record.id}-selected-123.jpg`);
+  await originalFile.write('synthetic original');
+  await selectedFile.write('synthetic crop');
+  const original = { uri: originalFile.uri, width: 120, height: 100, size: originalFile.size, mimeType: 'image/jpeg' as const };
+  const selected = { uri: selectedFile.uri, width: 80, height: 60, size: selectedFile.size, mimeType: 'image/jpeg' as const };
+  const photo = { ...record, original, selected };
+  const common = { sourceId: record.id, observationId: receipt.id };
+  const intents: PricePhotoIntent[] = [
+    { ...common, role: 'original', uri: original.uri, width: original.width, height: original.height, sha256: 'a'.repeat(64), byteCount: original.size },
+    { ...common, role: 'crop', uri: selected.uri, width: selected.width, height: selected.height, sha256: 'b'.repeat(64), byteCount: selected.size },
+  ];
+  return { photo, intents };
 }
 
 beforeEach(() => {
@@ -280,4 +299,61 @@ it('keeps a committed price readable when its request or acknowledgement needs r
   expect(await createPriceAppendSync(queue, open)()).toBe('failed');
   expect(open).not.toHaveBeenCalled();
   expect(mockFiles.get(bodyPath)).toContain('{damaged');
+});
+
+it('persists only acknowledged prices’ upload plans and retries only the unverified evidence role after restart', async () => {
+  const { photo, intents } = await photoEvidence();
+  const queue = await openPriceAppendQueue(owner);
+  await queue.save(photo);
+  const open = jest.fn(async () => fixtureSession(jest.fn()));
+  const describe = jest.fn(async () => intents);
+  const transfer = jest.fn<Promise<'available' | 'retry'>, [PricePhotoIntent]>()
+    .mockImplementation(async intent => intent.role === 'original' ? 'available' : 'retry');
+  const sync = createPriceEvidenceSync(queue, open, describe, transfer);
+  expect(await sync()).toBe('complete');
+  expect(describe).not.toHaveBeenCalled();
+  expect(open).not.toHaveBeenCalled();
+  await queue.acknowledge(record.id, receipt);
+
+  expect(await sync()).toBe('failed');
+  expect(describe).toHaveBeenCalledTimes(1);
+  expect(transfer.mock.calls.map(([intent]) => intent)).toEqual(intents);
+  const reopened = await openPriceAppendQueue({ ...owner });
+  expect(await reopened.evidence.load({ record: photo, receipt })).toEqual([intents[1]]);
+  const retry = jest.fn(async () => 'available' as const);
+  expect(await createPriceEvidenceSync(reopened, open, describe, retry)()).toBe('complete');
+  expect(describe).toHaveBeenCalledTimes(1);
+  expect(retry).toHaveBeenCalledTimes(1);
+  expect(retry).toHaveBeenCalledWith(intents[1], expect.any(Object), undefined);
+  expect(await reopened.evidence.load({ record: photo, receipt })).toEqual([]);
+  expect(await (await openPriceAppendQueue(owner)).evidence.load({ record: photo, receipt })).toEqual([]);
+  expect(mockFiles.get(photo.original.uri)).toBe('synthetic original');
+  expect(mockFiles.get(photo.selected.uri)).toBe('synthetic crop');
+});
+
+it('keeps the evidence plan on another enrollment and retries an interrupted role acknowledgement', async () => {
+  const { photo, intents } = await photoEvidence();
+  const queue = await openPriceAppendQueue(owner);
+  await queue.save(photo);
+  await queue.acknowledge(record.id, receipt);
+  const describe = jest.fn(async () => intents);
+  const transfer = jest.fn(async () => 'available' as const);
+  const wrongSession = async () => fixtureSession(jest.fn(), other);
+  expect(await createPriceEvidenceSync(queue, wrongSession, describe, transfer)()).toBe('blocked');
+  expect(transfer).not.toHaveBeenCalled();
+  expect(await queue.evidence.load({ record: photo, receipt })).toEqual(intents);
+  expect(await (await openPriceAppendQueue(other)).evidence.load({ record: photo, receipt })).toBeNull();
+
+  const open = async () => fixtureSession(jest.fn());
+  mockFailedPublication = /\.crop\.evidence-available\.json$/;
+  expect(await createPriceEvidenceSync(queue, open, describe, transfer)()).toBe('failed');
+  expect(await queue.evidence.load({ record: photo, receipt })).toEqual([intents[1]]);
+  expect(mockFiles.get(photo.selected.uri)).toBe('synthetic crop');
+  mockFailedPublication = /$a/;
+  expect(await createPriceEvidenceSync(await openPriceAppendQueue(owner), open, describe, transfer)()).toBe('complete');
+  expect(describe).toHaveBeenCalledTimes(1);
+  expect(transfer.mock.calls).toEqual([
+    [intents[0], expect.any(Object), undefined], [intents[1], expect.any(Object), undefined],
+    [intents[1], expect.any(Object), undefined],
+  ]);
 });
