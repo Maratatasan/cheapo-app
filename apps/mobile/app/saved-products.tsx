@@ -10,7 +10,7 @@ import { SavedPriceDetails, SavedPriceHistoryList } from '@/component/saved-pric
 import { PendingPriceNotice, SharedPriceEvidence } from '@/component/shared-price-evidence';
 import { loadSavedPriceRecords, reviewComplete, type SavedPriceRecord } from '@/data/local-photo';
 import type { PriceQueueOwner } from '@/data/price-append-queue';
-import { projectLocalPrice, projectSharedPrice, savedPriceHistoryRows, type PendingHistoryChange } from '@/data/saved-price-history';
+import { projectLocalPrice, savedPriceHistoryRows, type PendingHistoryChange } from '@/data/saved-price-history';
 import { useSavedPriceReads, type SavedPriceQueueRead } from '@/data/use-saved-price-reads';
 import { exportSavedShopping } from '@/lib/saved-shopping-export';
 
@@ -40,7 +40,6 @@ export function SavedProductsScreen({ priceQueue = null, loadPriceChanges, expor
     .find(row => row.key === openedId);
   const openedView = openedRow && projectLocalPrice(openedRow, changes);
   const opened = openedView?.display;
-  const sharedView = detail && 'observation' in detail ? projectSharedPrice(detail.observation, changes) : undefined;
   const [original, setOriginal] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string>();
@@ -81,9 +80,9 @@ export function SavedProductsScreen({ priceQueue = null, loadPriceChanges, expor
   return (
     <>
       <Stack.Screen options={{ title: 'Saved products and photos' }} />
-      {detail && 'observation' in detail && sharedView ? (
-        <SharedPriceEvidence observation={sharedView.display} lastSyncedAt={detail.lastSyncedAt}
-          cached={detail.status === 'cached'} activeRole={detail.role} photo={detail.photo} pendingChange={sharedView.pending}
+      {detail && 'observation' in detail ? (
+        <SharedPriceEvidence observation={detail.observation} lastSyncedAt={detail.lastSyncedAt}
+          cached={detail.status === 'cached'} activeRole={detail.role} photo={detail.photo} pendingChange={detail.pending}
           onPhotoRole={role => { void openShared(detail.id, role); }}
           onRetryPhoto={() => { void openShared(detail.id, detail.role ?? undefined); }} onBack={closeShared}
           onCompare={() => router.push({ pathname: '/compare/[id]', params: { id: detail.id, source: 'shared' } })}

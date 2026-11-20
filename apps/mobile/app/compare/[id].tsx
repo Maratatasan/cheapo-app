@@ -1,5 +1,5 @@
-import type { PriceHistoryQuery } from '@cheapo/domain/price-history';
-import { useCallback, useRef, useState } from 'react';
+import type { PriceHistoryQuery, PriceObservationDetail } from '@cheapo/domain/price-history';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { Button, Platform, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -9,9 +9,11 @@ import { MarketScanActions } from '@/component/results/market-scan-actions';
 import { DisplayState } from '@/component/results/display-state';
 import { ShopComparison } from '@/component/results/shop-comparison';
 import { marketColor, ui } from '@/component/results/theme';
+import { cheapoShoppingReadCache } from '@/data/cheapo-shopping-read-cache';
 import { openCheapoSavedPriceReads } from '@/data/cheapo-shopping-read-device';
 import { loadSavedPriceRecords } from '@/data/local-photo';
-import { comparisonRowFromSavedHistory, keptSharedPrice, savedPriceHistoryRows, type PendingHistoryChange, type SavedPriceHistoryRow } from '@/data/saved-price-history';
+import { comparisonRowFromSavedHistory, keptSharedPrice, projectSharedPrice, savedPriceHistoryRows, type PendingHistoryChange, type SavedPriceHistoryRow } from '@/data/saved-price-history';
+import { viewedPricePhotoRoles } from '@/data/selected-price-photo-read';
 import { CheapoAccessError } from '@/lib/cheapo-access/client';
 
 type Runtime = ReturnType<typeof useCheapoShopping>;
@@ -72,6 +74,31 @@ async function readOffers(reader: Reader, state: ComparisonState, initialQuery: 
     next: page.value.nextCursor ? { reader, query, cursor: page.value.nextCursor } : undefined };
 }
 
+async function readReferencePhoto(reader: Reader, reference: SavedPriceHistoryRow | undefined, changes: readonly PendingHistoryChange[],
+  signal: AbortSignal, latest: () => boolean, checkedDetail?: PriceObservationDetail) {
+  if (!latest() || reference?.source !== 'shared') return undefined;
+  const { id, version } = reference.observation;
+  let detail = checkedDetail;
+  try {
+    if (detail?.id !== id || detail.version < version) {
+      const read = await reader.loadPriceObservation(id, signal);
+      reader.assertCurrent();
+      if (!latest() || read?.status === 'unavailable') return undefined;
+      detail = read?.value.observation ?? undefined;
+      if (!detail || detail.version < version) return undefined;
+    }
+    const selection = projectSharedPrice(detail, changes).display;
+    const role = selection.selectedPhotoRole;
+    if (!role || !viewedPricePhotoRoles(selection).some(photo => photo.role === role && photo.availability !== 'pending')) return undefined;
+    const photo = await reader.loadSelectedPhoto(selection, role, signal);
+    reader.assertCurrent();
+    return latest() && photo.status !== 'unavailable' ? photo.value.uri : undefined;
+  } catch (error) {
+    if (error instanceof CheapoAccessError) throw error;
+    return undefined;
+  }
+}
+
 export default function SavedComparison() {
   const router = useRouter();
   const shopping = useCheapoShopping();
@@ -83,6 +110,16 @@ export default function SavedComparison() {
   const request = useRef(0);
   const focus = useRef<AbortController | null>(null);
   const current = state?.runtime === shopping && state.key === key ? state : undefined;
+
+  useEffect(() => {
+    if (!shopping) return;
+    return cheapoShoppingReadCache.subscribeClear(() => {
+      request.current++;
+      setState(undefined);
+      setPaging(false);
+      setError(true);
+    });
+  }, [shopping]);
 
   const refresh = useCallback(async (signal: AbortSignal) => {
     const generation = ++request.current;
@@ -115,22 +152,16 @@ export default function SavedComparison() {
       const input: LocalInputs = { ...localInput, shared: cloudReference ? [cloudReference] : [] };
       const selected = cloudReference ? savedPriceHistoryRows(input).find(row => row.key === `shared:${cloudReference.id}`) : localReference;
       const query = selected && comparisonQuery(comparisonRowFromSavedHistory(selected, changes));
-      const selectedPhotoUri = localReference?.source !== 'shared' ? localReference?.record.selected?.uri : undefined;
+      const selectedPhotoUri = !cloudReference && localReference?.source !== 'shared' ? localReference?.record.selected?.uri : undefined;
       const initial = { key, runtime: shopping, input, reference: selected, changes, photoUri: selectedPhotoUri, cached: Boolean(kept) };
       setState(initial);
       const offers = await readOffers(reader, initial, query, signal, latest);
       if (!latest()) return;
-      setState(offers);
-      const role = cloudReference?.selectedPhotoRole;
-      if (role && cloudReference?.photos.some(photo => photo.role === role && photo.availability !== 'pending')) {
-        const photo = await reader.loadPhoto(cloudReference.id, role, signal).catch(error => {
-          if (error instanceof CheapoAccessError) throw error;
-          return null;
-        });
-        reader.assertCurrent();
-        if (latest() && photo && photo.status !== 'unavailable') {
-          setState(previous => previous?.key === key && previous.runtime === shopping ? { ...previous, photoUri: photo.value.uri } : previous);
-        }
+      const sharedReference = offers.reference?.source === 'shared';
+      setState(sharedReference ? { ...offers, photoUri: undefined } : offers);
+      const photoUri = await readReferencePhoto(reader, offers.reference, changes, signal, latest, cloudReference ?? undefined);
+      if (latest() && photoUri) {
+        setState(previous => previous?.input === offers.input ? { ...previous, photoUri } : previous);
       }
     } catch {
       if (!latest()) return;
@@ -157,10 +188,20 @@ export default function SavedComparison() {
     try {
       const result = await readOffers(next.reader, current, next.query, signal, latest, next.cursor);
       if (!latest()) return;
+      const reference = result.reference;
+      const before = current.reference;
+      const changedPhoto = reference?.source === 'shared' && (before?.source !== 'shared'
+        || reference.key !== before.key || reference.observation.version !== before.observation.version);
       setState(previous => {
         if (!latest() || !previous || previous.next !== next) return previous;
-        return { ...result, photoUri: previous.photoUri };
+        return { ...result, photoUri: changedPhoto ? undefined : previous.photoUri };
       });
+      if (changedPhoto) {
+        const photoUri = await readReferencePhoto(next.reader, reference, result.changes, signal, latest);
+        if (latest() && photoUri) {
+          setState(previous => previous?.input === result.input ? { ...previous, photoUri } : previous);
+        }
+      }
     } catch (failure) {
       if (!latest()) return;
       if (failure instanceof CheapoAccessError) void refresh(signal);

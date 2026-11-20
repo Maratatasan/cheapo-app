@@ -131,3 +131,39 @@ export const KeptCloudOffline: Story = {
     await expect(canvas.getByLabelText('Original price photo')).toBeVisible();
   },
 };
+
+function RevisedPhotoPreview({ selected }: { selected: PriceEvidenceRole }) {
+  const observationForView: PriceObservationDetail = {
+    ...observation,
+    version: 2,
+    cropSource: 'original',
+    cropBox: selected === 'crop' ? observation.cropBox : null,
+    selectedPhotoRole: selected,
+  };
+  const [role, setRole] = useState(selected);
+  return <View style={{ width: '100%', maxWidth: frame.width, height: frame.height }}>
+    <SafeAreaProvider initialMetrics={{ frame, insets }}>
+      <SharedPriceEvidence observation={observationForView} cached activeRole={role}
+        photo={{ role, status: 'cached', uri: images[role] }} onPhotoRole={setRole}
+        onRetryPhoto={() => {}} onBack={() => {}} />
+    </SafeAreaProvider>
+  </View>;
+}
+
+export const RevisedCrop: Story = {
+  render: () => <RevisedPhotoPreview selected="crop" />,
+  play: async ({ canvas, userEvent }) => {
+    await expect(canvas.getByLabelText('Cropped price photo')).toBeVisible();
+    await userEvent.click(canvas.getByRole('button', { name: 'Original' }));
+    await expect(canvas.getByLabelText('Original price photo')).toBeVisible();
+    await userEvent.click(canvas.getByRole('button', { name: 'Crop' }));
+  },
+};
+
+export const RevertedToOriginal: Story = {
+  render: () => <RevisedPhotoPreview selected="original" />,
+  play: async ({ canvas }) => {
+    await expect(canvas.getByLabelText('Original price photo')).toBeVisible();
+    await expect(canvas.queryByRole('button', { name: 'Crop' })).toBeNull();
+  },
+};
