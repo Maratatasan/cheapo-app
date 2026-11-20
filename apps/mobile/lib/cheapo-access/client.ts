@@ -5,6 +5,7 @@ const credentialFormat = /^cheapo_[A-Za-z0-9_-]{43}$/;
 const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 const checkDeadlineMs = 40_000;
 const checkRetryDelayMs = 16_000;
+const shoppingWriteMethods = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
 type ProtectedStorage = {
   getItem(key: string): Promise<string | null>;
@@ -42,7 +43,6 @@ export function createCheapoAccess(
   if (!parsedOrigin) throw new Error("Invalid Cheapo API origin.");
   const origin = parsedOrigin;
   const probeUrl = new URL("/v1/me", origin);
-  const appendUrl = new URL("/v1/me/price-observations", origin);
   let enrollmentRevision = 0;
   let pendingEnrollmentWrite: Promise<unknown> = Promise.resolve();
 
@@ -201,21 +201,23 @@ export function createCheapoAccess(
       assertEnrollment(revision);
       return enrollment?.identity ? { origin, ...enrollment.identity } : null;
     },
-    async openPriceAppendSession() {
+    async openShoppingWriteSession() {
       const revision = enrollmentRevision;
       const enrollment = await requiredEnrollment(revision);
       const checked = await verifyEnrollment(enrollment, revision);
       if (checked.state === "denied") throw new CheapoAccessError("Cheapo access ended. Ask your operator for a replacement.");
       if (checked.state !== "connected") throw Error("Could not verify Cheapo access. Try again online.");
       assertEnrollment(revision);
+      const assertCurrent = () => assertEnrollment(revision);
       return {
         owner: Object.freeze({ origin, ...checked.identity }),
-        async post(body: string, signal?: AbortSignal) {
-          assertEnrollment(revision);
-          const response = await authenticatedRequest(appendUrl, enrollment.credential, {
-            method: "POST", headers: { "Content-Type": "application/json" }, body, signal,
-          });
-          assertEnrollment(revision);
+        assertCurrent,
+        async request(path: string, init: RequestInit) {
+          assertCurrent();
+          const method = init.method?.toUpperCase();
+          if (!method || !shoppingWriteMethods.has(method)) throw Error("Choose a Cheapo write method.");
+          const response = await authenticatedRequest(apiUrl(path), enrollment.credential, { ...init, method });
+          assertCurrent();
           return response;
         },
       };

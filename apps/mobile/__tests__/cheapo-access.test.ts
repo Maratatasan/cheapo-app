@@ -70,16 +70,21 @@ test("binds a queued write to the credential and owner verified in the same sess
   const { storage, transport } = fixtures();
   const access = createCheapoAccess(origin, storage, transport);
   await access.enroll(first);
-  const firstSession = await access.openPriceAppendSession();
+  const firstSession = await access.openShoppingWriteSession();
   expect(firstSession.owner).toEqual({ origin, ...identity });
   await access.enroll(replacement);
   expect(await access.lastVerifiedOwner()).toEqual(firstSession.owner);
   const serialized = JSON.stringify({ sourceId: "fixture-1" });
-  await expect(firstSession.post(serialized)).rejects.toThrow(/access changed/);
-  const newSession = await access.openPriceAppendSession();
+  const path = "/v1/me/price-observations";
+  const write = { method: "POST", body: serialized };
+  await expect(firstSession.request(path, write)).rejects.toThrow(/access changed/);
+  expect(firstSession.assertCurrent).toThrow(/access changed/);
+  const newSession = await access.openShoppingWriteSession();
   expect(newSession.owner).toEqual(firstSession.owner);
+  await expect(newSession.request("https://files.example/object", write)).rejects.toThrow(/Invalid Cheapo API path/);
+  await expect(newSession.request(path, { method: "GET" })).rejects.toThrow(/write method/);
   transport.mockResolvedValueOnce(new Response(null, { status: 403 }));
-  await expect(newSession.post(serialized)).rejects.toThrow(/access ended/);
+  await expect(newSession.request(path, write)).rejects.toThrow(/access ended/);
   const [url, request] = transport.mock.calls.at(-1)!;
   expect(url).toBe(`${origin}/v1/me/price-observations`);
   expect(request.method).toBe("POST");
@@ -104,7 +109,7 @@ test("rejects owner changes on a probe and cannot persist a legacy upgrade after
 
   await access.enroll(first);
   transport.mockResolvedValueOnce(Response.json({ ...identity, shopperId: "64db4ca7-3962-4a16-8fee-782f26fd13b4" }));
-  await expect(access.openPriceAppendSession()).rejects.toThrow(/access changed/);
+  await expect(access.openShoppingWriteSession()).rejects.toThrow(/access changed/);
   expect(await access.lastVerifiedOwner()).toEqual({ origin, ...identity });
 });
 
@@ -115,13 +120,33 @@ test("invalidates a session opened while a different enrollment was still being 
   let confirm!: (response: Response) => void;
   transport.mockImplementationOnce(() => new Promise(resolve => { confirm = resolve; }));
   const enrolling = access.enroll(replacement);
-  const previous = await access.openPriceAppendSession();
+  const previous = await access.openShoppingWriteSession();
   const different = { ...identity, shopperId: "64db4ca7-3962-4a16-8fee-782f26fd13b4" };
   confirm(Response.json(different));
   await enrolling;
   expect(await access.lastVerifiedOwner()).toEqual({ origin, ...different });
-  await expect(previous.post('{}')).rejects.toThrow(/access changed/);
+  await expect(previous.request("/v1/me/price-observations", { method: "POST", body: "{}" })).rejects.toThrow(/access changed/);
   expect(transport.mock.calls.filter(([, options]) => options.method === "POST")).toHaveLength(0);
+});
+
+test("drops a shop write reply from an enrollment cleared while the request was pending", async () => {
+  const { storage, transport } = fixtures();
+  const access = createCheapoAccess(origin, storage, transport);
+  await access.enroll(first);
+  const session = await access.openShoppingWriteSession();
+  let reply!: (response: Response) => void;
+  transport.mockImplementationOnce(() => new Promise(resolve => { reply = resolve; }));
+  const writing = session.request("/v1/me/saved-shops/branch-1", { method: "PATCH", redirect: "follow", body: "{}" });
+  const [url, request] = transport.mock.calls.at(-1)!;
+  expect(url).toBe(`${origin}/v1/me/saved-shops/branch-1`);
+  expect(request.method).toBe("PATCH");
+  expect(request.redirect).toBe("error");
+  expect(new Headers(request.headers).get("Authorization")).toBe(`Bearer ${first}`);
+
+  await access.clear();
+  reply(Response.json({}));
+  await expect(writing).rejects.toThrow(/access changed/);
+  expect(session.assertCurrent).toThrow(/access changed/);
 });
 
 test("blocks off-origin requests and cannot reuse the credential on a different build origin", async () => {
