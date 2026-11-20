@@ -142,6 +142,22 @@ conflicting ID, barcode, or review payload returns `409` with the existing
 canonical product for review. Use a separate correction operation to change
 saved details. No lookup or creation matches products by name.
 
+## Price observation history
+
+Call `GET /v1/me/price-observations` with a Cheapo bearer credential to list
+completed observations eligible for the shopper's household history. The
+response includes `observations` and `nextCursor`. Pages default to 30 entries.
+Use `limit` from 1 to 50 and send the returned `nextCursor` as `cursor` until
+the response cursor is `null`.
+
+Use each observation's `id` in the phone cache and carry its `version` for
+later edits. `sourceId` preserves the original record ID. UTC capture times
+retain microseconds and price amounts use decimal strings. A legacy
+observation can have a missing catalog or branch link and still carry the
+original source IDs and product or shop names. Photos identify the original
+or crop by role and provide its dimensions. The archive retains drafts and
+test-shop history for private recovery.
+
 ## Shopping history storage
 
 Migration `002` adds tables for the offline restore in
