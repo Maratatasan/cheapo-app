@@ -38,7 +38,7 @@ type ScanResult =
   | { kind: 'loading' }
   | { kind: 'error'; detail?: string }
   | { kind: 'unknown'; barcode: string }
-  | { kind: 'known'; barcode: string; product: Product; comparisons: ComparisonRow[]; reference?: ComparisonRow;
+  | { kind: 'known'; barcode?: string; product: Product; comparisons: ComparisonRow[]; reference?: ComparisonRow;
       currentPrice?: Pick<ComparisonRow, 'price' | 'currency'> & { capturedOn: string }; photo?: string;
       history?: BarcodeSharedPriceHistory };
 
@@ -47,13 +47,14 @@ type ScanEntry =
   | { kind: 'price'; record: ManualPriceRecord; barcode?: string };
 
 type BarcodeEdit = { current: string; target?: Product; proposed?: string; mode: 'choose' | 'scan' | 'manual'; error?: string };
+type LookupKey = { barcode: string } | { productId: string };
 
 function packLabel(pack: Product['pack']) {
   return pack && (pack.label ?? `${pack.quantity} ${pack.unit}`);
 }
 
 async function loadComparison(
-  product: Product, shopId: string | undefined, barcode: string, signal: AbortSignal,
+  product: Product, shopId: string | undefined, barcode: string | undefined, signal: AbortSignal,
   shopping: CheapoShoppingRuntime | null, previous?: BarcodeSharedPriceHistory, localOnly = false,
 ): Promise<Extract<ScanResult, { kind: 'known' }>> {
   if (shopping) {
@@ -71,8 +72,8 @@ async function loadComparison(
     reference: linked?.row, currentPrice: current?.row, photo: linked?.draft.selected?.uri };
 }
 
-export function BarcodeScan({ currentShop, onScanLabel, initialBarcode }: {
-  currentShop?: DraftShop; onScanLabel: () => void; initialBarcode?: string;
+export function BarcodeScan({ currentShop, onScanLabel, initialBarcode, initialProductId }: {
+  currentShop?: DraftShop; onScanLabel: () => void; initialBarcode?: string; initialProductId?: string;
 }) {
   const router = useRouter();
   const shopping = useCheapoShopping();
@@ -80,7 +81,7 @@ export function BarcodeScan({ currentShop, onScanLabel, initialBarcode }: {
   const shopId = currentShop?.id;
   const [permission, requestPermission] = useCameraPermissions();
   const [focused, setFocused] = useState(false);
-  const [result, setResult] = useState<ScanResult | undefined>(() => initialBarcode ? { kind: 'loading' } : undefined);
+  const [result, setResult] = useState<ScanResult | undefined>(() => initialBarcode || initialProductId ? { kind: 'loading' } : undefined);
   const [entry, setEntry] = useState<ScanEntry>();
   const [barcodeEdit, setBarcodeEdit] = useState<BarcodeEdit>();
   const [capture, setCapture] = useState(false);
@@ -95,30 +96,34 @@ export function BarcodeScan({ currentShop, onScanLabel, initialBarcode }: {
   const reads = useRef<AbortController | null>(null);
   const readingPhoto = useRef<AbortController | null>(null);
   const reading = useRef(false);
-  const initialLookup = useRef(initialBarcode);
-  const selected = useRef<{ product: Product; barcode: string } | undefined>(undefined);
+  const initialLookup = useRef<LookupKey | undefined>(initialProductId ? { productId: initialProductId }
+    : initialBarcode ? { barcode: initialBarcode } : undefined);
+  const selected = useRef<{ product: Product; barcode?: string; owner: CheapoShoppingRuntime | null } | undefined>(undefined);
   const pendingSave = useRef(false);
-  const lookup = useCallback(async (barcode: string) => {
+  const lookup = useCallback(async (key: LookupKey) => {
     const signal = reads.current?.signal;
     if (!signal || reading.current) return;
     reading.current = true;
     setSaved(undefined);
     setResult({ kind: 'loading' });
     try {
-      const product = await findCatalogProductByBarcode(catalog, barcode, signal);
+      const product = 'barcode' in key ? await findCatalogProductByBarcode(catalog, key.barcode, signal)
+        : await catalog?.findById(key.productId, signal);
       if (signal.aborted) return;
       if (!product) {
-        setResult({ kind: 'unknown', barcode });
+        setResult('barcode' in key ? { kind: 'unknown', barcode: key.barcode }
+          : { kind: 'error', detail: 'This saved product is unavailable.' });
         return;
       }
+      const barcode = 'barcode' in key ? key.barcode : product.barcode;
       const comparison = await loadComparison(product, shopId, barcode, signal, shopping);
       if (signal.aborted) return;
-      selected.current = { product, barcode };
+      selected.current = { product, barcode, owner: shopping };
       setResult(comparison);
     } catch (error) {
       if (!signal.aborted) setResult({ kind: 'error', detail: catalog && error instanceof Error ? error.message : undefined });
     } finally {
-      if (!signal.aborted && initialLookup.current === barcode) initialLookup.current = undefined;
+      if (!signal.aborted && initialLookup.current === key) initialLookup.current = undefined;
     }
   }, [catalog, shopId, shopping]);
   const referencePhoto = result?.kind === 'known' && !entry && !barcodeEdit ? result.history?.referencePhoto : undefined;
@@ -147,6 +152,11 @@ export function BarcodeScan({ currentShop, onScanLabel, initialBarcode }: {
     active.current = controller;
     reads.current = read;
     setFocused(true);
+    if (selected.current && selected.current.owner !== shopping) {
+      selected.current = undefined;
+      setResult(undefined);
+      if (initialProductId) initialLookup.current = { productId: initialProductId };
+    }
     if (selected.current) {
       loadComparison(selected.current.product, shopId, selected.current.barcode, read.signal, shopping).then(next => {
         if (!read.signal.aborted) setResult(next);
@@ -167,7 +177,7 @@ export function BarcodeScan({ currentShop, onScanLabel, initialBarcode }: {
         setResult(current => current?.kind === 'loading' ? undefined : current);
       }
     };
-  }, [lookup, shopping, shopId]));
+  }, [initialProductId, lookup, shopping, shopId]));
 
   useEffect(() => {
     if (!shopping) return;
@@ -185,7 +195,7 @@ export function BarcodeScan({ currentShop, onScanLabel, initialBarcode }: {
         return;
       }
       const signal = reads.current?.signal;
-      setResult({ kind: 'known', ...selection, comparisons: [],
+      setResult({ kind: 'known', barcode: selection.barcode, product: selection.product, comparisons: [],
         history: { pages: [], hasMore: false, cached: false, unavailable: true, referencePhoto: undefined, lastSyncedAt: undefined } });
       if (!signal) return;
       void loadComparison(selection.product, shopId, selection.barcode, signal, shopping, undefined, true).then(next => {
@@ -198,7 +208,7 @@ export function BarcodeScan({ currentShop, onScanLabel, initialBarcode }: {
     if (barcodeEdit?.mode === 'scan') {
       setBarcodeEdit(current => current?.mode === 'scan'
         ? { ...current, mode: 'choose', proposed: barcode, error: undefined } : current);
-    } else void lookup(barcode);
+    } else void lookup({ barcode });
   }
 
   async function confirmBarcode() {
@@ -213,7 +223,7 @@ export function BarcodeScan({ currentShop, onScanLabel, initialBarcode }: {
       setBarcodeEdit(undefined);
       selected.current = undefined;
       reading.current = false;
-      await lookup(proposed);
+      await lookup({ barcode: proposed });
       return;
     }
     pendingSave.current = true;
@@ -223,7 +233,7 @@ export function BarcodeScan({ currentShop, onScanLabel, initialBarcode }: {
       const product = catalog ? await catalog.replaceBarcode(barcodeEdit.target, proposed)
         : await replaceLocalProductBarcode(barcodeEdit.target.id, barcodeEdit.current, proposed);
       if (signal.aborted) return;
-      selected.current = { product, barcode: proposed };
+      selected.current = { product, barcode: proposed, owner: shopping };
       setResult(current => current?.kind === 'known' ? { ...current, product, barcode: proposed } : current);
       setBarcodeEdit(undefined);
     } catch (error) {
@@ -362,14 +372,15 @@ export function BarcodeScan({ currentShop, onScanLabel, initialBarcode }: {
     );
   }
 
+  const checkedBarcode = result?.kind === 'known' ? result.barcode : undefined;
   if (result && !returnFromScan) return (
     <View style={ui.page}>
       <ScrollView contentContainerStyle={ui.content}>
         {result.kind === 'known' ? (
           <>
-            <BarcodeResultActions barcode={result.barcode}
-              onLookup={() => setBarcodeEdit({ current: result.barcode, mode: 'choose' })}
-              onEdit={() => setBarcodeEdit({ current: result.barcode, target: result.product, mode: 'choose' })} />
+            {checkedBarcode ? <BarcodeResultActions barcode={checkedBarcode}
+              onLookup={() => setBarcodeEdit({ current: checkedBarcode, mode: 'choose' })}
+              onEdit={() => setBarcodeEdit({ current: checkedBarcode, target: result.product, mode: 'choose' })} /> : null}
             <BarcodePriceComparison currentShop={currentShop} currentPrice={result.currentPrice} history={result.history} paging={paging}
               onRecord={() => { if (currentShop) startPrice(result.product, currentShop); }} onMore={() => { void loadMore(); }}
               comparison={{ catalogProduct: result.product, comparisons: result.comparisons, reference: result.reference,
@@ -397,7 +408,7 @@ export function BarcodeScan({ currentShop, onScanLabel, initialBarcode }: {
               onAdd={() => setEntry({ kind: 'product', id: randomUUID(), barcode: result.barcode })} />
           </>
         ) : (
-          <BarcodeLookupFeedback state="error" enrolled={Boolean(catalog)} detail={result.detail} />
+          <BarcodeLookupFeedback state="error" enrolled={Boolean(catalog || initialProductId)} detail={result.detail} />
         )}
       </ScrollView>
       {result.kind !== 'loading' ? <SafeAreaView edges={['bottom']} style={styles.actions}>

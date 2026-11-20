@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Platform } from "react-native";
 import { fireEvent, render as renderScreen, screen } from "@testing-library/react-native";
+import type { CameraComponent } from "../component/camera";
 import DeveloperTools from "../app/developer-tools";
 import HomeScreen from "../app/index";
 import ScanScreen from "../app/scan";
@@ -10,6 +11,9 @@ import type { ShopRepository } from "../data/shop-repository";
 
 const mockPush = jest.fn();
 const mockReplace = jest.fn();
+const mockProductLookup = jest.fn();
+const mockSearchProductCandidates = jest.fn();
+let mockEnrolled = false;
 let mockScanParams: { mode?: string } = {};
 const mockExtra = { directAuthTest: false, fieldTest: false, cheapoApiOrigin: "" };
 const testShopRepository = {
@@ -46,9 +50,14 @@ jest.mock("../component/barcode-scan", () => ({
 }));
 
 jest.mock("expo-constants", () => ({ expoConfig: { get extra() { return mockExtra; } } }));
+jest.mock("../component/cheapo-shopping-provider", () => ({ useCheapoShopping: () => mockEnrolled ? { owner: {} } : null }));
+jest.mock("../data/cheapo-shopping-read-device", () => ({ createOwnerShoppingReads: () => ({
+  searchProductCandidates: mockSearchProductCandidates,
+}) }));
 jest.mock("../component/camera", () => ({
-  CameraComponent: ({ currentShop, productLookup }: { currentShop?: { displayName: string }; productLookup?: object }) => {
+  CameraComponent: ({ currentShop, productLookup }: Parameters<typeof CameraComponent>[0]) => {
     const { Text } = require("react-native");
+    if (productLookup) mockProductLookup(productLookup);
     return <Text>{productLookup ? "Packaging lookup camera" : `Camera for ${currentShop?.displayName ?? "no shop"}`}</Text>;
   },
 }));
@@ -56,6 +65,9 @@ jest.mock("../component/camera", () => ({
 beforeEach(() => {
   mockPush.mockReset();
   mockReplace.mockReset();
+  mockProductLookup.mockReset();
+  mockSearchProductCandidates.mockReset();
+  mockEnrolled = false;
   mockScanParams = {};
   mockExtra.directAuthTest = false;
   mockExtra.fieldTest = false;
@@ -116,6 +128,23 @@ test("opens a packaging lookup without needing a saved shop and keeps sample pri
   await screen.rerender(<ScanScreen />);
   expect(screen.getByText("Packaging lookup camera")).toBeOnTheScreen();
   expect(screen.queryByRole("button", { name: "Add a shop" })).not.toBeOnTheScreen();
+});
+
+test("opens comparison only from a chosen packaging match and keeps the two ID types distinct", async () => {
+  mockEnrolled = true;
+  mockScanParams = { mode: "lookup" };
+  const catalog = { kind: "catalog", product: { id: "canonical-oats", name: "Oats" } };
+  const observation = { kind: "unlinked_observation", observationId: "fa91641f-d265-4a3b-9695-4ff553ab5138", details: { name: "Oats" } };
+  const value = { candidates: [catalog, observation], truncated: false };
+  mockSearchProductCandidates.mockResolvedValue({ status: "fresh", value });
+  await render(<ScanScreen />);
+  const { candidateLookup } = mockProductLookup.mock.lastCall?.[0];
+  await expect(candidateLookup.findCandidates({ name: "Oats" }, new AbortController().signal)).resolves.toEqual(value);
+  expect(mockPush).not.toHaveBeenCalled();
+  candidateLookup.onCompare(catalog);
+  expect(mockPush).toHaveBeenLastCalledWith({ pathname: "/find-product", params: { productId: "canonical-oats" } });
+  candidateLookup.onCompare(observation);
+  expect(mockPush).toHaveBeenLastCalledWith({ pathname: "/compare/[id]", params: { id: observation.observationId, source: "shared" } });
 });
 
 test("Home opens barcode lookup with no selected shop and keeps label scan available", async () => {

@@ -1,6 +1,6 @@
 import { packagePriceBases, productSchema, shopSchema, type PackagePriceBasis, type Product, type Shop } from "@cheapo/domain";
 import { canonicalProductBarcode } from "@cheapo/domain/product-barcode";
-import type { PriceHistoryQuery, PriceObservationDetail } from "@cheapo/domain/price-history";
+import { priceObservationId, type PriceHistoryQuery, type PriceObservationDetail } from "@cheapo/domain/price-history";
 import { CheapoAccessError, type CheapoReadSession } from "../lib/cheapo-access/client";
 import { requestInterrupted, withCheapoDeadline } from "../lib/cheapo-access/request-deadline";
 import { mutationOperationId, savedShopVersion } from './shopping-mutations';
@@ -80,12 +80,50 @@ function decodeCandidates(value: unknown): ShopCandidate[] {
 }
 
 const canonicalProduct = productSchema.omit({ photoIds: true });
+function readCanonicalProduct(value: unknown): Product {
+  const result = canonicalProduct.safeParse(value);
+  if (!result.success || (result.data.barcode && canonicalProductBarcode(result.data.barcode) !== result.data.barcode)) return malformed();
+  return result.data;
+}
+
 function decodeProduct(value: unknown): { product: Product | null } {
   const { product } = object(value);
-  if (product === null) return { product: null };
-  const result = canonicalProduct.safeParse(product);
-  if (!result.success || (result.data.barcode && canonicalProductBarcode(result.data.barcode) !== result.data.barcode)) return malformed();
-  return { product: result.data };
+  return { product: product === null ? null : readCanonicalProduct(product) };
+}
+
+export type ProductCandidateSearch = { name: string; brand?: string; variety?: string; packSize?: string };
+type ProductCandidateDetails = Pick<Product, 'name' | 'productType' | 'brand' | 'variety' | 'pack'> & { packSize?: string };
+export type ProductCandidate = { kind: 'catalog'; product: Product }
+  | { kind: 'unlinked_observation'; observationId: string; details: ProductCandidateDetails };
+
+const candidateDetails = productSchema.pick({ name: true, productType: true, brand: true, variety: true, pack: true });
+
+function readProductCandidate(value: unknown): ProductCandidate {
+  const item = object(value);
+  if (item.kind === 'catalog') return { kind: 'catalog', product: readCanonicalProduct(item.product) };
+  if (item.kind !== 'unlinked_observation') return malformed();
+  const observationId = priceObservationId.safeParse(item.observationId);
+  const details = candidateDetails.safeParse(item.details);
+  const { packSize } = object(item.details);
+  if (!observationId.success || !details.success
+    || (packSize !== undefined && (typeof packSize !== 'string' || !packSize.trim()))) return malformed();
+  return { kind: 'unlinked_observation', observationId: observationId.data,
+    details: packSize === undefined ? details.data : { ...details.data, packSize } };
+}
+
+function decodeProductCandidates(value: unknown) {
+  const { candidates, truncated } = object(value);
+  if (!Array.isArray(candidates) || candidates.length > 8 || typeof truncated !== 'boolean') return malformed();
+  return { candidates: candidates.map(readProductCandidate), truncated };
+}
+
+function productCandidatePath(identity: ProductCandidateSearch) {
+  const { name, brand, variety, packSize } = identity;
+  const parameters = new URLSearchParams({ name: name.trim() });
+  for (const [key, value] of Object.entries({ brand, variety, packSize })) {
+    if (value?.trim()) parameters.set(key, value.trim());
+  }
+  return `/v1/product-candidates?${parameters}`;
 }
 
 export type EditableProductRead = { product: Product; version: number } | { product: null };
@@ -208,6 +246,8 @@ export function createCheapoShoppingReads(openSession: () => Promise<CheapoReadS
       read(barcodePath(barcode), decodeProduct, value => value.product !== null, signal),
     findProductById: (id: string, signal?: AbortSignal) =>
       read(productPath(id), decodeProduct, value => value.product !== null, signal),
+    searchProductCandidates: (identity: ProductCandidateSearch, signal?: AbortSignal) =>
+      read(productCandidatePath(identity), decodeProductCandidates, undefined, signal),
     findEditableProductByBarcode: (barcode: string, signal?: AbortSignal) =>
       read(barcodePath(barcode), decodeEditableProduct, value => value.product !== null, signal, undefined, { cacheVersioned: true }),
     findEditableProductById: (id: string, signal?: AbortSignal) =>

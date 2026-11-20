@@ -1,20 +1,48 @@
 import { View, StyleSheet, Platform } from "react-native";
+import { useMemo } from "react";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { shopDisplayName } from "@cheapo/domain/names";
 import { CameraComponent } from "@/component/camera";
 import { BarcodeScan } from "@/component/barcode-scan";
+import { useCheapoShopping } from "@/component/cheapo-shopping-provider";
+import type { ProductCandidateLookupProps } from "@/component/product-candidate-lookup";
 import { ShopChooser, ShopLoadFeedback } from "@/component/shop/shop-chooser";
+import { createOwnerShoppingReads } from "@/data/cheapo-shopping-read-device";
 import { useSavedShops } from "@/hooks/use-saved-shops";
 import { photoShopCountry } from "@/lib/direct-auth/shop-country";
 
 export default function ScanScreen() {
-  const router = useRouter();
   const { mode } = useLocalSearchParams<{ mode?: string }>();
-  if (mode === "lookup" && Platform.OS !== "web") return <>
-    <Stack.Screen options={{ title: "Find product from a photo" }} />
-    <CameraComponent productLookup={{ onCompare: barcode => router.push({ pathname: "/find-product", params: { barcode } }) }} />
-  </>;
+  if (mode === "lookup" && Platform.OS !== "web") return <ProductLookupScreen />;
   return <PriceScanScreen mode={mode} />;
+}
+
+function ProductLookupScreen() {
+  const router = useRouter();
+  const shopping = useCheapoShopping();
+  const candidateLookup = useMemo<ProductCandidateLookupProps | undefined>(() => {
+    if (!shopping) return;
+    const reads = createOwnerShoppingReads(shopping.owner);
+    return {
+      async findCandidates(identity, signal) {
+        const result = await reads.searchProductCandidates(identity, signal);
+        if (result.status !== "fresh") throw Error("Catalog lookup unavailable.");
+        return result.value;
+      },
+      onCompare(candidate) {
+        if (candidate.kind === "catalog") {
+          router.push({ pathname: "/find-product", params: { productId: candidate.product.id } });
+        } else {
+          router.push({ pathname: "/compare/[id]", params: { id: candidate.observationId, source: "shared" } });
+        }
+      },
+    };
+  }, [router, shopping]);
+  return <>
+    <Stack.Screen options={{ title: "Find product from a photo" }} />
+    <CameraComponent productLookup={{ onCompare: barcode => router.push({ pathname: "/find-product", params: { barcode } }),
+      candidateLookup }} />
+  </>;
 }
 
 function PriceScanScreen({ mode }: { mode?: string }) {

@@ -82,7 +82,7 @@ export const CameraComponent = ({ currentShop, currentShopCountry, onScanBarcode
   onCompareBarcode?: (code: string) => void;
   linkedPrice?: LinkedPriceCapture;
   barcodeCapture?: BarcodeCapture;
-  productLookup?: Pick<ProductPhotoLookupProps, 'onCompare'>;
+  productLookup?: Pick<ProductPhotoLookupProps, 'onCompare' | 'candidateLookup'>;
 }) => {
   const shopping = useCheapoShopping();
   const enrolledCatalog = useEnrolledCatalog();
@@ -461,7 +461,8 @@ export const CameraComponent = ({ currentShop, currentShopCountry, onScanBarcode
 
   if (draft && productLookup) return <PhotoProductLookup key={draft.id} photo={draft.original}
     decoded={decodedBarcodes?.draftId === draft.id ? decodedBarcodes.result : undefined}
-    findProduct={findLookupProduct} onCompare={productLookup.onCompare} onRetake={retakePhoto} />;
+    findProduct={findLookupProduct} onCompare={productLookup.onCompare} onRetake={retakePhoto}
+    candidateLookup={productLookup.candidateLookup} />;
 
   if (draft && cropping) {
     // Mount the crop modal before mounting the review and its native inputs.

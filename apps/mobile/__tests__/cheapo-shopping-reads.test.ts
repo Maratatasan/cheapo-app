@@ -129,6 +129,44 @@ test("does not store raw branch search responses or unreadable remote snapshots"
   expect(cache.size).toBe(0);
 });
 
+test('reads bounded identity matches without caching names or observation details', async () => {
+  const { cache, download, start } = setup();
+  const reads = start();
+  const identity = { name: ' Oats & grains ', brand: ' Sample ', variety: '', packSize: ' 500g ' };
+  const candidates = [
+    { kind: 'catalog', product: { id: 'oats', name: 'Oats & grains', comparableGroupId: 'rolled-oats' } },
+    { kind: 'unlinked_observation', observationId: 'fa91641f-d265-4a3b-9695-4ff553ab5138',
+      details: { name: 'Oats & grains', brand: 'Sample', pack: { quantity: 500, unit: 'g' }, packSize: '500g' } },
+  ];
+  download.mockResolvedValueOnce(Response.json({ candidates, truncated: true }));
+  await expect(reads.searchProductCandidates(identity)).resolves.toMatchObject({
+    status: 'fresh', value: { candidates, truncated: true },
+  });
+  expect(download.mock.calls[0][0]).toBe(
+    `${origin}/v1/product-candidates?name=Oats+%26+grains&brand=Sample&packSize=500g`,
+  );
+
+  download.mockResolvedValueOnce(new Response(null, { status: 503 }));
+  await expect(reads.searchProductCandidates(identity)).resolves.toEqual({ status: 'unavailable' });
+  download.mockResolvedValueOnce(Response.json({ candidates: [], truncated: false }));
+  await expect(reads.searchProductCandidates(identity)).resolves.toMatchObject({
+    status: 'fresh', value: { candidates: [], truncated: false },
+  });
+  expect(cache.size).toBe(0);
+});
+
+test.each([
+  { candidates: [], truncated: 'false' },
+  { candidates: [{ kind: 'unlinked_observation', observationId: 'missing', details: { name: 'Oats' } }], truncated: false },
+  { candidates: Array.from({ length: 9 }, (_, index) => ({ kind: 'catalog', product: { id: `oats-${index}`, name: 'Oats' } })),
+    truncated: true },
+])('rejects unreadable or oversized possible product matches', async payload => {
+  const { cache, download, start } = setup();
+  download.mockResolvedValueOnce(Response.json(payload));
+  await expect(start().searchProductCandidates({ name: 'Oats' })).rejects.toThrow('unreadable');
+  expect(cache.size).toBe(0);
+});
+
 const historyPath = "/v1/me/price-observations";
 const observed = {
   id: "fa91641f-d265-4a3b-9695-4ff553ab5138", sourceId: "fixture-price", ownedByCurrentShopper: true,
