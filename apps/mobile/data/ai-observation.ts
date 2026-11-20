@@ -10,6 +10,14 @@ export type PriceReadings = {
 } & { [Field in keyof ProductMetadata]?: string | null };
 export type PriceAlternatives = { [Field in keyof PriceReadings]?: NonNullable<PriceReadings[Field]>[] };
 export type AiPriceDraft = PriceReadings & { uncertainty: string; alternatives?: PriceAlternatives };
+
+export const productIdentityFields = ['product', 'productType', 'variety', 'brand', 'packSize'] as const;
+export type ProductIdentityField = typeof productIdentityFields[number];
+export type ProductIdentityReadings = Record<ProductIdentityField, string | null>;
+export type ProductIdentityDraft = ProductIdentityReadings & {
+  uncertainty: string;
+  alternatives?: Partial<Record<ProductIdentityField, string[]>>;
+};
 /** AI extraction supplies no shop, location or observation date. Never borrow samples. */
 export function observationFromDraft(draft:AiPriceDraft):ObservationCardItem {
   return {

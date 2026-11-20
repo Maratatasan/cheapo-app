@@ -1,6 +1,6 @@
 import { fetch } from 'expo/fetch';
 import { applyPhotoSuggestion, emptyReview, reviewComplete, reviewUnitPrice } from '@/data/photo-review';
-import { requestPhotoDraft } from '@/lib/direct-auth/photo-analysis';
+import { requestPhotoDraft, requestProductIdentityDraft } from '@/lib/direct-auth/photo-analysis';
 import { photoShopCountry } from '@/lib/direct-auth/shop-country';
 
 jest.mock('expo/fetch', () => ({ fetch: jest.fn() }));
@@ -90,6 +90,46 @@ test('uses the listed fallback when the preferred model is hidden', async () => 
   bodyResponse([new TextEncoder().encode(completed([{ type: 'output_text', text: JSON.stringify(draft) }]))]);
   await expect(analyze()).resolves.toEqual(draft);
   expect(JSON.parse(String(provider.mock.calls[1][1]?.body))).toMatchObject({ model: 'gpt-6-luna' });
+});
+
+test('accepts partial packaging identity and sends a single identity-only image request', async () => {
+  const { signal } = new AbortController();
+  const identity = { product: null, productType: '  Coffee beans  ', brand: 'Café', variety: null,
+    packSize: '500 g', uncertainty: 'The product name is covered.', alternatives: { brand: ['Café', 'Café Roasters'], packSize: ['0 g', '750 g'] } };
+  catalog();
+  const reader = bodyResponse([new TextEncoder().encode(completed([{ type: 'output_text', text: JSON.stringify(identity) }]))]);
+
+  await expect(requestProductIdentityDraft({ accessToken: 'test-token', image, signal })).resolves.toEqual({
+    ...identity, productType: 'Coffee beans', alternatives: { brand: ['Café Roasters'], packSize: ['750 g'] },
+  });
+  expect(provider).toHaveBeenCalledTimes(2);
+  const [url, options] = provider.mock.calls[1];
+  expect(url).toBe('https://api.openai.com/v1/responses');
+  expect(options).toMatchObject({ method: 'POST', signal, redirect: 'error', headers: { Authorization: 'Bearer test-token' } });
+  const request = JSON.parse(String(options?.body));
+  expect(request).toMatchObject({ store: false, stream: true, input: [{ content: [
+    expect.anything(), { type: 'input_image', image_url: image },
+  ] }], text: { format: { name: 'product_identity', strict: true } } });
+  expect(Object.keys(request.text.format.schema.properties)).toEqual(['product', 'productType', 'variety', 'brand', 'packSize', 'uncertainty', 'alternatives']);
+  expect(request.text.format.schema.properties.alternatives.properties).not.toHaveProperty('price');
+  expect(request.input[0].content[0].text).not.toContain('Selected shop country hint');
+  expect(reader.releaseLock).toHaveBeenCalled();
+});
+
+test('preserves the unconfirmed identity when a packaging photo has no readable details', async () => {
+  const unknown = { product: null, productType: null, variety: null, brand: null, packSize: null, uncertainty: 'Packaging text is unreadable.' };
+  catalog();
+  bodyResponse([new TextEncoder().encode(completed([{ type: 'output_text', text: JSON.stringify(unknown) }]))]);
+  await expect(requestProductIdentityDraft({ accessToken: 'test-token', image, signal: new AbortController().signal })).resolves.toEqual(unknown);
+});
+
+test('rejects a price-bearing response to the identity-only request', async () => {
+  const wrong = { product: 'Example rice', productType: 'Rice', variety: null, brand: null, packSize: '500 g', price: 2.50, uncertainty: '' };
+  catalog();
+  bodyResponse([new TextEncoder().encode(completed([{ type: 'output_text', text: JSON.stringify(wrong) }]))]);
+  await expect(requestProductIdentityDraft({ accessToken: 'test-token', image, signal: new AbortController().signal }))
+    .rejects.toThrow('invalid product identity draft');
+  expect(provider).toHaveBeenCalledTimes(2);
 });
 
 test.each([
