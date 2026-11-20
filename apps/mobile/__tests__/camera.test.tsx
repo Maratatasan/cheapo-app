@@ -321,6 +321,31 @@ describe("CameraComponent", () => {
     expect(mockSaveLocalPhoto).not.toHaveBeenCalled();
   });
 
+  it('cancels a pending identity request when the shopper replaces the packaging photo', async () => {
+    mockPermission = { granted: false };
+    mockFieldPhotoAnalysisEnabled = true;
+    const photo = { uri: 'file:///first-package.jpg', width: 1200, height: 800, mimeType: 'image/jpeg' };
+    mockChoosePhoto.mockResolvedValueOnce(photo).mockResolvedValueOnce({ ...photo, uri: 'file:///second-package.jpg' });
+    const old = Promise.withResolvers<{ product: string; uncertainty: string }>();
+    mockRequestProductIdentityDraft.mockReturnValue(old.promise);
+    const findCandidates = jest.fn(async () => ({ candidates: [], truncated: false }));
+    await render(<CameraComponent productLookup={{ onCompare: jest.fn(), candidateLookup: { findCandidates, onCompare: jest.fn() } }} />);
+    await fireEvent.press(screen.getByRole('button', { name: 'Choose photo' }));
+    await fireEvent.press(await screen.findByRole('button', { name: 'Find by packaging details' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Analyse packaging photo' }));
+    await waitFor(() => expect(mockRequestProductIdentityDraft).toHaveBeenCalledTimes(1));
+    const { signal } = mockRequestProductIdentityDraft.mock.lastCall?.[0];
+
+    await fireEvent.press(screen.getByRole('button', { name: 'Retake photo' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Choose photo' }));
+    await fireEvent.press(await screen.findByRole('button', { name: 'Find by packaging details' }));
+    expect(signal.aborted).toBe(true);
+    await act(async () => { old.resolve({ product: 'First package', uncertainty: '' }); });
+    expect(screen.getByLabelText('Product photo')).toHaveProp('source', { uri: 'file:///second-package.jpg' });
+    expect(screen.getByLabelText('Product name')).toHaveDisplayValue('');
+    expect(screen.queryByText('First package')).not.toBeOnTheScreen();
+  });
+
   it('keeps the packaging photo and newer code when an older lookup finishes or the service is unavailable', async () => {
     jest.replaceProperty(Platform, 'OS', 'android');
     mockPermission = { granted: false };
@@ -750,6 +775,26 @@ describe("CameraComponent", () => {
     expect(screen.getByLabelText('Product name')).toHaveDisplayValue('Tomatoes');
     expect(screen.getByLabelText('Pack size')).toHaveDisplayValue('450 g');
     expect(mockSaveLocalPhoto).not.toHaveBeenCalled();
+  });
+
+  it('drops a late price suggestion when the shopper opens the crop editor', async () => {
+    mockFieldPhotoAnalysisEnabled = true;
+    mockPermission = { granted: false };
+    mockChoosePhoto.mockResolvedValue({ uri: 'file:///label.jpg', width: 1200, height: 800, mimeType: 'image/jpeg' });
+    const old = Promise.withResolvers<{ product: string; price: number; currency: string; unit_price: null; uncertainty: string }>();
+    mockRequestPhotoDraft.mockReturnValue(old.promise);
+    await render(<CameraComponent currentShop={{ id: 'test-shop', displayName: 'Test shop' }} />);
+    await fireEvent.press(screen.getByRole('button', { name: 'Choose photo' }));
+    await fireEvent.press(await screen.findByRole('button', { name: 'Apply crop' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Analyse photo' }));
+    await waitFor(() => expect(mockRequestPhotoDraft).toHaveBeenCalledTimes(1));
+    const { signal } = mockRequestPhotoDraft.mock.lastCall?.[0];
+    await fireEvent.press(screen.getByRole('button', { name: 'Crop photo' }));
+    expect(signal.aborted).toBe(true);
+    await fireEvent.press(await screen.findByRole('button', { name: 'Apply crop' }));
+    await act(async () => { old.resolve({ product: 'Old crop', price: 2.2, currency: 'GBP', unit_price: null, uncertainty: '' }); });
+    expect(screen.getByLabelText('Product name')).toHaveDisplayValue('');
+    expect(screen.queryByText('Old crop')).not.toBeOnTheScreen();
   });
 
   it.each(['active-shop', 'other-shop'])('only sends the active shop hint for a matching saved photo (%s)', async (savedShopId) => {
