@@ -1,12 +1,14 @@
 import type { PriceObservation, PriceObservationDetail } from '@cheapo/domain/price-history';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { EvidenceView } from '../component/shared-price-evidence';
 import { CheapoAccessError } from '../lib/cheapo-access/client';
 import type { PriceEvidenceRole } from './cheapo-price-photo-read';
+import { cheapoShoppingReadCache } from './cheapo-shopping-read-cache';
 import { openCheapoSavedPriceReads } from './cheapo-shopping-read-device';
 import type { PriceAppendQueue } from './price-append-queue';
-import { keptSharedPrice, type PendingHistoryChange } from './saved-price-history';
+import { keptSharedPrice, projectSharedPrice, type PendingHistoryChange, type PendingPriceState } from './saved-price-history';
+import { viewedPricePhotoRoles } from './selected-price-photo-read';
 
 export type SavedPriceQueueRead = Pick<PriceAppendQueue, 'owner' | 'read'>;
 type History = {
@@ -20,7 +22,7 @@ type History = {
 };
 type Detail = { queue: SavedPriceQueueRead; id: string } & (
   { status: 'loading' | 'unavailable' } |
-  { status: 'fresh' | 'cached'; lastSyncedAt?: string; observation: PriceObservationDetail; role: PriceEvidenceRole | null; photo?: EvidenceView }
+  { status: 'fresh' | 'cached'; lastSyncedAt?: string; observation: PriceObservationDetail; role: PriceEvidenceRole | null; photo?: EvidenceView; pending?: PendingPriceState }
 );
 
 export function useSavedPriceReads(queue: SavedPriceQueueRead | null, loadPriceChanges?: () => Promise<readonly PendingHistoryChange[]>) {
@@ -30,6 +32,17 @@ export function useSavedPriceReads(queue: SavedPriceQueueRead | null, loadPriceC
   const detailWork = useRef<AbortController | null>(null);
   const history = historyState?.queue === queue ? historyState : undefined;
   const detail = detailState?.queue === queue ? detailState : undefined;
+
+  useEffect(() => {
+    if (!queue) return;
+    return cheapoShoppingReadCache.subscribeClear(() => {
+      historyWork.current?.abort();
+      detailWork.current?.abort();
+      setHistory(previous => previous?.queue === queue
+        ? { ...previous, observations: [], status: 'unavailable', nextCursor: null, lastSyncedAt: undefined } : previous);
+      setDetail(previous => previous?.queue === queue ? undefined : previous);
+    });
+  }, [queue]);
 
   const refresh = useCallback(async (signal: AbortSignal, cursor?: string) => {
     if (!queue || signal.aborted) return;
@@ -92,19 +105,21 @@ export function useSavedPriceReads(queue: SavedPriceQueueRead | null, loadPriceC
       const read = result.status === 'unavailable' ? undefined : result;
       const current = read?.value.observation;
       const kept = current || read?.status !== 'fresh' ? keptSharedPrice(id, changes, current?.version) : undefined;
-      const observation = kept ?? current;
-      if (!observation) {
+      const observed = kept ?? current;
+      if (!observed) {
         setDetail({ queue, id, status: 'unavailable' });
         return;
       }
-      const role = requestedRole && observation.photos.some(photo => photo.role === requestedRole)
+      const { display: observation, pending } = projectSharedPrice(observed, changes);
+      const displayedRoles = viewedPricePhotoRoles(observation);
+      const role = requestedRole && displayedRoles.some(photo => photo.role === requestedRole)
         ? requestedRole : observation.selectedPhotoRole;
       const loaded: Detail = { queue, id, status: kept ? 'cached' : read?.status ?? 'cached',
-        lastSyncedAt: read?.lastSyncedAt, observation, role };
+        lastSyncedAt: read?.lastSyncedAt, observation, role, pending };
       setDetail(loaded);
-      if (!role || !observation.photos.some(photo => photo.role === role && photo.availability !== 'pending')) return;
+      if (!role || !displayedRoles.some(photo => photo.role === role && photo.availability !== 'pending')) return;
       try {
-        const photo = await session.loadPhoto(id, role, signal);
+        const photo = await session.loadSelectedPhoto(observation, role, signal);
         session.assertCurrent();
         if (signal.aborted) return;
         setDetail({ ...loaded, photo: photo.status === 'unavailable'

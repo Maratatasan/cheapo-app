@@ -59,6 +59,12 @@ export function projectSharedPrice<T extends PriceObservation>(observation: T, c
         currency: change.review.currency, unitPrice: change.unitPrice ?? null,
         productId: change.productId === undefined ? display.productId : change.productId,
         shopId: change.shop?.id ?? display.shopId, shopDisplayName: change.shop?.displayName ?? display.shopDisplayName };
+      if (change.photoSelection && 'selectedPhotoRole' in display) {
+        const selection = change.photoSelection;
+        display = { ...display, cropSource: 'original',
+          cropBox: selection.role === 'crop' ? selection.cropBox : null,
+          selectedPhotoRole: display.photos.some(photo => photo.role === 'original') ? selection.role : null };
+      }
     } else {
       display = { ...display, recordedInErrorReason: change.action === 'record_in_error' ? change.reason : undefined };
     }

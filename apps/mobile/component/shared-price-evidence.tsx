@@ -6,6 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import type { PriceEvidenceRole } from '../data/cheapo-price-photo-read';
 import type { PendingPriceState } from '../data/saved-price-history';
+import { viewedPricePhotoRoles } from '../data/selected-price-photo-read';
 import { EditPriceButton } from './results/edit-price-button';
 import { PriceDisplay } from './results/price-display';
 import { color, radius, spacing, typography, ui } from './results/theme';
@@ -45,7 +46,8 @@ export function SharedPriceEvidence({
   observation, lastSyncedAt, cached, activeRole, photo, pendingChange, onPhotoRole, onRetryPhoto, onBack, onCompare, onEdit, onOpenLocal,
 }: Props) {
   const [failedUri, setFailedUri] = useState<string>();
-  const photoRole = observation.photos.find(asset => asset.role === activeRole);
+  const roles = viewedPricePhotoRoles(observation);
+  const photoRole = roles.find(asset => asset.role === activeRole);
   const selected = photo?.role === activeRole ? photo : undefined;
   const loaded = (selected?.status === 'fresh' || selected?.status === 'cached') && selected.uri !== failedUri;
   const pending = photoRole?.availability === 'pending';
@@ -82,9 +84,9 @@ export function SharedPriceEvidence({
           <View style={ui.card}>
             <View style={[ui.between, styles.photoHeader]}>
               <Text accessibilityRole="header" style={styles.section}>Price photo</Text>
-              {observation.photos.length > 1 ? (
+              {roles.length > 1 ? (
                 <View style={styles.roles}>
-                  {observation.photos.map(asset => (
+                  {roles.map(asset => (
                     <Pressable key={asset.role} accessibilityRole="button" accessibilityState={{ selected: activeRole === asset.role }}
                       style={[styles.role, activeRole === asset.role && styles.activeRole]} onPress={() => onPhotoRole(asset.role)}>
                       <Text style={styles.roleLabel}>{asset.role === 'original' ? 'Original' : 'Crop'}</Text>
