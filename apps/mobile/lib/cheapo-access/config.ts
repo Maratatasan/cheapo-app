@@ -1,7 +1,7 @@
 import Constants from "expo-constants";
 import { Platform } from "react-native";
 
-import { parseCheapoApiOrigin } from "./client";
+import { parseCheapoApiOrigin } from "./origin";
 
 export function fieldCheapoApiOrigin() {
   const extra = Constants.expoConfig?.extra;

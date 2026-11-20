@@ -9,7 +9,8 @@ test("shows ended access, accepts a replacement, then clears the credential", as
     enroll: jest.fn(async (_value: string) => {}),
     clear: jest.fn(async () => {}),
   };
-  await render(<CheapoConnection access={access} />);
+  const onBack = jest.fn();
+  await render(<CheapoConnection access={access} onBack={onBack} />);
   expect(await screen.findByText(/Cheapo access ended/)).toBeOnTheScreen();
   expect(screen.getByRole("button", { name: "Use new credential" })).toBeDisabled();
   const input = screen.getByLabelText("Device credential");
@@ -24,6 +25,8 @@ test("shows ended access, accepts a replacement, then clears the credential", as
   await fireEvent.press(screen.getByRole("button", { name: "Clear credential" }));
   expect(await screen.findByText("This phone is not connected.")).toBeOnTheScreen();
   expect(access.clear).toHaveBeenCalledTimes(1);
+  await fireEvent.press(screen.getByRole("button", { name: "Back to Home" }));
+  expect(onBack).toHaveBeenCalledTimes(1);
 });
 
 test("preserves the connected state and reports a denied replacement", async () => {
@@ -32,7 +35,7 @@ test("preserves the connected state and reports a denied replacement", async () 
     enroll: async () => { throw new CheapoAccessError("Ask your operator for a replacement."); },
     clear: async () => {},
   };
-  await render(<CheapoConnection access={access} />);
+  await render(<CheapoConnection access={access} onBack={() => {}} />);
   expect(await screen.findByText("This phone is connected.")).toBeOnTheScreen();
   await fireEvent.changeText(screen.getByLabelText("Device credential"), "synthetic");
   await fireEvent.press(screen.getByRole("button", { name: "Use new credential" }));

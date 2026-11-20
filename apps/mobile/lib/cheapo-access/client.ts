@@ -1,6 +1,10 @@
+import { parseCheapoApiOrigin } from "./origin";
+
 const storageKey = "cheapo-api.device-credential";
 const credentialFormat = /^cheapo_[A-Za-z0-9_-]{43}$/;
 const checkPath = "/v1/me/comparison-preferences/__cheapo-device-enrollment__";
+const checkDeadlineMs = 40_000;
+const checkRetryDelayMs = 16_000;
 
 type ProtectedStorage = {
   getItem(key: string): Promise<string | null>;
@@ -11,16 +15,6 @@ type Transport = (url: string, init: RequestInit) => Promise<Response>;
 export type AccessState = "missing" | "connected" | "denied" | "unavailable";
 
 export class CheapoAccessError extends Error {}
-
-export function parseCheapoApiOrigin(value: unknown): string | null {
-  if (typeof value !== "string" || !/^https:\/\/[^/?#\\\s]+\/?$/i.test(value)) return null;
-  try {
-    const url = new URL(value);
-    return url.username || url.password ? null : url.origin;
-  } catch {
-    return null;
-  }
-}
 
 export function createCheapoAccess(originValue: string, storage: ProtectedStorage, transport: Transport) {
   const origin = parseCheapoApiOrigin(originValue);
@@ -47,9 +41,16 @@ export function createCheapoAccess(originValue: string, storage: ProtectedStorag
 
   async function probe(credential: string): Promise<Exclude<AccessState, "missing">> {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10_000);
+    const startedAt = Date.now();
+    const timeout = setTimeout(() => controller.abort(), checkDeadlineMs);
+    const options = { signal: controller.signal };
     try {
-      const response = await send(probeUrl, credential, { signal: controller.signal });
+      let response = await send(probeUrl, credential, options);
+      // A read-only check can wait for a paused backend to resume and retry once.
+      if (response.status === 503 && Date.now() - startedAt < checkDeadlineMs / 2) {
+        await new Promise<void>(resolve => setTimeout(resolve, checkRetryDelayMs));
+        if (!controller.signal.aborted) response = await send(probeUrl, credential, options);
+      }
       if (response.status === 401 || response.status === 403) return "denied";
       if (!response.ok) return "unavailable";
       const value: unknown = await response.json();

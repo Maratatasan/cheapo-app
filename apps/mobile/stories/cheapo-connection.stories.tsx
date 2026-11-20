@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import type { Meta, StoryObj } from "@storybook/react-native-web-vite";
 import { expect, fireEvent } from "storybook/test";
+import { View } from "react-native";
 
 import { CheapoConnection } from "../component/cheapo-connection";
 import type { AccessState } from "../lib/cheapo-access/client";
@@ -11,7 +12,11 @@ function Preview({ status }: { status: AccessState }) {
     enroll: async () => {},
     clear: async () => {},
   }), [status]);
-  return <CheapoConnection access={access} />;
+  return (
+    <View style={{ height: 475 }}>
+      <CheapoConnection access={access} onBack={() => {}} />
+    </View>
+  );
 }
 
 const meta = {

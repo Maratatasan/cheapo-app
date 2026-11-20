@@ -4,7 +4,11 @@ import { Button, ScrollView, StyleSheet, Text, TextInput, View } from "react-nat
 import { CheapoAccessError, type AccessState, type CheapoAccess } from "@/lib/cheapo-access/client";
 import { color, radius, spacing, ui } from "./results/theme";
 
-type Props = { access: Pick<CheapoAccess, "check" | "enroll" | "clear"> };
+type Props = {
+  access: Pick<CheapoAccess, "check" | "enroll" | "clear">;
+  onBack: () => void;
+  bottomInset?: number;
+};
 type Status = AccessState | "checking" | "storage-error";
 const statusText: Record<Status, string> = {
   checking: "Checking this phone…",
@@ -15,7 +19,7 @@ const statusText: Record<Status, string> = {
   "storage-error": "Could not read this phone’s protected storage.",
 };
 
-export function CheapoConnection({ access }: Props) {
+export function CheapoConnection({ access, onBack, bottomInset = 0 }: Props) {
   const [status, setStatus] = useState<Status>("checking");
   const [credential, setCredential] = useState("");
   const [action, setAction] = useState<"enroll" | "clear" | null>(null);
@@ -61,37 +65,42 @@ export function CheapoConnection({ access }: Props) {
   }
 
   return (
-    <ScrollView style={ui.page} contentContainerStyle={ui.content} keyboardShouldPersistTaps="handled">
-      <Text accessibilityRole="header" style={ui.title}>Cheapo access</Text>
-      <View style={ui.card}>
-        <Text accessibilityLiveRegion="polite" style={ui.body}>{statusText[status]}</Text>
-        {status === "unavailable" || status === "storage-error" ? (
-          <Button title="Check again" disabled={busy} onPress={() => { setError(""); setStatus("checking"); }} />
-        ) : null}
-        <Text style={ui.body}>Device credential supplied by your operator</Text>
-        <TextInput
-          accessibilityLabel="Device credential"
-          style={styles.input}
-          value={credential}
-          onChangeText={setCredential}
-          editable={!busy}
-          autoCapitalize="none"
-          autoComplete="off"
-          autoCorrect={false}
-          importantForAutofill="no"
-          secureTextEntry
-        />
-        {error ? <Text accessibilityRole="alert" accessibilityLiveRegion="polite" style={styles.error}>{error}</Text> : null}
-        <Button
-          title={action === "enroll" ? "Connecting…" : status === "missing" ? "Connect this phone" : "Use new credential"}
-          disabled={busy || !credential.trim()}
-          onPress={() => void enroll()}
-        />
-        {status !== "missing" && status !== "checking" ? (
-          <Button title={action === "clear" ? "Clearing…" : "Clear credential"} disabled={busy} onPress={() => void clear()} />
-        ) : null}
+    <View style={ui.page}>
+      <ScrollView style={ui.page} contentContainerStyle={ui.content} keyboardShouldPersistTaps="handled">
+        <Text accessibilityRole="header" style={ui.title}>Cheapo access</Text>
+        <View style={ui.card}>
+          <Text accessibilityLiveRegion="polite" style={ui.body}>{statusText[status]}</Text>
+          {status === "unavailable" || status === "storage-error" ? (
+            <Button title="Check again" disabled={busy} onPress={() => { setError(""); setStatus("checking"); }} />
+          ) : null}
+          <Text style={ui.body}>Device credential supplied by your operator</Text>
+          <TextInput
+            accessibilityLabel="Device credential"
+            style={styles.input}
+            value={credential}
+            onChangeText={setCredential}
+            editable={!busy}
+            autoCapitalize="none"
+            autoComplete="off"
+            autoCorrect={false}
+            importantForAutofill="no"
+            secureTextEntry
+          />
+          {error ? <Text accessibilityRole="alert" accessibilityLiveRegion="polite" style={styles.error}>{error}</Text> : null}
+          <Button
+            title={action === "enroll" ? "Connecting…" : status === "missing" ? "Connect this phone" : "Use new credential"}
+            disabled={busy || !credential.trim()}
+            onPress={() => void enroll()}
+          />
+          {status !== "missing" && status !== "checking" ? (
+            <Button title={action === "clear" ? "Clearing…" : "Clear credential"} disabled={busy} onPress={() => void clear()} />
+          ) : null}
+        </View>
+      </ScrollView>
+      <View style={[styles.footer, { paddingBottom: spacing.md + bottomInset }]}>
+        <Button title="Back to Home" onPress={onBack} />
       </View>
-    </ScrollView>
+    </View>
   );
 }
 
@@ -105,4 +114,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
   },
   error: { color: color.warningInk },
+  footer: {
+    padding: spacing.md,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: color.line,
+    backgroundColor: color.cream,
+  },
 });

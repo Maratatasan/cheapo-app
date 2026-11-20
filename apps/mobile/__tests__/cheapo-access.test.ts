@@ -1,7 +1,5 @@
-import {
-  createCheapoAccess,
-  parseCheapoApiOrigin,
-} from "../lib/cheapo-access/client";
+import { createCheapoAccess } from "../lib/cheapo-access/client";
+import { parseCheapoApiOrigin } from "../lib/cheapo-access/origin";
 
 const origin = "https://cheapo.example";
 const first = `cheapo_${"A".repeat(43)}`;
@@ -76,4 +74,36 @@ test("keeps the previous credential if a replacement fails and reports revoked a
   expect(await connection.check()).toBe("denied");
   transport.mockRejectedValueOnce(new Error("internal transport detail"));
   expect(await connection.check()).toBe("unavailable");
+});
+
+test("sends subsequent API requests to the saved origin and rejects denied access", async () => {
+  const { storage, transport } = fixtures();
+  const connection = createCheapoAccess(origin, storage, transport);
+  await expect(connection.request("/v1/shops")).rejects.toThrow(/connect this phone/);
+  await connection.enroll(first);
+
+  transport.mockResolvedValueOnce(new Response(null, { status: 401 }));
+  await expect(connection.request("/v1/shops", { redirect: "follow" })).rejects.toThrow(/access ended/);
+  const [url, request] = transport.mock.calls.at(-1)!;
+  expect(url).toBe(origin + "/v1/shops");
+  expect(request.redirect).toBe("error");
+});
+
+test("allows one delayed read-only enrollment retry when the service is unavailable", async () => {
+  const { storage, transport } = fixtures();
+  const connection = createCheapoAccess(origin, storage, transport);
+  jest.useFakeTimers();
+  try {
+    transport.mockResolvedValueOnce(new Response(null, { status: 503 }));
+    const enrolling = connection.enroll(first);
+    await jest.advanceTimersByTimeAsync(15_999);
+    expect(transport).toHaveBeenCalledTimes(1);
+    expect(storage.setItem).not.toHaveBeenCalled();
+    await jest.advanceTimersByTimeAsync(1);
+    await enrolling;
+    expect(transport).toHaveBeenCalledTimes(2);
+    expect(storage.setItem).toHaveBeenCalledTimes(1);
+  } finally {
+    jest.useRealTimers();
+  }
 });
