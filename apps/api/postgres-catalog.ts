@@ -1,4 +1,5 @@
 import type { CatalogAction, CatalogProduct, CatalogResult, ExecuteCatalog } from './catalog.ts';
+import { readCreateReceipt, saveCreateReceipt } from './postgres-create-receipt.ts';
 import { readShoppingMember, type ShoppingMember, type ShoppingQuery, type ShoppingTransaction } from './postgres-shopping.ts';
 
 type ProductRow = {
@@ -85,9 +86,49 @@ async function correctProduct(
   return { status: 'corrected', product: updatedProduct, version: after.record_version };
 }
 
+async function createProduct(
+  query: ShoppingQuery, member: ShoppingMember, action: Extract<CatalogAction, { kind: 'create' }>,
+): Promise<CatalogResult> {
+  const operation = action.operationId
+    ? { kind: 'product' as const, id: action.product.id, operationId: action.operationId, request: action }
+    : undefined;
+  if (operation) {
+    const receipt = await readCreateReceipt<{ product: CatalogProduct; version: number }>(query, member, operation);
+    if (receipt) return receipt.matches ? { status: 'created', ...receipt.response } : { status: 'operation_conflict' };
+  }
+
+  async function accept(row: ProductRow): Promise<CatalogResult> {
+    const response = { product: productFromRow(row), version: row.record_version };
+    if (!operation) return { status: 'ok', ...response };
+    await saveCreateReceipt(query, member, operation, response);
+    return { status: 'created', ...response };
+  }
+
+  await lockBarcode(query, action.product.barcode);
+  const values = productValues(action.product);
+  const { rows: [inserted] } = await query<ProductRow>(`
+    INSERT INTO cheapo.product (${productColumns}) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)
+    ON CONFLICT DO NOTHING RETURNING ${resultColumns}
+  `, values);
+  if (inserted) return accept(inserted);
+
+  const { rows: [existing] } = await query<ProductRow & { identical: boolean }>(`
+    SELECT ${resultColumns},
+      id = $1 AND gtin IS NOT DISTINCT FROM $2 AND name = $3
+      AND product_type IS NOT DISTINCT FROM $4 AND brand IS NOT DISTINCT FROM $5
+      AND variety IS NOT DISTINCT FROM $6 AND pack IS NOT DISTINCT FROM $7::jsonb
+      AND comparable_group_id IS NOT DISTINCT FROM $8 AS identical
+    FROM cheapo.product WHERE id = $1 OR gtin = $2
+    ORDER BY (gtin = $2) DESC NULLS LAST LIMIT 1
+  `, values);
+  if (!existing) throw Error('Conflicting product changed during creation. Retry the request.');
+  return existing.identical ? accept(existing) : { status: 'conflict', product: productFromRow(existing) };
+}
+
 export function postgresCatalog(transaction: ShoppingTransaction): ExecuteCatalog {
   return (digest, action) => transaction(async query => {
-    const member = await readShoppingMember(query, digest, action.kind === 'correct');
+    const lockHousehold = action.kind === 'correct' || (action.kind === 'create' && Boolean(action.operationId));
+    const member = await readShoppingMember(query, digest, lockHousehold);
     if (!member) return { status: 'unauthenticated' };
     if (!member.active) return { status: 'forbidden' };
     if (action.kind === 'correct') return correctProduct(query, member, action);
@@ -97,26 +138,6 @@ export function postgresCatalog(transaction: ShoppingTransaction): ExecuteCatalo
       return { status: 'ok', product: row ? productFromRow(row) : null, version: row?.record_version };
     }
 
-    await lockBarcode(query, action.product.barcode);
-    const values = productValues(action.product);
-    const { rows: [inserted] } = await query<ProductRow>(`
-      INSERT INTO cheapo.product (${productColumns}) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)
-      ON CONFLICT DO NOTHING RETURNING ${resultColumns}
-    `, values);
-    if (inserted) return { status: 'ok', product: productFromRow(inserted), version: inserted.record_version };
-
-    const { rows: [existing] } = await query<ProductRow & { identical: boolean }>(`
-      SELECT ${resultColumns},
-        id = $1 AND gtin IS NOT DISTINCT FROM $2 AND name = $3
-        AND product_type IS NOT DISTINCT FROM $4 AND brand IS NOT DISTINCT FROM $5
-        AND variety IS NOT DISTINCT FROM $6 AND pack IS NOT DISTINCT FROM $7::jsonb
-        AND comparable_group_id IS NOT DISTINCT FROM $8 AS identical
-      FROM cheapo.product WHERE id = $1 OR gtin = $2
-      ORDER BY (gtin = $2) DESC NULLS LAST LIMIT 1
-    `, values);
-    if (!existing) throw Error('Conflicting product changed during creation. Retry the request.');
-    return existing.identical
-      ? { status: 'ok', product: productFromRow(existing), version: existing.record_version }
-      : { status: 'conflict', product: productFromRow(existing) };
+    return createProduct(query, member, action);
   });
 }

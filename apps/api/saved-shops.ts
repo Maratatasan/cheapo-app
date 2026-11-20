@@ -11,7 +11,7 @@ export type VersionedSavedShop = { shop: SavedShop; version: string };
 export type ShopAction =
   | { kind: 'read' }
   | { kind: 'candidates'; query: string }
-  | { kind: 'save'; shop: Shop; select: boolean }
+  | { kind: 'save'; shop: Shop; select: boolean; operationId?: string }
   | { kind: 'detail'; shopId: string }
   | { kind: 'edit'; shopId: string; details: z.infer<typeof editInput>; operation?: {
       operationId: string; expectedVersion: string;
@@ -36,13 +36,15 @@ const editInput = z.strictObject({
   nickname: shopSchema.shape.nickname.nullable(),
   address: shopSchema.shape.address.nullable(),
 }).refine(details => Object.keys(details).length > 0);
+const operationId = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
 const conditionalEdit = z.strictObject({
-  operationId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/),
+  operationId,
   expectedVersion: z.string().regex(/^[1-9][0-9]{0,9}:[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/),
   details: editInput,
 });
 const queryInput = z.string().trim().min(2).max(120).refine(value => !value.includes('\0'));
 const saveOptions = z.object({ select: z.boolean().default(false) });
+const receiptedSave = z.strictObject({ operationId, shop: z.object({}).passthrough(), select: saveOptions.shape.select });
 
 export function isSavedShopPath(path: string): boolean {
   return path === collection || path === selection || path === catalog || item.test(path);
@@ -96,6 +98,13 @@ async function readAction(request: Request, url: URL): Promise<ShopAction | Resp
     }
     const result = editInput.safeParse(value);
     return result.success ? { kind: 'edit', shopId, details: result.data } : json({ error: 'invalid_shop' }, 400);
+  }
+  if ('operationId' in value) {
+    const parsed = receiptedSave.safeParse(value);
+    if (!parsed.success) return json({ error: 'invalid_shop' }, 400);
+    const shop = shopSchema.safeParse({ ...parsed.data.shop, id: shopId });
+    return shop.success ? { kind: 'save', shop: shop.data, select: parsed.data.select, operationId: parsed.data.operationId }
+      : json({ error: 'invalid_shop' }, 400);
   }
   const shop = shopSchema.safeParse({ ...value, id: shopId });
   const options = saveOptions.safeParse(value);
