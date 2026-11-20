@@ -62,8 +62,7 @@ hosted deployment. Cheapo credentials are separate from ChatGPT sign-in.
 
 Phone enrollment, hosting and the comparison selector are follow-up work in
 [#147](https://github.com/Maratatasan/cheapo-app/issues/147) and
-[#150](https://github.com/Maratatasan/cheapo-app/issues/150). The service has no
-shop, price or photo operations in this slice.
+[#150](https://github.com/Maratatasan/cheapo-app/issues/150). This phase adds saved-shop operations. Shared price and photo routes are follow-up work.
 
 ## Issue or revoke beta phone access
 
@@ -86,6 +85,28 @@ shell commands, logs, and issue reports. If delivery is interrupted or the
 credential is exposed, revoke its ID and issue a replacement. Revoking one ID
 preserves the member's data and other phone credentials. Checking an ID for
 revocation does not require the token.
+
+## Saved shops contract
+
+Send the same Cheapo bearer credential for each request. The service resolves
+the active household and shopper from the credential. Each successful operation
+returns `{ "shops": [...], "currentShop"?: {...} }`. The current shop is personal.
+A shop combines stable branch details with the household’s optional nickname.
+The response includes `testShop` when the imported link records that flag.
+
+| Method and route | Body and behavior |
+| --- | --- |
+| `GET /v1/me/saved-shops` | Reads the household list and the shopper’s selection. |
+| `PUT /v1/me/saved-shops/{id}` | Save the branch named by the URL with shop details and optional `select: true`. A repeat keeps the existing branch and nickname. Reuse the ID of a confirmed branch when linking it. |
+| `PATCH /v1/me/saved-shops/{id}` | Edit `name`, `address`, or `nickname` on a saved branch. Omitted fields are retained; use `null` to clear a field when the shop would still have a display name. |
+| `PUT /v1/me/current-shop` | Select a saved branch with `{ "shopId": "..." }`. |
+| `DELETE /v1/me/saved-shops/{id}` | Remove the household link and clear that household’s selections of this branch. Repeating succeeds without removing the branch or price history. |
+
+Provide a stable client-created ID for a new branch. The API keeps branches with
+the same address distinct. Shared names and addresses are branch details. Each
+household’s nickname stays private. Missing or expired credentials return
+`401`, inactive membership returns `403`, and editing or selecting a branch
+outside the caller’s saved list returns `404`.
 
 ## Shopping history storage
 
