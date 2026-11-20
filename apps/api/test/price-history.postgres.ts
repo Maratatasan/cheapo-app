@@ -185,3 +185,53 @@ test('allows an identical replay after unlinking the branch but requires a saved
   assert.equal(replay.status, 200);
   assert.equal((await request('H', '', 'POST', { ...appendInput, sourceId: 'after-unlink' })).status, 422);
 });
+
+test('reopens one household observation with its selected crop and keeps other households out', async () => {
+  const cropBox = { left: 1, top: 2, right: 9, bottom: 12 };
+  await pool.query(`UPDATE cheapo.price_observation SET crop_box = $3::jsonb
+    WHERE household_id = $1 AND shopper_id = $2 AND id = 'same-source-id'`, [household, shopper, cropBox]);
+  await pool.query(`INSERT INTO cheapo.price_photo (household_id, shopper_id, observation_id, role, storage_key, sha256, byte_count, width, height)
+    VALUES ($1, $2, 'same-source-id', 'crop', 'private-assets/crop.jpg', repeat('b',64), 51, 8, 10)`,
+  [household, shopper]);
+  const list = await (await request('H')).json() as HistoryBody;
+  const legacy = list.observations.find(observation => observation.priceAmount === '2.0900');
+  assert(legacy);
+  const response = await request('I', `/${legacy.id}`);
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), {
+    observation: { ...legacy, cropBox, selectedPhotoRole: 'crop' },
+  });
+  assert.deepEqual(legacy.photos, [{ role: 'original', width: 23, height: 17 }, { role: 'crop', width: 8, height: 10 }]);
+  assert.equal((await request('J', `/${legacy.id}`)).status, 404);
+  assert.equal((await request('K', `/${legacy.id}`)).status, 403);
+  assert.equal((await request('H', '/unknown-id')).status, 400);
+  const hidden = await pool.query<{ resource_id: string }>(`SELECT resource_id FROM cheapo.price_observation
+    WHERE household_id = $1 AND id IN ('hidden-draft', 'hidden-test-shop')`, [household]);
+  assert.equal(hidden.rows.length, 2);
+  for (const { resource_id } of hidden.rows) {
+    assert.equal((await request('H', `/${resource_id}`)).status, 404);
+  }
+});
+
+test('bounds exact product history and combines a canonical group with legacy reviewed categories', async () => {
+  await pool.query("UPDATE cheapo.product SET comparable_group_id = 'porridge-group', product_type = 'Oats' WHERE id = 'append-oats'");
+  await pool.query(`INSERT INTO cheapo.product (id, name, product_type, comparable_group_id)
+    VALUES ('different-group-oats', 'Another oats pack', 'Oats', 'distinct-group')`);
+  await pool.query(`UPDATE cheapo.price_observation SET review = review || '{"productType":" Oats "}'::jsonb
+    WHERE household_id = $1 AND shopper_id = $2 AND id = 'same-source-id'`, [household, shopper]);
+  await pool.query(`INSERT INTO cheapo.price_observation (household_id, shopper_id, id, product_id, captured_at, status, price_amount, currency)
+    VALUES ($1, $2, 'distinct-group-price', 'different-group-oats', $3, 'complete', '4.40', 'GBP')`, [household, shopper, capturedAt]);
+
+  const read = async (query: string) => {
+    const response = await request('H', query);
+    assert.equal(response.status, 200);
+    return (await response.json() as HistoryBody).observations.map(item => item.sourceId);
+  };
+  assert.deepEqual(await read('?productId=append-oats'), ['phone-observation']);
+  assert.deepEqual(await read('?comparableGroupId=porridge-group&productType=OATS&currency=GBP'),
+    ['same-source-id', 'phone-observation']);
+  assert.deepEqual(await read('?comparableGroupId=porridge-group'), ['phone-observation']);
+  assert.deepEqual(new Set(await read('?productType=oats')), new Set(['same-source-id', 'phone-observation', 'distinct-group-price']));
+  assert.deepEqual(await read('?comparableGroupId=porridge-group&productType=oats&currency=SEK'), []);
+  assert.equal((await request('H', '?productId=append-oats&comparableGroupId=porridge-group')).status, 400);
+});
