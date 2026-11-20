@@ -15,7 +15,7 @@ export const cheapoPricePhotoRead = cheapoAccess
   ? createCheapoPricePhotoRead(cheapoAccess.openReadSession, cheapoPricePhotoCache)
   : null;
 
-async function openOwnerReadSession(owner: PriceQueueOwner) {
+export async function openOwnerReadSession(owner: PriceQueueOwner) {
   if (!cheapoAccess) throw new CheapoAccessError("Cheapo shopping access is unavailable.");
   const session = await cheapoAccess.openReadSession();
   const verified = await cheapoAccess.lastVerifiedOwner();

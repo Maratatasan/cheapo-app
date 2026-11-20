@@ -1,10 +1,9 @@
-import { CryptoDigestAlgorithm, digest } from 'expo-crypto';
 import { File } from 'expo-file-system';
 import { fetch } from 'expo/fetch';
 
 import { CheapoAccessError } from '../lib/cheapo-access/client';
 import { withCheapoDeadline } from '../lib/cheapo-access/request-deadline';
-import { isSignedS3ObjectUrl } from '../lib/cheapo-access/s3-object-url';
+import { jpegSha256, privateJpegUploadGrant } from '../lib/cheapo-access/photo-objects';
 import { savedPhotoDirectory, type LocalPhotoDraft, type PhotoAsset, type SavedPriceRecord } from './local-photo';
 import type { PriceAppendReceipt } from './price-append-queue';
 
@@ -12,7 +11,6 @@ const maxPhotoBytes = 32 * 1024 * 1024;
 const maxPhotoDimension = 16_384;
 const apiDeadlineMs = 35_000;
 const fileDeadlineMs = 10_000;
-const putDeadlineMs = 110_000;
 const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
 const localId = /^[A-Za-z0-9_-]{1,128}$/;
 const sha256 = /^[a-f0-9]{64}$/;
@@ -46,8 +44,7 @@ async function readPhoto(source: PhotoSource) {
   if (file.uri !== uri || !file.exists || !positiveInt(file.size, maxPhotoBytes)) throw Error('The saved photo is unavailable.');
   const bytes = await file.bytes();
   if (!positiveInt(bytes.byteLength, maxPhotoBytes)) throw Error('The saved photo is unavailable.');
-  const hash = new Uint8Array(await digest(CryptoDigestAlgorithm.SHA256, bytes));
-  return { bytes, sha256: Array.from(hash, byte => byte.toString(16).padStart(2, '0')).join('') };
+  return { bytes, sha256: await jpegSha256(bytes) };
 }
 
 export function plannedPriceEvidenceRoles(record: LocalPhotoDraft, receipt: Pick<PriceAppendReceipt, 'deriveCropFromOriginal'>): PhotoRole[] {
@@ -81,31 +78,6 @@ export async function describePriceEvidence(
 
 type PhotoReply = { role?: unknown; availability?: unknown; url?: unknown; headers?: unknown; expiresInSeconds?: unknown };
 
-function parseGrant(reply: PhotoReply, byteCount: number) {
-  if (!isSignedS3ObjectUrl(reply.url) || !reply.headers || typeof reply.headers !== 'object'
-    || typeof reply.expiresInSeconds !== 'number' || !positiveInt(reply.expiresInSeconds, 120)) return;
-  let signed: Headers;
-  try {
-    signed = new Headers(reply.headers as HeadersInit);
-  } catch {
-    return;
-  }
-  const checksum = signed.get('x-amz-checksum-sha256');
-  if (signed.get('Content-Type') !== 'image/jpeg' || signed.get('Content-Length') !== String(byteCount)
-    || signed.get('If-None-Match') !== '*' || !checksum || !/^[A-Za-z0-9+/]{43}=$/.test(checksum)) return;
-
-  // Build the object request from the four required headers. The API's
-  // bearer and any unrelated response headers stay outside this transport.
-  return {
-    url: reply.url,
-    timeoutMs: Math.min(putDeadlineMs, reply.expiresInSeconds * 1_000),
-    headers: {
-      'Content-Type': 'image/jpeg', 'Content-Length': String(byteCount),
-      'If-None-Match': '*', 'x-amz-checksum-sha256': checksum,
-    },
-  };
-}
-
 export async function transferPricePhoto(
   intent: PricePhotoIntent, session: TransferSession, signal?: AbortSignal, objectFetch: ObjectFetch = fetch,
 ): Promise<TransferResult> {
@@ -132,7 +104,7 @@ export async function transferPricePhoto(
     if (!prepared.reply) return failedApiStatus(prepared.status);
     if (prepared.reply.role !== role) return 'blocked';
     if (prepared.reply.availability === 'available') return 'available';
-    const grant = prepared.reply.availability === 'pending' && parseGrant(prepared.reply, byteCount);
+    const grant = prepared.reply.availability === 'pending' && privateJpegUploadGrant(prepared.reply, byteCount);
     if (!grant) return 'blocked';
 
     const photo = await withCheapoDeadline(signal, fileDeadlineMs, () => readPhoto(intent)).catch(() => null);

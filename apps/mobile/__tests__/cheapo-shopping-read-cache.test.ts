@@ -118,3 +118,19 @@ test('an earlier JSON response cannot restore or delete a snapshot after Clear c
   expect(await cheapoShoppingReadCache.read(key, old)).toBeNull();
   expect(await cheapoShoppingReadCache.read(key)).toBe('current result');
 });
+
+test('a delayed presentation photo response cannot replace or remove a newer cached version', async () => {
+  const key = 'enrolled-scope\0/v1/products/exact-fixture/presentation-photo';
+  const bytes = new Uint8Array([255, 216, 1, 255, 217]);
+  const prior = { version: 1, sha256: 'a'.repeat(64), width: 80, height: 60, byteCount: bytes.length,
+    lastSyncedAt: '2026-01-02T10:00:00.000Z' };
+  const current = { ...prior, version: 2, sha256: 'b'.repeat(64) };
+  const revision = cheapoPricePhotoCache.revision();
+  const saved = await cheapoPricePhotoCache.write(key, revision, current, bytes);
+  expect(saved?.version).toBe(2);
+  expect(await cheapoPricePhotoCache.write(key, revision, prior, bytes)).toBeNull();
+  await cheapoPricePhotoCache.remove(key, revision, 1);
+  expect(await cheapoPricePhotoCache.read(key, revision)).toEqual(saved);
+  await cheapoPricePhotoCache.remove(key, revision, 2);
+  expect(await cheapoPricePhotoCache.read(key, revision)).toBeNull();
+});
