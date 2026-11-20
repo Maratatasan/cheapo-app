@@ -11,6 +11,7 @@ const mockQueued = jest.fn();
 const mockChanges = jest.fn();
 const mockLoad = jest.fn();
 const mockAssertOwner = jest.fn();
+const mockRandomId = jest.fn();
 const mockObservation = jest.fn();
 const mockReadCurrent = jest.fn();
 const mockRuntime = {
@@ -28,7 +29,7 @@ jest.mock('expo-router', () => ({
   useRouter: () => ({ canGoBack: () => true, back: mockBack }),
 }));
 jest.mock('expo-file-system', () => ({}));
-jest.mock('expo-crypto', () => ({ randomUUID: () => 'test-operation-1' }));
+jest.mock('expo-crypto', () => ({ randomUUID: () => mockRandomId() }));
 jest.mock('../component/cheapo-shopping-provider', () => ({ useCheapoShopping: () => mockShopping }));
 jest.mock('../data/cheapo-shopping-read-device', () => ({ openCheapoSavedPriceReads: async () => ({
   loadPriceObservation: mockObservation, assertCurrent: mockReadCurrent,
@@ -53,6 +54,7 @@ beforeEach(() => {
   mockShopping = null;
   mockRoute = { id: 'capture-1' };
   mockEnqueue.mockResolvedValue(undefined);
+  mockRandomId.mockReturnValueOnce('test-operation-1').mockReturnValue('test-operation-2');
   mockRetry.mockResolvedValue(undefined);
   mockQueued.mockResolvedValue({ entries: [], recovery: [] });
   mockChanges.mockResolvedValue([]);
@@ -101,6 +103,31 @@ test('keeps the editor from advancing if its enrolled commit reports a changed o
   expect(await screen.findByRole('alert')).toBeOnTheScreen();
   expect(mockBack).not.toHaveBeenCalled();
   expect(mockRetry).not.toHaveBeenCalled();
+  expect(saveLocalPhotoReview).not.toHaveBeenCalled();
+});
+
+test('requires a reason, keeps the saved photo available and durably queues ordered mark and undo changes', async () => {
+  mockShopping = mockRuntime;
+  mockQueued.mockResolvedValue({ entries: [{ record: product }], recovery: [] });
+  await render(<EditSavedPrice />);
+  await fireEvent.press(await screen.findByRole('button', { name: 'Record in error' }));
+  expect(screen.getByRole('button', { name: 'Save reason' })).toBeDisabled();
+  await fireEvent.changeText(screen.getByLabelText('Reason for marking this price in error'), '  Wrong shelf label  ');
+  await fireEvent.press(screen.getByRole('button', { name: 'Save reason' }));
+  expect(await screen.findByText('Recorded in error')).toBeOnTheScreen();
+  expect(screen.getByText('Wrong shelf label')).toBeOnTheScreen();
+  expect(screen.getByLabelText('Price photo preview')).toBeOnTheScreen();
+  expect(mockEnqueue).toHaveBeenNthCalledWith(1, expect.objectContaining({ operationId: 'test-operation-1',
+    action: { kind: 'price', priceKey: product.id, base: { kind: 'append', sourceId: product.id },
+      change: { action: 'record_in_error', reason: 'Wrong shelf label' } } }));
+
+  await fireEvent.press(screen.getByRole('button', { name: 'Undo recorded in error' }));
+  expect(await screen.findByRole('button', { name: 'Record in error' })).toBeOnTheScreen();
+  expect(mockEnqueue).toHaveBeenNthCalledWith(2, expect.objectContaining({ operationId: 'test-operation-2',
+    action: { kind: 'price', priceKey: product.id, base: { kind: 'operation', operationId: 'test-operation-1' },
+      change: { action: 'undo_recorded_in_error' } } }));
+  expect(mockRetry).toHaveBeenCalledTimes(2);
+  expect(mockBack).not.toHaveBeenCalled();
   expect(saveLocalPhotoReview).not.toHaveBeenCalled();
 });
 

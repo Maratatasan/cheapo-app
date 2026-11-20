@@ -93,9 +93,11 @@ export function correctionFromReview(review: ManualReview): PriceAction['change'
 export async function saveEnrolledPriceEdit(
   runtime: CheapoShoppingRuntime, target: PriceEditTarget, title: string, change: PriceAction['change'],
 ) {
+  const operationId = randomUUID();
   await runtime.commitMutation({
-    operationId: randomUUID(), createdAt: new Date().toISOString(), title: title.trim().slice(0, 128),
+    operationId, createdAt: new Date().toISOString(), title: title.trim().slice(0, 128),
     action: { kind: 'price', ...target, change },
   });
   void runtime.retry().catch(() => { /* The durable change stays visible in Pending sync. */ });
+  return operationId;
 }

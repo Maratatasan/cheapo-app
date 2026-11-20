@@ -8,6 +8,7 @@ import { CameraActionButton } from '@/component/camera-actions';
 import { PhotoBarcodeScan } from '@/component/photo-barcode-scan';
 import { SavedPriceBarcode } from '@/component/saved-price-barcode';
 import { PhotoReview } from '@/component/photo-review';
+import { RecordedPriceError } from '@/component/recorded-price-error';
 import { DisplayState } from '@/component/results/display-state';
 import { ui } from '@/component/results/theme';
 import { linkSavedPriceToBarcode, loadSavedPriceRecord, saveLocalPhotoReview } from '@/data/local-photo';
@@ -124,6 +125,26 @@ export default function EditSavedPrice() {
     }
   }
 
+  async function changeErrorStatus(reason: string | null) {
+    const signal = lifecycle.current?.signal;
+    if (!signal || saving.current || linkOpen || !shopping || !product || !current?.target) return;
+    saving.current = true;
+    setBusy(true);
+    setError(undefined);
+    try {
+      const operationId = await saveEnrolledPriceEdit(shopping, current.target, product.review.productName, reason === null
+        ? { action: 'undo_recorded_in_error' } : { action: 'record_in_error', reason });
+      if (!signal.aborted) setLoaded(state => state?.data.target ? { ...state, data: { ...state.data,
+        target: { ...state.data.target, base: { kind: 'operation', operationId } }, errorReason: reason ?? undefined,
+      } } : state);
+    } catch {
+      if (!signal.aborted) setError('Could not save this status. Try again.');
+    } finally {
+      saving.current = false;
+      if (!signal.aborted) setBusy(false);
+    }
+  }
+
   return (
     <>
       <Stack.Screen options={{ title: 'Edit saved product' }} />
@@ -140,7 +161,10 @@ export default function EditSavedPrice() {
               renderScanner={permission ? callbacks => <PhotoBarcodeScan permission={permission}
                 requestPermission={requestPermission} {...callbacks} /> : undefined} />
               : <CameraActionButton label="Link barcode" disabled={busy} onPress={() => setLinkOpen(true)} />
-          ) : undefined} />
+          ) : undefined}>
+          {shopping && current?.target && !linkOpen ? <RecordedPriceError key={product.id} reason={current.errorReason}
+            busy={busy || linkSaving} onRecord={reason => { void changeErrorStatus(reason); }} onUndo={() => { void changeErrorStatus(null); }} /> : null}
+        </PhotoReview>
       ) : (
         <View style={ui.content}>
           {Platform.OS === 'web' || product === null ? (
