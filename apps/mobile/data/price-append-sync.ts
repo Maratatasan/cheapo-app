@@ -1,8 +1,31 @@
 import { CheapoAccessError, type CheapoAccess } from '../lib/cheapo-access/client';
-import type { PriceAppendQueue, PriceAppendReceipt } from './price-append-queue';
+import type { PriceAppendQueue } from './price-append-queue';
 
 type OpenSession = CheapoAccess['openPriceAppendSession'];
 type SyncResult = 'complete' | 'blocked' | 'failed';
+const appendDeadlineMs = 45_000;
+
+async function sendAppend(post: Awaited<ReturnType<OpenSession>>['post'], body: string) {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      reject(Error('Cheapo did not acknowledge this price in time.'));
+    }, appendDeadlineMs);
+  });
+  const request = async () => {
+    const response = await post(body, controller.signal);
+    const { status } = response;
+    const receipt: unknown = status === 200 || status === 201 ? await response.json() : undefined;
+    return { status, receipt };
+  };
+  try {
+    return await Promise.race([request(), timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 export function createPriceAppendSync(queue: PriceAppendQueue, openSession: OpenSession) {
   async function synchronize(): Promise<SyncResult> {
@@ -17,13 +40,12 @@ export function createPriceAppendSync(queue: PriceAppendQueue, openSession: Open
     let failed = false;
     for (const entry of pending) {
       try {
-        const response = await post(entry.body);
-        if (response.status === 401 || response.status === 403) return 'blocked';
-        if (response.status !== 200 && response.status !== 201) {
+        const { status, receipt } = await sendAppend(post, entry.body);
+        if (status === 401 || status === 403) return 'blocked';
+        if (!receipt) {
           failed = true;
           continue;
         }
-        const receipt: PriceAppendReceipt = await response.json();
         await queue.acknowledge(entry.record.id, receipt);
       } catch (error) {
         if (error instanceof CheapoAccessError) return 'blocked';

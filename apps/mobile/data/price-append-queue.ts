@@ -175,7 +175,7 @@ export async function openPriceAppendQueue(input: PriceQueueOwner) {
       }
       return { entries, recovery };
     },
-    acknowledge(sourceId: string, receipt: PriceAppendReceipt) {
+    acknowledge(sourceId: string, receipt: unknown) {
       if (!localId.test(sourceId) || !validReceipt(receipt, sourceId)) throw Error('Invalid price acknowledgement.');
       const text = JSON.stringify({ id: receipt.id, sourceId, version: receipt.version });
       return serializePublication(async () => {

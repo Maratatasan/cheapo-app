@@ -123,7 +123,7 @@ it('holds a blocked operation across rotation, preserves it across restart and r
   expect((await restarted.read()).entries).toEqual([{ record, body: previousBody }]);
   await expect(createPriceAppendSync(restarted, async () => ({ owner: { ...owner }, post: append }))()).resolves.toBe('complete');
   expect(server.size).toBe(1);
-  expect(append.mock.calls).toEqual([[previousBody], [previousBody]]);
+  expect(append.mock.calls.map(([sent]) => sent)).toEqual([previousBody, previousBody]);
   expect((await (await openPriceAppendQueue(owner)).read()).entries).toEqual([{ record, body: previousBody, receipt }]);
   const reopen = jest.fn(async () => ({ owner, post }));
   await expect(createPriceAppendSync(restarted, reopen)()).resolves.toBe('complete');
@@ -160,7 +160,39 @@ it('retries an interrupted acknowledgement and preserves the local price and its
   mockFailedPublication = /$a/;
   await expect(createPriceAppendSync(restarted, async () => session)()).resolves.toBe('complete');
   expect(await restarted.read()).toEqual({ entries: [{ record, body, receipt }], recovery: [] });
-  expect(session.post.mock.calls).toEqual([[body], [body]]);
+  expect(session.post.mock.calls).toEqual([[body, expect.any(AbortSignal)], [body, expect.any(AbortSignal)]]);
+});
+
+it('aborts a stalled write and lets the shopper retry the same durable request', async () => {
+  jest.useFakeTimers();
+  try {
+    const queue = await openPriceAppendQueue(owner);
+    await queue.save(record);
+    let start!: (signal: AbortSignal | undefined) => void;
+    const sending = new Promise<AbortSignal | undefined>(resolve => { start = resolve; });
+    const post = jest.fn<Promise<Response>, [string, AbortSignal?]>()
+      .mockImplementationOnce((_body, signal) => {
+        start(signal);
+        return new Promise(() => {});
+      })
+      .mockImplementation(async () => Response.json(receipt));
+    const sync = createPriceAppendSync(queue, async () => ({ owner, post }));
+    const stalled = sync();
+    const signal = await sending;
+    await jest.advanceTimersByTimeAsync(44_999);
+    expect(signal?.aborted).toBe(false);
+    await jest.advanceTimersByTimeAsync(1);
+    expect(signal?.aborted).toBe(true);
+    await expect(stalled).resolves.toBe('failed');
+    expect(post).toHaveBeenCalledTimes(1);
+    expect(await queue.read()).toEqual({ entries: [{ record, body }], recovery: [] });
+    await expect(sync()).resolves.toBe('complete');
+    expect(post.mock.calls.map(([sent]) => sent)).toEqual([body, body]);
+    expect(await queue.read()).toEqual({ entries: [{ record, body, receipt }], recovery: [] });
+    expect(jest.getTimerCount()).toBe(0);
+  } finally {
+    jest.useRealTimers();
+  }
 });
 
 it('serializes an explicit shelf unit-price pair before sending', async () => {
