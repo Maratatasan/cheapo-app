@@ -48,6 +48,7 @@ type PriceCropBox = { left: number; top: number; right: number; bottom: number }
 export type PriceObservationDetail = PriceObservation & {
   cropBox: PriceCropBox | null;
   selectedPhotoRole: 'original' | 'crop' | null;
+  cropSource?: 'original';
 };
 type PriceHistoryResult =
   | { status: 'ok'; observations: PriceObservation[] }

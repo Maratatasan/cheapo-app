@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { after, before, test } from 'node:test';
+import { priceHistoryDetail } from '@cheapo/domain/price-history';
 import { Pool } from 'pg';
 
 import { credentialDigest } from '../credential.ts';
@@ -298,4 +299,98 @@ test('keeps pending and verified evidence reachable while a price is recorded in
   assert.equal(restored.observations.find(observation => observation.id === id)?.ownedByCurrentShopper, true);
   const peerView = await (await send('B', route + '/' + id)).json() as { observation: { ownedByCurrentShopper: boolean } };
   assert.equal(peerView.observation.ownedByCurrentShopper, false);
+});
+
+test('versions a pending re-crop with the reviewed fields without altering append or evidence receipts', async () => {
+  const route = '/v1/me/price-observations';
+  const send = (actor: string, suffix: string, method = 'GET', body?: object) => api(new Request('http://localhost' + route + suffix, {
+    method,
+    headers: { Authorization: `Bearer ${token(actor)}`, 'Content-Type': 'application/json' },
+    body: body ? JSON.stringify(body) : undefined,
+  }));
+  await operator.query("INSERT INTO cheapo.shop (id, name) VALUES ('recrop-market', 'Re-crop Market')");
+  await operator.query("INSERT INTO cheapo.household_saved_shop (household_id, shop_id) VALUES ($1, 'recrop-market')", [household]);
+  const append = {
+    sourceId: 'recrop-queued-without-evidence', capturedAt: '2026-01-02T09:30:00.123456Z',
+    shopId: 'recrop-market', shopDisplayName: 'Re-crop Market',
+    review: { productName: 'Label oats', price: '3.10', currency: 'GBP' },
+  };
+  const created = await send('A', '', 'POST', append);
+  assert.equal(created.status, 201);
+  const receipt = await created.json() as { id: string; version: number };
+  const path = '/' + receipt.id;
+  const cropBox = { left: 0.17, top: 0.31, right: 0.79, bottom: 0.64 };
+  const edit = { action: 'correct', operationId: 'recrop-1', expectedVersion: 1,
+    review: { ...append.review, price: '3.25' }, photoSelection: { role: 'crop', cropBox } };
+  assert.equal((await send('C', path, 'PATCH', edit)).status, 404);
+  assert.equal((await send('B', path, 'PATCH', { ...edit, photoSelection: { role: 'crop', cropBox: { ...cropBox, right: 2 } } })).status, 400);
+
+  const accepted = await send('B', path, 'PATCH', edit);
+  assert.equal(accepted.status, 200);
+  const pending = priceHistoryDetail.parse(await accepted.json()).observation;
+  assert.deepEqual([pending.version, pending.priceAmount, pending.cropSource, pending.cropBox, pending.selectedPhotoRole, pending.photos],
+    [2, '3.25', 'original', cropBox, null, []]);
+
+  assert.equal((await prepare(receipt.id, 'A')).status, 200);
+  const declared = priceHistoryDetail.parse(await (await send('B', path)).json()).observation;
+  assert.equal(declared.selectedPhotoRole, 'crop');
+  assert.deepEqual(declared.photos, [{ role: 'original', width: 800, height: 600, availability: 'pending' }]);
+  assert.equal((await photo(receipt.id, 'original', 'B')).status, 404);
+
+  objectStatus = 'verified';
+  assert.deepEqual(await (await complete(receipt.id, 'A')).json(), { role: 'original', availability: 'available' });
+  const available = priceHistoryDetail.parse(await (await send('B', path)).json()).observation;
+  assert.deepEqual(available.photos, [{ role: 'original', width: 800, height: 600 }]);
+  assert.equal(available.selectedPhotoRole, 'crop');
+  assert.deepEqual(available.cropBox, cropBox);
+  assert.equal((await photo(receipt.id, 'original', 'B')).status, 200);
+  assert.equal((await photo(receipt.id, 'crop', 'B')).status, 404);
+
+  const unchanged = await send('B', path, 'PATCH', { action: 'correct', operationId: 'recrop-2', expectedVersion: 2,
+    review: { ...append.review, price: '3.30' } });
+  assert.equal(unchanged.status, 200);
+  const stillCrop = priceHistoryDetail.parse(await unchanged.json()).observation;
+  assert.deepEqual([stillCrop.version, stillCrop.cropSource, stillCrop.cropBox, stillCrop.selectedPhotoRole],
+    [3, 'original', cropBox, 'crop']);
+  assert.deepEqual(await (await send('B', path, 'PATCH', edit)).json(), { observation: pending });
+  assert.equal((await send('B', path, 'PATCH', { ...edit, photoSelection: { role: 'original' } })).status, 409);
+  const reverted = await send('B', path, 'PATCH', { ...edit, operationId: 'recrop-3', expectedVersion: 3,
+    photoSelection: { role: 'original' } });
+  assert.equal(reverted.status, 200);
+  const restored = priceHistoryDetail.parse(await reverted.json()).observation;
+  assert.deepEqual([restored.version, restored.cropSource, restored.cropBox, restored.selectedPhotoRole],
+    [4, 'original', null, 'original']);
+
+  const replay = await send('A', '', 'POST', append);
+  assert.equal(replay.status, 200);
+  assert.deepEqual(await replay.json(), receipt);
+  const { rows: [audit] } = await operator.query(`
+    SELECT before_state->>'selectedPhotoRole' AS "beforeRole", after_state->>'cropSource' AS "afterSource"
+    FROM cheapo.price_observation_revision WHERE resource_id = $1 AND version = 2
+  `, [receipt.id]);
+  assert.deepEqual(audit, { beforeRole: null, afterSource: 'original' });
+});
+
+test('retains immutable imported original and crop references while choosing a new derived crop', async () => {
+  const source = 'restored-' + completed;
+  const physical = async () => (await operator.query(`
+    SELECT role, storage_key, sha256, byte_count, width, height FROM cheapo.price_photo
+    WHERE household_id = $1 AND shopper_id = $2 AND observation_id = $3 ORDER BY role
+  `, [household, owner, source])).rows;
+  const before = await physical();
+  assert.equal(before.length, 2);
+  const response = await api(new Request('http://localhost/v1/me/price-observations/' + completed, {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${token('B')}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      action: 'correct', operationId: 'recrop-existing', expectedVersion: 1,
+      review: { productName: 'Restored oats', price: '2.75', currency: 'GBP' },
+      photoSelection: { role: 'crop', cropBox: { left: 0.12, top: 0.38, right: 0.82, bottom: 0.78 } },
+    }),
+  }));
+  assert.equal(response.status, 200);
+  const { observation } = priceHistoryDetail.parse(await response.json());
+  assert.deepEqual([observation.selectedPhotoRole, observation.cropSource], ['crop', 'original']);
+  assert.deepEqual(observation.photos, [{ role: 'original', width: 800, height: 600 }, { role: 'crop', width: 400, height: 300 }]);
+  assert.deepEqual(await physical(), before);
 });

@@ -18,13 +18,17 @@ async function saveReviewedFields(
   `, [productId, changedShopId, home]);
   if (!reference.allowed) return false;
 
+  const selection = action.photoSelection;
   await query(`
     UPDATE cheapo.price_observation SET
       product_id = $3, shop_id = $4, shop_display_name = $5, price_amount = $6::numeric,
-      currency = $7, review = $8::jsonb, unit_price = $9::jsonb, record_version = record_version + 1
+      currency = $7, review = $8::jsonb, unit_price = $9::jsonb, record_version = record_version + 1,
+      photo_selection_overridden = photo_selection_overridden OR $10::boolean,
+      selected_crop_box = CASE WHEN $10::boolean THEN $11::jsonb ELSE selected_crop_box END
     WHERE household_id = $1::uuid AND resource_id = $2::uuid
   `, [home, before.id, productId, shopId, displayName, action.review.price, action.review.currency,
-    { ...action.review, shop: displayName ?? undefined }, action.unitPrice ?? null]);
+    { ...action.review, shop: displayName ?? undefined }, action.unitPrice ?? null, Boolean(selection),
+    selection?.role === 'crop' ? selection.cropBox : null]);
   return true;
 }
 
