@@ -1,4 +1,5 @@
 import { derivePackageUnitPrices, type PackageMeasures, type PackagePriceBasis } from '@cheapo/domain';
+import { comparisonProductTypeKey } from '@cheapo/domain/comparison-product-types';
 import { normalizeName } from '@cheapo/domain/names';
 
 import { knownUnitPrice, type PriceValues } from './observation';
@@ -23,6 +24,8 @@ const units: Record<string, { unit: Unit; multiplier: number }> = {
   item: { unit: 'item', multiplier: 1 },
   items: { unit: 'item', multiplier: 1 },
   each: { unit: 'item', multiplier: 1 },
+  unit: { unit: 'item', multiplier: 1 },
+  units: { unit: 'item', multiplier: 1 },
   egg: { unit: 'item', multiplier: 1 },
   eggs: { unit: 'item', multiplier: 1 },
 };
@@ -83,7 +86,7 @@ export function comparePrices<T extends ComparisonPrice>(
   basis?: PackagePriceBasis,
 ) {
   const selection = catalogProduct ?? reference;
-  const type = matchComparisonName(selection?.productType);
+  const type = comparisonProductTypeKey(selection?.productType);
   const variety = matchComparisonName(selection?.variety);
   const brand = matchComparisonName(selection?.brand);
   const missing: string[] = [];
@@ -103,7 +106,7 @@ export function comparePrices<T extends ComparisonPrice>(
   for (const row of prices) {
     if (reference && (row.id === reference.id || row.currency !== reference.currency)) continue;
     if (exactProductId && row.productId !== exactProductId) continue;
-    if (selection && ((!exactProductId && matchComparisonName(row.productType) !== type) ||
+    if (selection && ((!exactProductId && comparisonProductTypeKey(row.productType) !== type) ||
       (filters.sameVariety && matchComparisonName(row.variety) !== variety) || (filters.sameBrand && matchComparisonName(row.brand) !== brand))) continue;
     const unitPrice = comparisonUnitPrice(row, basis);
     if (!unitPrice || !row.currency || !/^[A-Z]{3}$/.test(row.currency) || (reference && !referenceUnit && !catalogProduct && !basis)) {

@@ -603,3 +603,38 @@ test('clears shared pages and an in-flight photo while keeping an already saved 
   expect(screen.queryByLabelText(productLabel)).not.toBeOnTheScreen();
   expect(loadPriceHistory).toHaveBeenCalledTimes(2);
 });
+
+test('shows seven older egg prices from the related shared page without changing exact barcode identity', async () => {
+  const catalog = { id: 'fixture-new-eggs', name: 'Medium free-range eggs', productType: 'free range eggs',
+    variety: 'Medium', brand: 'Sample brand', barcode: '00012345678905', pack: { quantity: 15, unit: 'items', label: '15 items' } };
+  const exact = { ...sharedExact, productId: catalog.id, sourceProductId: catalog.id, productName: catalog.name,
+    priceAmount: '3.60', review: { productType: catalog.productType, packSize: '15 items', variety: 'Medium', brand: 'Sample brand' },
+    unitPrice: { amount: 0.24, unit: 'unit' } };
+  const earlier = [...Array<string>(6).fill('fresh eggs'), 'free-range eggs'].map((productType, index) => ({ ...exact,
+    id: `89659f1e-ca13-4ba1-84bc-f07a4fa8459${index}`, sourceId: `fixture-earlier-${index}`,
+    productId: null, sourceProductId: null, productName: `Earlier egg fixture ${index}`,
+    shopId: 'other-shop', sourceShopId: 'other-shop', shopDisplayName: 'Other fixture shop',
+    priceAmount: index === 0 ? '2.20' : '1.50', unitPrice: { amount: index === 0 ? 0.22 : 0.25, unit: index < 4 ? 'each' : 'egg' },
+    review: { productType, packSize: index === 0 ? '10 items' : '6 items',
+      variety: index < 2 ? 'Medium' : 'Large', brand: index === 0 ? 'Sample brand' : 'Other brand' },
+  }));
+  const loadPriceHistory = jest.fn(async (query: PriceHistoryQuery) => ({ status: 'fresh',
+    value: { observations: query.productId ? [exact] : [exact, ...earlier], nextCursor: null }, }));
+  mockOpenHistory.mockResolvedValue({ loadPriceHistory, assertCurrent: jest.fn() });
+  mockCatalog.mockReturnValue({ findByBarcode: jest.fn(async () => catalog) });
+  mockUseCheapoShopping.mockReturnValue({ owner, assertOwner: jest.fn(async () => {}),
+    priceQueue: { read: jest.fn(async () => ({ entries: [] })) }, loadPriceChanges: jest.fn(async () => []) });
+  jest.mocked(loadSavedPriceRecords).mockResolvedValue([]);
+  await render(<BarcodeScan currentShop={currentShop} onScanLabel={jest.fn()} />);
+  await scan();
+  expect(loadPriceHistory).toHaveBeenCalledWith({ productId: catalog.id, limit: 25, cursor: undefined }, expect.anything());
+  expect(loadPriceHistory).toHaveBeenCalledWith({ productType: catalog.productType, limit: 25, cursor: undefined }, expect.anything());
+  expect(screen.getByText('£3.60 pack')).toBeOnTheScreen();
+  expect(screen.getAllByText(/^Earlier egg fixture/).map(item => item.props.children)).toEqual(earlier.map(item => item.productName));
+  expect(screen.getByLabelText('£0.22 / item')).toBeOnTheScreen();
+  await fireEvent.press(screen.getByRole('checkbox', { name: 'Same variety' }));
+  expect(screen.getAllByText(/^Earlier egg fixture/)).toHaveLength(2);
+  await fireEvent.press(screen.getByRole('checkbox', { name: 'Same brand' }));
+  expect(screen.getByText('Earlier egg fixture 0')).toBeOnTheScreen();
+  expect(screen.getAllByText(/^Earlier egg fixture/)).toHaveLength(1);
+});

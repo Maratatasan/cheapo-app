@@ -5,6 +5,7 @@
   "exports": {
     ".": "./index.ts",
     "./names": "./names.ts",
+    "./comparison-product-types": "./comparison-product-types.ts",
     "./package-measures": "./package-measures.ts",
     "./product-barcode": "./product-barcode.ts",
     "./price-append": "./price-append.ts",

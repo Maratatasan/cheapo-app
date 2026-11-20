@@ -1,4 +1,5 @@
 import type { Product } from '@cheapo/domain';
+import { comparisonProductTypeKey } from '@cheapo/domain/comparison-product-types';
 import { priceHistoryQuery, type PriceHistoryQuery, type PriceObservation } from '@cheapo/domain/price-history';
 
 import { openCheapoSavedPriceReads } from './cheapo-shopping-read-device';
@@ -25,10 +26,6 @@ export function barcodePriceQueries(product: Product): PriceHistoryQuery[] {
 }
 
 type Runtime = Pick<CheapoShoppingRuntime, 'owner' | 'assertOwner' | 'priceQueue' | 'loadPriceChanges'>;
-
-function comparedType(value: unknown) {
-  return typeof value === 'string' ? value.trim().normalize('NFC').toLowerCase().replace(/\s+/g, ' ') : undefined;
-}
 
 export async function loadSharedBarcodePrices(shopping: Runtime, product: Product, shopId: string | undefined,
   signal: AbortSignal, previous?: ScopePage[], localOnly = false) {
@@ -58,8 +55,8 @@ export async function loadSharedBarcodePrices(shopping: Runtime, product: Produc
     const kept = keptSharedPrice(change.resourceId, [change]);
     if (!kept) return false;
     if (kept.productId === product.id) return Boolean(exactPage?.cached || exactPage?.unavailable);
-    const queryType = comparedType(relatedPage?.query.productType);
-    return Boolean(queryType && (relatedPage?.cached || relatedPage?.unavailable) && queryType === comparedType(kept.review?.productType));
+    const queryType = comparisonProductTypeKey(relatedPage?.query.productType);
+    return Boolean(queryType && (relatedPage?.cached || relatedPage?.unavailable) && queryType === comparisonProductTypeKey(kept.review?.productType));
   });
   const rows = savedPriceHistoryRows({
     legacy, queued: queue.entries, shared: pages.flatMap(page => page.observations), offlineChanges,
