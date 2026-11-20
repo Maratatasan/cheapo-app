@@ -8,7 +8,7 @@ import { reviewComplete, reviewUnitPrice } from './photo-review';
 
 export type PriceQueueOwner = { origin: string; householdId: string; shopperId: string };
 export type PriceAppendReceipt = { id: string; sourceId: string; version: number };
-type PriceQueueEntry = { record: SavedPriceRecord; body: string; receipt?: PriceAppendReceipt };
+type PriceQueueEntry = { record: SavedPriceRecord; body?: string; receipt?: PriceAppendReceipt };
 type RecoveryEntry = { sourceId: string; reason: 'unfinished' | 'unreadable' };
 const localId = /^[A-Za-z0-9_-]{1,128}$/;
 const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
@@ -112,11 +112,15 @@ export async function openPriceAppendQueue(input: PriceQueueOwner) {
     const record = requirePriceRecord(value.record);
     if (record.id !== sourceId) throw Error('The queued price ID does not match.');
     if (!('format' in value) || value.format !== 1 || !('body' in value) || typeof value.body !== 'string') {
-      throw Error('Unknown queued price format.');
+      return { record };
     }
-    const payload = priceAppendSchema.safeParse(JSON.parse(value.body));
-    if (!payload.success || payload.data.sourceId !== sourceId) throw Error('The queued request is unreadable.');
-    return { record, body: value.body };
+    try {
+      const payload = priceAppendSchema.safeParse(JSON.parse(value.body));
+      if (payload.success && payload.data.sourceId === sourceId) return { record, body: value.body };
+    } catch {
+      // A valid saved price remains available even if its request is damaged.
+    }
+    return { record };
   }
 
   return {
@@ -132,6 +136,7 @@ export async function openPriceAppendQueue(input: PriceQueueOwner) {
           if (JSON.stringify(previous.record) !== JSON.stringify(record)) {
             throw Error('A different price is already queued with this ID.');
           }
+          if (!previous.body) throw Error('The saved price needs sync recovery.');
           return;
         }
         await publish(file, JSON.stringify({ format: 1, owner, record, body: encodePriceAppend(record) }));
@@ -158,9 +163,12 @@ export async function openPriceAppendQueue(input: PriceQueueOwner) {
           recovery.push({ sourceId: receipt[1], reason: 'unreadable' });
         } else if (price) {
           const sourceId = price[1];
+          let record: SavedPriceRecord | undefined;
           try {
             if (!(file instanceof File)) throw Error('The queued price is not a file.');
             const pending = await readPrice(file, sourceId);
+            record = pending.record;
+            if (!pending.body) throw Error('Unreadable price request.');
             const accepted = receiptFile(sourceId);
             if (!accepted.exists) entries.push(pending);
             else {
@@ -169,6 +177,7 @@ export async function openPriceAppendQueue(input: PriceQueueOwner) {
               entries.push({ ...pending, receipt: receiptValue });
             }
           } catch {
+            if (record) entries.push({ record });
             recovery.push({ sourceId, reason: 'unreadable' });
           }
         }
@@ -179,7 +188,8 @@ export async function openPriceAppendQueue(input: PriceQueueOwner) {
       if (!localId.test(sourceId) || !validReceipt(receipt, sourceId)) throw Error('Invalid price acknowledgement.');
       const text = JSON.stringify({ id: receipt.id, sourceId, version: receipt.version });
       return serializePublication(async () => {
-        await readPrice(priceFile(sourceId), sourceId);
+        const pending = await readPrice(priceFile(sourceId), sourceId);
+        if (!pending.body) throw Error('The saved price needs sync recovery.');
         const file = receiptFile(sourceId);
         if (file.exists) {
           if (await file.text() !== text) throw Error('A different price acknowledgement was already saved.');

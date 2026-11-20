@@ -3,6 +3,7 @@ import { Directory, File, Paths } from 'expo-file-system';
 import { emptyReview, type ManualPriceRecord } from '../data/local-photo';
 import { openPriceAppendQueue } from '../data/price-append-queue';
 import { createPriceAppendSync } from '../data/price-append-sync';
+import { createPriceRecords } from '../data/price-records';
 
 const mockFiles = new Map<string, string>();
 let mockFailedPublication = /$a/;
@@ -89,6 +90,7 @@ it('keeps a partial publication visible for recovery and leaves valid work avail
     { sourceId: 'interrupted', reason: 'unfinished' }, { sourceId: record.id, reason: 'unreadable' },
   ]) });
   expect(mockFiles.get(published)).toBe('{invalid');
+  await expect(createPriceRecords(restarted).loadAll({ requireAll: true })).rejects.toThrow('full collection');
 });
 
 it('holds a blocked operation across rotation, preserves it across restart and retries a lost acknowledgement once', async () => {
@@ -199,7 +201,7 @@ it('serializes an explicit shelf unit-price pair before sending', async () => {
   const queue = await openPriceAppendQueue(owner);
   await queue.save({ ...record, review: { ...record.review, unitPrice: ' 2.050 ', unit: ' 100 g ' } });
   const stored = (await queue.read()).entries[0];
-  expect(JSON.parse(stored.body)).toMatchObject({
+  expect(JSON.parse(stored.body ?? '')).toMatchObject({
     review: { unitPrice: '2.050', unit: '100 g' }, unitPrice: { amount: 2.05, unit: '100 g' },
   });
 });
@@ -224,4 +226,43 @@ it('runs another pass when a new save asks to sync during an active pass', async
   await expect(requestedPass).resolves.toBe('complete');
   expect(post.mock.calls.map(([pending]) => JSON.parse(pending).sourceId)).toEqual([record.id, next.id]);
   expect((await queue.read()).entries.every(entry => entry.receipt)).toBe(true);
+});
+
+it('reads local and queued prices together without exposing another shopper’s pending prices', async () => {
+  const queue = await openPriceAppendQueue(owner);
+  const local = createPriceRecords(null);
+  const enrolled = createPriceRecords(queue);
+  const legacy = { ...record, id: 'legacy', capturedAt: '2026-11-19T12:00:00.000Z' };
+  await local.saveManual(legacy);
+  await enrolled.saveManual(record);
+  const reopened = createPriceRecords(await openPriceAppendQueue(owner));
+  expect(await reopened.loadAll()).toEqual([record, legacy]);
+  expect(await reopened.load(record.id)).toEqual(record);
+  expect(await reopened.load(legacy.id)).toEqual(legacy);
+  expect(await createPriceRecords(await openPriceAppendQueue(other)).loadAll()).toEqual([legacy]);
+  expect(await local.loadAll()).toEqual([legacy]);
+  await expect(enrolled.saveManual(legacy)).rejects.toThrow('already saved');
+  expect((await queue.read()).entries).toEqual([{ record, body }]);
+});
+
+it('keeps a committed price readable when its request or acknowledgement needs recovery', async () => {
+  const queue = await openPriceAppendQueue(owner);
+  const prices = createPriceRecords(queue);
+  await prices.saveManual(record);
+  await queue.acknowledge(record.id, receipt);
+  const receiptPath = [...mockFiles.keys()].find(key => key.endsWith('.receipt.json'))!;
+  mockFiles.set(receiptPath, '{damaged');
+  const open = jest.fn(async () => ({ owner, post: jest.fn() }));
+  expect(await prices.loadAll({ requireAll: true })).toEqual([record]);
+  expect(await createPriceAppendSync(queue, open)()).toBe('failed');
+  expect(open).not.toHaveBeenCalled();
+  expect(mockFiles.get(receiptPath)).toBe('{damaged');
+
+  const bodyPath = [...mockFiles.keys()].find(key => key.endsWith('.price.json'))!;
+  mockFiles.delete(receiptPath);
+  mockFiles.set(bodyPath, JSON.stringify({ ...JSON.parse(mockFiles.get(bodyPath)!), body: '{damaged' }));
+  expect(await prices.load(record.id)).toEqual(record);
+  expect(await createPriceAppendSync(queue, open)()).toBe('failed');
+  expect(open).not.toHaveBeenCalled();
+  expect(mockFiles.get(bodyPath)).toContain('{damaged');
 });
