@@ -148,9 +148,12 @@ test("opens comparison only from a chosen packaging match and keeps the two ID t
   const { candidateLookup } = mockProductLookup.mock.lastCall?.[0];
   await expect(candidateLookup.findCandidates({ name: "Oats" }, new AbortController().signal)).resolves.toEqual(value);
   expect(mockPush).not.toHaveBeenCalled();
-  candidateLookup.onCompare(catalog);
-  expect(mockPush).toHaveBeenLastCalledWith({ pathname: "/find-product", params: { productId: "canonical-oats" } });
-  candidateLookup.onCompare(observation);
+  const asset = { uri: "file:///candidate.jpg", width: 200, height: 200, mimeType: "image/jpeg" };
+  const draft = { id: "candidate-source", capturedAt: "2026-11-20T11:00:00Z", original: asset, selected: asset };
+  candidateLookup.onCompare(catalog, draft);
+  expect(mockPush).toHaveBeenLastCalledWith({ pathname: "/find-product", params: { productId: "canonical-oats", photoSource: draft.id } });
+  expect(productPhotoPriceSources.get(draft.id)).toMatchObject({ productId: catalog.product.id, source: { original: asset } });
+  candidateLookup.onCompare(observation, draft);
   expect(mockPush).toHaveBeenLastCalledWith({ pathname: "/compare/[id]", params: { id: observation.observationId, source: "shared" } });
 });
 

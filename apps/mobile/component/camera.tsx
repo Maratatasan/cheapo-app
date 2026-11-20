@@ -21,7 +21,9 @@ import { ui } from "./results/theme";
 import { GalleryCopy } from "./gallery-copy";
 import { PhotoReview, type ReviewSuggestion } from "./photo-review";
 import { PhotoCrop } from "./photo-crop";
-import { PhotoProductLookup, type ProductPhotoLookupProps } from "./photo-product-lookup";
+import { PhotoProductLookup } from "./photo-product-lookup";
+import type { ProductCandidateLookupProps } from "./product-candidate-lookup";
+import type { ProductCandidate } from "@/data/cheapo-shopping-reads";
 import { PhotoBarcodeCatalogMatch, PhotoBarcodeMissing, PhotoBarcodeReview } from "./photo-barcode-review";
 import { cameraPermissionMessage, PhotoBarcodeScan } from "./photo-barcode-scan";
 import { emptyReview, loadLocalPhotos, reviewComplete, saveLocalPhoto, type DraftShop, type LocalPhotoDraft, type ManualReview, type PhotoAsset } from "@/data/local-photo";
@@ -62,6 +64,14 @@ type BarcodeCapture = {
   onSaved: (pending?: PhotoSavePending, sourceId?: string) => void;
 };
 
+export type CameraProductLookup = {
+  onCompare: (barcode: string, product: Product, draft: LocalPhotoDraft) => void;
+  onRetake?: () => void;
+  candidateLookup?: Omit<ProductCandidateLookupProps, 'onCompare'> & {
+    onCompare: (candidate: ProductCandidate, draft: LocalPhotoDraft) => void;
+  };
+};
+
 type ReviewBarcode = {
   value: string;
   confirmed?: string;
@@ -87,10 +97,7 @@ export const CameraComponent = ({ currentShop, currentShopCountry, onScanBarcode
   onCompareBarcode?: (code: string) => void;
   linkedPrice?: LinkedPriceCapture;
   barcodeCapture?: BarcodeCapture;
-  productLookup?: Pick<ProductPhotoLookupProps, 'candidateLookup'> & {
-    onCompare: (barcode: string, product: Parameters<ProductPhotoLookupProps['onCompare']>[1], draft: LocalPhotoDraft) => void;
-    onRetake?: () => void;
-  };
+  productLookup?: CameraProductLookup;
 }) => {
   const shopping = useCheapoShopping();
   const enrolledCatalog = useEnrolledCatalog();
@@ -483,6 +490,7 @@ export const CameraComponent = ({ currentShop, currentShopCountry, onScanBarcode
     findProduct={findLookupProduct} onCompare={(code, product) => productLookup.onCompare(code, product, draft)} onRetake={retakePhoto}
     candidateLookup={productLookup.candidateLookup ? {
       ...productLookup.candidateLookup,
+      onCompare: candidate => productLookup.candidateLookup?.onCompare(candidate, draft),
       renderIdentitySuggestions: fieldPhotoAnalysisEnabled ? (onApply, busy) =>
         <DirectProductIdentityAnalysis photo={draft.original} busy={busy} onApply={onApply} /> : undefined,
     } : undefined} />;

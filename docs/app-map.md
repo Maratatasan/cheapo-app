@@ -16,6 +16,7 @@ records and photos keep their saved shop details.
 flowchart TD
     Home --> PackagePhoto["Scan item · take or choose packaging photo"]
     PackagePhoto -->|Known exact barcode| Compare
+    PackagePhoto -->|Shopper selects a catalog match| Compare
     Compare -->|Retained product photo| LocalShelfPrice["Read shelf price on this device"]
     LocalShelfPrice -->|Review this photo and select a shop| PriceReview
     Home --> Lookup["Find product by barcode"]
