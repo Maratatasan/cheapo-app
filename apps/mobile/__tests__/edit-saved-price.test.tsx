@@ -5,13 +5,34 @@ import { findLocalProductByBarcode, findLocalProductById } from '@/data/local-pr
 import { emptyReview } from '@/data/photo-review';
 
 const mockBack = jest.fn();
+const mockEnqueue = jest.fn();
+const mockRetry = jest.fn();
+const mockQueued = jest.fn();
+const mockChanges = jest.fn();
+const mockLoad = jest.fn();
+const mockAssertOwner = jest.fn();
+const mockObservation = jest.fn();
+const mockReadCurrent = jest.fn();
+const mockRuntime = {
+  owner: { origin: 'https://api.example.test', householdId: 'test-household', shopperId: 'test-shopper' },
+  assertOwner: mockAssertOwner, commitMutation: mockEnqueue,
+  priceQueue: { read: mockQueued }, priceRecords: { load: mockLoad },
+  loadPriceChanges: mockChanges, retry: mockRetry,
+};
+let mockShopping: typeof mockRuntime | null;
+let mockRoute: { id: string; source?: string };
 jest.mock('expo-router', () => ({
   Stack: { Screen: () => null },
   usePreventRemove: jest.fn(),
-  useLocalSearchParams: () => ({ id: 'capture-1' }),
+  useLocalSearchParams: () => mockRoute,
   useRouter: () => ({ canGoBack: () => true, back: mockBack }),
 }));
 jest.mock('expo-file-system', () => ({}));
+jest.mock('expo-crypto', () => ({ randomUUID: () => 'test-operation-1' }));
+jest.mock('../component/cheapo-shopping-provider', () => ({ useCheapoShopping: () => mockShopping }));
+jest.mock('../data/cheapo-shopping-read-device', () => ({ openCheapoSavedPriceReads: async () => ({
+  loadPriceObservation: mockObservation, assertCurrent: mockReadCurrent,
+}) }));
 jest.mock('expo-camera', () => ({ useCameraPermissions: () => [null, jest.fn()] }));
 jest.mock('../data/photo-barcode', () => ({ decodePhotoBarcodes: async () => ({ status: 'found', codes: ['036000291452', '4006381333931'] }) }));
 jest.mock('../data/local-products', () => ({ findLocalProductByBarcode: jest.fn(), findLocalProductById: jest.fn() }));
@@ -29,8 +50,74 @@ const product: LocalPhotoDraft = {
 
 beforeEach(() => {
   jest.resetAllMocks();
+  mockShopping = null;
+  mockRoute = { id: 'capture-1' };
+  mockEnqueue.mockResolvedValue(undefined);
+  mockRetry.mockResolvedValue(undefined);
+  mockQueued.mockResolvedValue({ entries: [], recovery: [] });
+  mockChanges.mockResolvedValue([]);
+  mockLoad.mockResolvedValue(product);
   jest.mocked(loadSavedPriceRecord).mockResolvedValue(product);
   jest.mocked(saveLocalPhotoReview).mockResolvedValue(product);
+});
+
+test('durably corrects the exact household record and disregards a matching local source alias from a peer', async () => {
+  const id = '1f39e272-9d1a-4204-9094-fe87d761cd43';
+  mockRoute = { id, source: 'shared' };
+  mockShopping = mockRuntime;
+  mockQueued.mockResolvedValue({ entries: [{ record: product }], recovery: [] });
+  mockChanges.mockResolvedValue([{ operationId: 'local-only', state: 'waiting', sourceId: product.id,
+    change: { action: 'correct', review: { ...review, price: '9.99' } } }]);
+  mockObservation.mockResolvedValue({ status: 'cached', lastSyncedAt: product.capturedAt,
+    value: { observation: { id, sourceId: product.id, ownedByCurrentShopper: false, version: 4,
+      capturedAt: product.capturedAt, productId: null, sourceProductId: null, productName: 'Peer rice', shopId: 'test-shop',
+      sourceShopId: null, shopDisplayName: 'Test shop', priceAmount: '1.690000', currency: 'GBP', review: null,
+      unitPrice: null, photos: [], cropBox: null, selectedPhotoRole: null } } });
+  let commit: () => void = () => {};
+  mockEnqueue.mockReturnValue(new Promise<void>(resolve => { commit = resolve; }));
+  await render(<EditSavedPrice />);
+  expect(await screen.findByLabelText('Product name')).toHaveDisplayValue('Peer rice');
+  expect(screen.getByLabelText('Pack price')).toHaveDisplayValue('1.69');
+  await fireEvent.changeText(screen.getByLabelText('Pack price'), '2.10');
+  await fireEvent.press(screen.getByRole('button', { name: 'Save changes' }));
+  expect(mockBack).not.toHaveBeenCalled();
+  expect(mockRetry).not.toHaveBeenCalled();
+  expect(mockEnqueue).toHaveBeenCalledWith(expect.objectContaining({ action: expect.objectContaining({ kind: 'price',
+    priceKey: id, base: { kind: 'version', id, version: 4 }, change: { action: 'correct', unitPrice: null,
+      review: expect.objectContaining({ productName: 'Peer rice', price: '2.10' }) } }) }));
+  await act(async () => { commit(); });
+  expect(mockBack).toHaveBeenCalledTimes(1);
+  expect(mockRetry).toHaveBeenCalledTimes(1);
+  expect(saveLocalPhotoReview).not.toHaveBeenCalled();
+});
+
+test('keeps the editor from advancing if its enrolled commit reports a changed owner', async () => {
+  mockShopping = mockRuntime;
+  mockQueued.mockResolvedValue({ entries: [{ record: product }], recovery: [] });
+  mockEnqueue.mockRejectedValue(Error('Cheapo access changed.'));
+  await render(<EditSavedPrice />);
+  await fireEvent.changeText(await screen.findByLabelText('Pack price'), '2.25');
+  await fireEvent.press(screen.getByRole('button', { name: 'Save changes' }));
+  expect(await screen.findByRole('alert')).toBeOnTheScreen();
+  expect(mockBack).not.toHaveBeenCalled();
+  expect(mockRetry).not.toHaveBeenCalled();
+  expect(saveLocalPhotoReview).not.toHaveBeenCalled();
+});
+
+test.each([false, true])('keeps a queued edit behind its dependent write (earlier correction: %s)', async earlierCorrection => {
+  mockShopping = mockRuntime;
+  mockQueued.mockResolvedValue({ entries: [{ record: product }], recovery: [] });
+  const { shop: _shop, ...fields } = review;
+  if (earlierCorrection) mockChanges.mockResolvedValue([{ operationId: 'earlier-edit', state: 'waiting', sourceId: product.id,
+    change: { action: 'correct', review: { ...fields, price: '2.10' } } }]);
+  await render(<EditSavedPrice />);
+  expect(await screen.findByLabelText('Pack price')).toHaveDisplayValue(earlierCorrection ? '2.10' : review.price);
+  await fireEvent.changeText(screen.getByLabelText('Pack price'), '2.25');
+  await fireEvent.press(screen.getByRole('button', { name: 'Save changes' }));
+  expect(mockEnqueue).toHaveBeenCalledWith(expect.objectContaining({ action: expect.objectContaining({ kind: 'price',
+    priceKey: product.id, base: earlierCorrection ? { kind: 'operation', operationId: 'earlier-edit' } : { kind: 'append', sourceId: product.id },
+    change: expect.objectContaining({ review: expect.objectContaining({ price: '2.25' }) }) }) }));
+  expect(saveLocalPhotoReview).not.toHaveBeenCalled();
 });
 
 test('opens the original unit and amount and cancels without saving', async () => {
