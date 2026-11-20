@@ -473,3 +473,32 @@ test('completes an imported draft without archived evidence and reserves normal 
   assert.equal(planned.status, 200);
   assert.equal((await planned.json() as { availability: string }).availability, 'pending');
 });
+
+test('completes a restored draft with a full-frame selection and retains the archived crop', async () => {
+  const id = '19000000-0000-4000-8000-000000000030';
+  const source = 'imported-draft-full-frame';
+  const capturedAt = '2026-01-20T11:30:00.123456Z';
+  await operator.query(`
+    INSERT INTO cheapo.price_observation (household_id, shopper_id, id, resource_id, captured_at, status, source_test_shop, crop_box)
+    VALUES ($1, $2, $3, $4, $5, 'draft', false, '{"left":0.2,"top":0.2,"right":0.8,"bottom":0.8}')
+  `, [household, owner, source, id, capturedAt]);
+  await operator.query(`
+    INSERT INTO cheapo.price_photo (household_id, shopper_id, observation_id, role, storage_key, sha256, byte_count, width, height)
+    VALUES ($1, $2, $3, 'original', $4, repeat('8', 64), 2000, 800, 600),
+      ($1, $2, $3, 'crop', $5, repeat('3', 64), 720, 480, 360)
+  `, [household, owner, source, importedEvidenceKey(household, owner, '8'.repeat(64)),
+    importedEvidenceKey(household, owner, '3'.repeat(64))]);
+  const route = 'http://localhost/v1/me/price-observations';
+  const append = await api(new Request(route, {
+    method: 'POST', headers: { Authorization: `Bearer ${token('A')}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sourceId: source, capturedAt, shopId: 'recrop-market', shopDisplayName: 'Re-crop Market',
+      review: { productName: 'Selected full frame', price: '2.80', currency: 'GBP' },
+      cropBox: { left: 0, top: 0, right: 1, bottom: 1 } }),
+  }));
+  assert.equal(append.status, 201);
+  assert.deepEqual(await append.json(), { id, sourceId: source, version: 2, deriveCropFromOriginal: true });
+  const checked = await api(new Request(route + '/' + id, { headers: { Authorization: `Bearer ${token('B')}` } }));
+  const { observation } = priceHistoryDetail.parse(await checked.json());
+  assert.deepEqual([observation.selectedPhotoRole, observation.cropSource, observation.cropBox], ['original', 'original', null]);
+  assert.deepEqual(observation.photos.map(asset => asset.role), ['original', 'crop']);
+});
