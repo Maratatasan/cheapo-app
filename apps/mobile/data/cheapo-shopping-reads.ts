@@ -1,6 +1,9 @@
 import { productSchema, shopSchema, type Product, type Shop } from "@cheapo/domain";
 import { canonicalProductBarcode } from "@cheapo/domain/product-barcode";
+import type { PriceHistoryQuery, PriceObservationDetail } from "@cheapo/domain/price-history";
 import { CheapoAccessError, type CheapoReadSession } from "../lib/cheapo-access/client";
+import { requestInterrupted, withCheapoDeadline } from "../lib/cheapo-access/request-deadline";
+import { decodeHistoryObservation, decodeHistoryPage, historyObservationPath, historyPagePath } from "./cheapo-price-history";
 
 export type ReadCache = {
   read(key: string): Promise<string | null>;
@@ -16,6 +19,7 @@ type SavedShop = Shop & { testShop?: boolean };
 type SavedShopRead = { shops: SavedShop[]; currentShop?: SavedShop };
 type ShopCandidate = Pick<Shop, "id" | "name" | "address" | "location">;
 type Decoder<T> = (raw: unknown) => T;
+const readDeadlineMs = 35_000;
 
 function malformed(): never {
   throw Error("Cheapo returned unreadable shopping data.");
@@ -70,9 +74,16 @@ function decodeProduct(value: unknown): { product: Product | null } {
 export function createCheapoShoppingReads(openSession: () => Promise<CheapoReadSession>, cache: ReadCache) {
   async function read<T>(
     path: string, decode: Decoder<T>, cacheable: ((value: T) => boolean) | undefined, signal?: AbortSignal,
+    notFound?: () => T,
   ): Promise<ShoppingRead<T>> {
+    if (signal?.aborted) throw requestInterrupted();
     const session = await openSession();
     const key = `${session.cacheScope}\0${path}`;
+
+    function assertCurrent() {
+      if (signal?.aborted) throw requestInterrupted();
+      session.assertCurrent();
+    }
 
     async function fromCache(): Promise<ShoppingRead<T>> {
       let result: ShoppingRead<T> = { status: "unavailable" };
@@ -91,21 +102,25 @@ export function createCheapoShoppingReads(openSession: () => Promise<CheapoReadS
           // A removed or damaged cache file is replaceable.
         }
       }
-      session.assertCurrent();
+      assertCurrent();
       return result;
     }
 
-    let response: Response;
+    let response: { ok: boolean; status: number; body: unknown };
     try {
-      response = await session.get(path, signal);
+      response = await withCheapoDeadline(signal, readDeadlineMs, async stageSignal => {
+        const checked = await session.get(path, stageSignal);
+        if (stageSignal.aborted) throw requestInterrupted();
+        return { status: checked.status, ok: checked.ok, body: checked.ok ? await checked.json() : undefined };
+      });
     } catch (error) {
-      if (error instanceof CheapoAccessError || signal?.aborted) throw error;
+      if (error instanceof CheapoAccessError || error instanceof SyntaxError || signal?.aborted) throw error;
       return fromCache();
     }
     if (response.status === 429 || response.status >= 500) return fromCache();
-    if (!response.ok) throw Error("Could not read shopping data from Cheapo.");
-    const value = decode(await response.json());
-    session.assertCurrent();
+    if (!response.ok && (response.status !== 404 || !notFound)) throw Error("Could not read shopping data from Cheapo.");
+    const value = response.status === 404 && notFound ? notFound() : decode(response.body);
+    assertCurrent();
     const lastSyncedAt = new Date().toISOString();
     if (cacheable) {
       try {
@@ -115,7 +130,7 @@ export function createCheapoShoppingReads(openSession: () => Promise<CheapoReadS
         // A cache write failure does not invalidate the checked response.
       }
     }
-    session.assertCurrent();
+    assertCurrent();
     return { status: "fresh", value, lastSyncedAt };
   }
 
@@ -132,6 +147,15 @@ export function createCheapoShoppingReads(openSession: () => Promise<CheapoReadS
     findProductById(id: string, signal?: AbortSignal) {
       if (!productSchema.shape.id.safeParse(id).success || id === "." || id === ".." || id.includes("\0")) throw Error("Invalid product ID.");
       return read(`/v1/products/${encodeURIComponent(id)}`, decodeProduct, value => value.product !== null, signal);
+    },
+    loadPriceHistory(query: PriceHistoryQuery = {}, signal?: AbortSignal) {
+      return read(historyPagePath(query), decodeHistoryPage, () => true, signal);
+    },
+    loadPriceObservation(id: string, signal?: AbortSignal) {
+      return read<{ observation: PriceObservationDetail | null }>(
+        historyObservationPath(id), raw => decodeHistoryObservation(raw, id), value => value.observation !== null, signal,
+        () => ({ observation: null }),
+      );
     },
   };
 }

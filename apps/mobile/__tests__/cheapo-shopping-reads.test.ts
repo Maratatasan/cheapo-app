@@ -107,3 +107,136 @@ test("does not store raw branch search responses or unreadable remote snapshots"
   await expect(reads.loadSavedShops()).rejects.toThrow("unreadable");
   expect(cache.size).toBe(0);
 });
+
+const historyPath = "/v1/me/price-observations";
+const observed = {
+  id: "fa91641f-d265-4a3b-9695-4ff553ab5138", sourceId: "fixture-price", ownedByCurrentShopper: true,
+  version: 2, capturedAt: "2026-01-02T09:30:00.123456Z", productId: "oats", sourceProductId: null,
+  productName: "Oats", shopId: null, sourceShopId: "historic-branch", shopDisplayName: "Historic market",
+  priceAmount: "3.1900", currency: "GBP", review: { productName: "Oats" }, unitPrice: { amount: 0.638, unit: "100g" },
+  photos: [{ role: "original", width: 800, height: 600 }, { role: "crop", width: 400, height: 300, availability: "pending" }],
+};
+
+test("reads bounded comparison pages and recovers just the matching offline snapshot", async () => {
+  const { download, start } = setup();
+  const reads = start();
+  const query = { comparableGroupId: "oats+whole", productType: " rolled oats ", currency: "GBP", limit: 20 };
+  const nextCursor = "fixture-next";
+  download.mockResolvedValueOnce(Response.json({ observations: [observed], nextCursor }));
+  const firstPage = await reads.loadPriceHistory(query);
+  expect(firstPage).toMatchObject({ status: "fresh", value: { observations: [observed], nextCursor }, lastSyncedAt: expect.any(String) });
+  expect(download.mock.calls[0][0]).toBe(origin + historyPath + "?limit=20&comparableGroupId=oats%2Bwhole&productType=rolled+oats&currency=GBP");
+  const peer = { ...observed, id: "5353588d-923b-4f09-903d-f72adeaded5a", ownedByCurrentShopper: false };
+  download.mockResolvedValueOnce(Response.json({ observations: [peer], nextCursor: null }));
+  expect(await reads.loadPriceHistory({ ...query, cursor: nextCursor })).toMatchObject({ status: "fresh", value: { observations: [peer] } });
+  expect(download.mock.calls[1][0]).toContain("cursor=fixture-next");
+  download.mockRejectedValue(new Error("Offline"));
+  expect(await reads.loadPriceHistory({ ...query, productType: "rolled oats" })).toEqual({ ...firstPage, status: "cached" });
+  expect(await reads.loadPriceHistory({ ...query, currency: "USD" })).toEqual({ status: "unavailable" });
+});
+
+test("opens exact detail with evidence roles and removes the cached detail after a checked 404", async () => {
+  const { download, cache, start } = setup();
+  const reads = start();
+  const detail = { ...observed, cropBox: { left: 0, top: 0.1, right: 0.9, bottom: 0.8 }, selectedPhotoRole: "crop" };
+  // Metadata snapshots contain evidence roles only, even if a response includes extra object URL fields.
+  const withUnexpectedUrl = { ...detail, photos: [{ ...detail.photos[0], url: "https://object.example/private-fixture" }, detail.photos[1]] };
+  download.mockResolvedValueOnce(Response.json({ observation: withUnexpectedUrl }));
+  const result = await reads.loadPriceObservation(observed.id);
+  expect(result).toMatchObject({ status: "fresh", value: { observation: detail } });
+  expect(download.mock.calls[0][0]).toBe(`${origin}${historyPath}/${observed.id}`);
+  expect(JSON.stringify([...cache])).not.toContain("object.example");
+  download.mockRejectedValueOnce(new Error("Offline"));
+  expect(await reads.loadPriceObservation(observed.id)).toEqual({ ...result, status: "cached" });
+  download.mockResolvedValueOnce(new Response(null, { status: 404 }));
+  expect(await reads.loadPriceObservation(observed.id)).toMatchObject({ status: "fresh", value: { observation: null } });
+  download.mockRejectedValueOnce(new Error("Offline"));
+  expect(await reads.loadPriceObservation(observed.id)).toEqual({ status: "unavailable" });
+});
+
+test("rejects overflowing queries and untrustworthy observation identity or ownership", async () => {
+  const { download, cache, start } = setup();
+  const reads = start();
+  expect(() => reads.loadPriceHistory({ limit: 51 })).toThrow("price history filter");
+  expect(() => reads.loadPriceHistory({ productType: "whole oats", includeRecordedInError: true })).toThrow("price history filter");
+  expect(() => reads.loadPriceObservation("../saved-shops")).toThrow("price ID");
+  expect(download).not.toHaveBeenCalled();
+  download.mockResolvedValueOnce(Response.json({ observations: [{ ...observed, ownedByCurrentShopper: "yes" }], nextCursor: null }));
+  await expect(reads.loadPriceHistory()).rejects.toThrow("unreadable");
+  download.mockResolvedValueOnce(Response.json({ observation: { ...observed, cropBox: null, selectedPhotoRole: "original" } }));
+  await expect(reads.loadPriceObservation("5353588d-923b-4f09-903d-f72adeaded5a")).rejects.toThrow("unreadable");
+  expect(cache.size).toBe(0);
+});
+
+test.each(["fetch", "body"])("falls back to the saved result when the %s stalls and ignores a late success", async stage => {
+  jest.useFakeTimers();
+  try {
+    const { cache, download, start } = setup();
+    const reads = start();
+    const firstPage = { observations: [observed], nextCursor: null };
+    const latePage = { observations: [{ ...observed, version: 99 }], nextCursor: null };
+    download.mockResolvedValueOnce(Response.json(firstPage));
+    const saved = await reads.loadPriceHistory();
+    const before = [...cache];
+    let settle!: () => void;
+    if (stage === "fetch") {
+      download.mockImplementationOnce(() => new Promise(resolve => { settle = () => resolve(Response.json(latePage)); }));
+    } else {
+      const response = new Response(null);
+      jest.spyOn(response, "json").mockImplementation(() => new Promise(resolve => { settle = () => resolve(latePage); }));
+      download.mockResolvedValueOnce(response);
+    }
+    const pending = reads.loadPriceHistory();
+    await jest.advanceTimersByTimeAsync(35_000);
+    expect(await pending).toEqual({ ...saved, status: "cached" });
+    expect(download.mock.calls[1][1].signal?.aborted).toBe(true);
+    settle();
+    await jest.advanceTimersByTimeAsync(0);
+    expect([...cache]).toEqual(before);
+    expect(jest.getTimerCount()).toBe(0);
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
+test("rejects caller cancellation while a response body is still pending", async () => {
+  const { cache, download, start } = setup();
+  const reads = start();
+  const controller = new AbortController();
+  download.mockResolvedValueOnce(Response.json({ observations: [observed], nextCursor: null }));
+  await reads.loadPriceHistory();
+  const before = [...cache];
+  const response = new Response(null);
+  jest.spyOn(response, "json").mockImplementation(() => {
+    controller.abort();
+    return new Promise(() => {});
+  });
+  download.mockResolvedValueOnce(response);
+  await expect(reads.loadPriceHistory({}, controller.signal)).rejects.toThrow("interrupted");
+  expect(download.mock.calls[1][1].signal?.aborted).toBe(true);
+  expect([...cache]).toEqual(before);
+});
+
+test("rejects a timed-out read after enrollment changes even when its old cache exists", async () => {
+  jest.useFakeTimers();
+  try {
+    const { access, cache, download, start } = setup();
+    const reads = start();
+    download.mockResolvedValueOnce(Response.json({ observations: [observed], nextCursor: null }));
+    await reads.loadPriceHistory();
+    const before = [...cache];
+    let markStarted!: () => void;
+    const started = new Promise<void>(resolve => { markStarted = resolve; });
+    download.mockImplementationOnce(() => { markStarted(); return new Promise(() => {}); });
+    const pending = expect(reads.loadPriceHistory()).rejects.toThrow("Cheapo access changed");
+    await started;
+    download.mockResolvedValueOnce(Response.json(identity));
+    await access.enroll(second);
+    await jest.advanceTimersByTimeAsync(35_000);
+    await pending;
+    expect([...cache]).toEqual(before);
+    expect(jest.getTimerCount()).toBe(0);
+  } finally {
+    jest.useRealTimers();
+  }
+});
