@@ -5,6 +5,7 @@ import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-nati
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import type { PriceEvidenceRole } from '../data/cheapo-price-photo-read';
+import type { PendingHistoryChange } from '../data/saved-price-history';
 import { PriceDisplay } from './results/price-display';
 import { color, radius, spacing, typography, ui } from './results/theme';
 
@@ -18,10 +19,12 @@ type Props = {
   cached: boolean;
   activeRole: PriceEvidenceRole | null;
   photo?: EvidenceView;
+  pendingChange?: PendingHistoryChange['state'];
   onPhotoRole(role: PriceEvidenceRole): void;
   onRetryPhoto(): void;
   onBack(): void;
   onCompare?(): void;
+  onOpenLocal?(): void;
 };
 
 function formatDate(value: string, withTime = false) {
@@ -30,8 +33,14 @@ function formatDate(value: string, withTime = false) {
   return date.toLocaleString(undefined, { dateStyle: 'medium', ...(withTime ? { timeStyle: 'short' } : {}) });
 }
 
+const pendingLabel = { waiting: 'Saved on this phone · Waiting to sync', failed: 'Could not sync',
+  conflict: 'Conflicting changes', recovery: 'Needs attention' } as const;
+export function PendingPriceNotice({ state }: { state?: PendingHistoryChange['state'] }) {
+  return state ? <Text style={ui.small}>{pendingLabel[state]}</Text> : null;
+}
+
 export function SharedPriceEvidence({
-  observation, lastSyncedAt, cached, activeRole, photo, onPhotoRole, onRetryPhoto, onBack, onCompare,
+  observation, lastSyncedAt, cached, activeRole, photo, pendingChange, onPhotoRole, onRetryPhoto, onBack, onCompare, onOpenLocal,
 }: Props) {
   const [failedUri, setFailedUri] = useState<string>();
   const photoRole = observation.photos.find(asset => asset.role === activeRole);
@@ -52,6 +61,7 @@ export function SharedPriceEvidence({
           <Text accessibilityRole="header" style={ui.title}>{name}</Text>
           {observation.shopDisplayName ? <Text style={ui.body}>{observation.shopDisplayName}</Text> : null}
           {details ? <Text style={ui.body}>{details}</Text> : null}
+          <PendingPriceNotice state={pendingChange} />
           <View style={styles.priceBar}>
             {recordedDate ? <Text style={ui.small}>Recorded {recordedDate}</Text> : null}
             <PriceDisplay price={observation.priceAmount === null ? null : Number(observation.priceAmount)}
@@ -104,6 +114,11 @@ export function SharedPriceEvidence({
           {onCompare && !observation.recordedInErrorReason ? (
             <Pressable accessibilityRole="button" style={[styles.role, styles.compare]} onPress={onCompare}>
               <Text style={styles.roleLabel}>Compare saved prices</Text>
+            </Pressable>
+          ) : null}
+          {onOpenLocal ? (
+            <Pressable accessibilityRole="button" style={[styles.role, styles.compare]} onPress={onOpenLocal}>
+              <Text style={styles.roleLabel}>Open this phone’s copy</Text>
             </Pressable>
           ) : null}
         </View>

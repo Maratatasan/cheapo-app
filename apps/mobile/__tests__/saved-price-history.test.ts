@@ -2,7 +2,8 @@ import type { PriceObservation } from '@cheapo/domain/price-history';
 
 import type { LocalPhotoDraft, ManualPriceRecord } from '../data/local-photo';
 import { emptyReview } from '../data/photo-review';
-import { comparisonRowFromSavedHistory, savedPriceHistoryRows } from '../data/saved-price-history';
+import { comparePrices } from '../data/comparison-prices';
+import { comparisonRowFromSavedHistory, projectSharedPrice, savedPriceHistoryRows, type PendingHistoryChange } from '../data/saved-price-history';
 
 const capturedAt = '2026-01-02T09:30:00.123456Z';
 const market = { id: 'market', displayName: 'Example Market' };
@@ -87,4 +88,35 @@ test('keeps the latest shared version across pages and excludes recorded errors 
     id: `shared:${peer.id}`, capturedOn: '2026-01-02', productType: 'Oats', pack: '500 g',
     price: 3.19, currency: 'GBP', unit_price: { amount: 0.638, unit: '100g' },
   });
+});
+
+test('compares projected prices by compatible units and independent brand and variety filters', () => {
+  const reference = { ...observation(primaryId, 'ours', true), version: 3,
+    review: { productType: 'Oats', brand: 'Example', variety: 'Rolled' }, unitPrice: { amount: 3, unit: 'kg' } };
+  const peer = { ...observation(peerId, 'ours', false), review: { productType: 'Oats', brand: 'Peer', variety: 'Rolled' },
+    unitPrice: { amount: 0.10, unit: '100g' } };
+  const unrankable = { ...observation(otherId, 'unrankable', false), unitPrice: null };
+  const hidden = { ...observation('771f4baa-b8ec-442c-8592-ed74b6c8acbb', 'wrong', false), recordedInErrorReason: 'Wrong pack' };
+  const waiting = { ...local('queued'), review: { ...review, brand: 'Example', variety: 'Steel-cut', unitPrice: '2', unit: 'kg' } };
+  const changes: PendingHistoryChange[] = [
+    { resourceId: reference.id, state: 'waiting', change: { action: 'correct',
+      review: { productName: 'Corrected oats', productType: 'Oats', brand: 'Example', variety: 'Rolled', price: '3.20', currency: 'GBP' },
+      unitPrice: { amount: 3.2, unit: 'kg' } } },
+    { sourceId: waiting.id, state: 'waiting', change: { action: 'correct',
+      review: { productName: 'Corrected queued oats', productType: 'Oats', brand: 'Example', variety: 'Steel-cut',
+        price: '1.50', currency: 'GBP', unitPrice: '1.5', unit: 'kg' }, unitPrice: { amount: 1.5, unit: 'kg' } } },
+  ];
+  const projected = projectSharedPrice(reference, changes);
+  expect(projected.display).toMatchObject({ version: 3, priceAmount: '3.20' });
+  expect(reference.priceAmount).toBe('3.1900');
+  const rows = savedPriceHistoryRows({ legacy: [], queued: [{ record: waiting }], shared: [reference, peer, unrankable, hidden] });
+  const comparisons = rows.flatMap(row => comparisonRowFromSavedHistory(row, changes) ?? []);
+  const selected = comparisons.find(row => row.id === `shared:${reference.id}`);
+  expect(selected?.price).toBe(3.2);
+  expect(comparisons.some(row => row.id === `shared:${hidden.id}`)).toBe(false);
+  const ranked = comparePrices(comparisons, selected);
+  expect(ranked.groups[0].entries.map(({ row }) => row.id)).toEqual([`shared:${peer.id}`, 'queued:queued']);
+  expect(ranked.unranked.map(row => [row.id, row.unit_price])).toEqual([[`shared:${unrankable.id}`, null]]);
+  expect(comparePrices(comparisons, selected, { sameBrand: true, sameVariety: false }).groups[0].entries[0].row.id).toBe('queued:queued');
+  expect(comparePrices(comparisons, selected, { sameBrand: false, sameVariety: true }).groups[0].entries[0].row.id).toBe(`shared:${peer.id}`);
 });
