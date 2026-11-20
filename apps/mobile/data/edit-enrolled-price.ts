@@ -1,4 +1,4 @@
-import type { PriceObservationDetail } from '@cheapo/domain/price-history';
+import type { PriceObservationDetail, PricePhotoSelection } from '@cheapo/domain/price-history';
 import { randomUUID } from 'expo-crypto';
 
 import type { SavedPriceRecord } from './local-photo';
@@ -8,8 +8,14 @@ import { priceChangeIsNewerThan } from './shopping-pending-price-changes';
 import type { CheapoShoppingRuntime } from './shopping-sync-runtime';
 
 type PriceAction = Extract<ShoppingMutation['action'], { kind: 'price' }>;
+type Correction = Extract<PriceAction['change'], { action: 'correct' }>;
 export type PriceEditTarget = { priceKey: string; base: PriceAction['base'] };
 export type PriceEditRecord = Pick<SavedPriceRecord, 'id' | 'capturedAt' | 'review' | 'productId' | 'shop' | 'original' | 'selected'>;
+
+function selectedPhoto(observation?: PriceObservationDetail): PricePhotoSelection | undefined {
+  if (observation?.cropSource !== 'original') return undefined;
+  return observation.cropBox ? { role: 'crop', cropBox: observation.cropBox } : { role: 'original' };
+}
 
 function reviewFromObservation(observation: PriceObservationDetail): ManualReview {
   const stored = observation.review;
@@ -43,6 +49,7 @@ export async function readEnrolledPriceEdit(
   let productId = record.productId;
   let shop = record.shop;
   let errorReason = observation?.recordedInErrorReason;
+  let photoSelection = selectedPhoto(observation);
   for (const candidate of changes) {
     const matches = candidate.resourceId ? candidate.resourceId === resourceId
       : localId !== undefined && candidate.sourceId === localId;
@@ -55,6 +62,7 @@ export async function readEnrolledPriceEdit(
       productId = chosen.productId;
       shop = chosen.shop;
       errorReason = cloud.recordedInErrorReason;
+      photoSelection = selectedPhoto(cloud);
       base = { kind: 'version', id: cloud.id, version: cloud.version };
       continue;
     }
@@ -65,6 +73,7 @@ export async function readEnrolledPriceEdit(
       review = { ...emptyReview(change.shop?.displayName ?? review?.shop), ...change.review };
       if (change.productId !== undefined) productId = change.productId ?? undefined;
       if (change.shop) shop = change.shop;
+      if (change.photoSelection) photoSelection = change.photoSelection;
     }
   }
   // Match the same resource key whether Edit opened from the phone or a shared record.
@@ -72,7 +81,7 @@ export async function readEnrolledPriceEdit(
   return {
     record: { ...record, review, productId, shop },
     target: base && priceKey ? { priceKey, base } : undefined,
-    errorReason,
+    errorReason, photoSelection,
   };
 }
 
@@ -85,18 +94,19 @@ export function recordFromObservation(observation: PriceObservationDetail): Pric
   };
 }
 
-export function correctionFromReview(review: ManualReview): PriceAction['change'] {
+export function correctionFromReview(review: ManualReview): Correction {
   const { shop: _displayName, ...fields } = review;
   return { action: 'correct', review: fields, unitPrice: reviewUnitPrice(review) };
 }
 
 export async function saveEnrolledPriceEdit(
-  runtime: CheapoShoppingRuntime, target: PriceEditTarget, title: string, change: PriceAction['change'],
+  runtime: CheapoShoppingRuntime, target: PriceEditTarget, title: string, change: PriceAction['change'], waitFor?: string[],
 ) {
   const operationId = randomUUID();
   await runtime.commitMutation({
     operationId, createdAt: new Date().toISOString(), title: title.trim().slice(0, 128),
     action: { kind: 'price', ...target, change },
+    ...(waitFor?.length ? { waitFor } : {}),
   });
   void runtime.retry().catch(() => { /* The durable change stays visible in Pending sync. */ });
   return operationId;

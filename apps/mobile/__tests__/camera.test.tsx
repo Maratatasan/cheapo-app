@@ -16,6 +16,10 @@ const mockSaveLocalPhoto = jest.fn();
 const mockLoadLocalPhotos = jest.fn();
 const mockUseCheapoShopping = jest.fn();
 jest.mock('../component/cheapo-shopping-provider', () => ({ useCheapoShopping: () => mockUseCheapoShopping() }));
+const mockCatalog = jest.fn();
+jest.mock('../hooks/use-enrolled-catalog', () => ({ useEnrolledCatalog: () => mockCatalog() }));
+const mockSharedReads = jest.fn();
+jest.mock('../data/cheapo-shopping-read-device', () => ({ openCheapoSavedPriceReads: (...args: unknown[]) => mockSharedReads(...args) }));
 const mockAddLocalProduct = jest.fn();
 const mockScanFromURLAsync = jest.fn();
 jest.mock('../data/local-products', () => ({ addLocalProduct: (...args: unknown[]) => mockAddLocalProduct(...args) }));
@@ -43,7 +47,7 @@ jest.mock('../lib/choose-photo', () => ({ choosePhoto: () => mockChoosePhoto() }
 jest.mock('../data/local-photo', () => ({ emptyReview: (shop = '') => ({ productName: '', price: '', currency: 'GBP', shop, unitPrice: '', unit: '' }), reviewComplete: (review: any) => !!review?.productName && !!review?.price && !!review?.shop, saveLocalPhoto: (...args: unknown[]) => mockSaveLocalPhoto(...args), loadLocalPhotos: () => mockLoadLocalPhotos() }));
 jest.mock('../component/photo-crop', () => ({ PhotoCrop: ({ onApply, onCancel }: any) => {
   const React = require('react'); const { Button, View } = require('react-native');
-  return React.createElement(View, null, React.createElement(Button, { title: 'Apply crop', onPress: () => onApply({ uri: 'file:///cropped.jpg', width: 200, height: 100, mimeType: 'image/jpeg' }) }), React.createElement(Button, { title: 'Cancel crop', onPress: onCancel }));
+  return React.createElement(View, null, React.createElement(Button, { title: 'Apply crop', onPress: () => onApply({ uri: 'file:///cropped.jpg', width: 200, height: 100, mimeType: 'image/jpeg' }, { left: 0.25, top: 0.25, right: 0.75, bottom: 0.75 }) }), React.createElement(Button, { title: 'Cancel crop', onPress: onCancel }));
 } }));
 const mockRequestPermission = jest.fn();
 const mockTakePictureAsync = jest.fn();
@@ -82,6 +86,8 @@ describe("CameraComponent", () => {
     mockChoosePhoto.mockReset();
     mockLoadLocalPhotos.mockResolvedValue([]);
     mockUseCheapoShopping.mockReset().mockReturnValue(null);
+    mockCatalog.mockReset().mockReturnValue(null);
+    mockSharedReads.mockReset();
     mockRequestPermission.mockReset();
     mockTakePictureAsync.mockReset();
     delete process.env.EXPO_PUBLIC_CHEAPO_TEST_PHOTO_URL;
@@ -150,6 +156,83 @@ describe("CameraComponent", () => {
       expect(screen.getByText('Synced to Cheapo')).toBeOnTheScreen();
       expect(screen.queryByText('Saved on this phone · Waiting to sync')).toBeNull();
     }
+  });
+
+  it('reopens an exact owned imported photo and queues reviewed price and crop selection as one correction', async () => {
+    mockPermission = { granted: false };
+    const id = 'imported-rice';
+    const cloudId = 'd002d3a7-2744-4414-8336-afc644ec6878';
+    const owner = { origin: 'https://shopping.example', householdId: 'household-a', shopperId: 'shopper-a' };
+    const original = { uri: 'file:///protected-original.jpg', width: 400, height: 200, mimeType: 'image/jpeg' };
+    const review = { productName: 'Saved rice', price: '1.95', currency: 'GBP', shop: 'Test market', unitPrice: '', unit: '' };
+    const record = { id, capturedAt: '2026-11-12T12:00:00.000000Z', original, selected: original,
+      shop: { id: 'stable-shop', displayName: review.shop }, review };
+    const observation = { id: cloudId, sourceId: id, version: 3, ownedByCurrentShopper: true, capturedAt: record.capturedAt,
+      productName: 'Checked rice', priceAmount: '2.50', currency: 'GBP', review: null, shopId: record.shop.id,
+      shopDisplayName: review.shop, photos: [], cropBox: null, selectedPhotoRole: null };
+    const loadPriceHistory = jest.fn().mockResolvedValue({ status: 'fresh', value: { observations: [observation] } });
+    mockSharedReads.mockResolvedValue({ loadPriceHistory, assertCurrent: jest.fn(),
+      loadPriceObservation: jest.fn().mockResolvedValue({ status: 'fresh', value: { observation } }) });
+    const commitMutation = jest.fn().mockResolvedValue(undefined);
+    const saveNewPhoto = jest.fn();
+    const retry = jest.fn().mockResolvedValue(undefined);
+    mockUseCheapoShopping.mockReturnValue({ owner, commitMutation, retry, assertOwner: async () => {},
+      priceQueue: { read: async () => ({ entries: [] }) }, loadPriceChanges: async () => [],
+      priceRecords: { loadPhotos: async () => [record], saveNewPhoto },
+      subscribeSync: () => () => {}, readPriceSaveStatus: async () => 'waiting',
+    });
+    await render(<CameraComponent />);
+    await fireEvent.press(await screen.findByRole('button', { name: /^Review / }));
+    expect(await screen.findByLabelText('Product name')).toHaveDisplayValue('Checked rice');
+    expect(loadPriceHistory).toHaveBeenCalledWith({ sourceId: id, includeRecordedInError: true }, expect.any(AbortSignal));
+    await fireEvent.changeText(screen.getByLabelText('Pack price'), '2.80');
+    await fireEvent.press(screen.getByText('Crop photo'));
+    await fireEvent.press(await screen.findByText('Apply crop'));
+    await fireEvent.press(screen.getByRole('button', { name: 'Save Price' }));
+    expect(commitMutation).toHaveBeenCalledTimes(1);
+    expect(commitMutation.mock.calls[0][0].action).toMatchObject({ kind: 'price', priceKey: cloudId,
+      base: { kind: 'version', id: cloudId, version: 3 }, change: { action: 'correct', review: { price: '2.80' },
+        photoSelection: { role: 'crop', cropBox: { left: .25, top: .25, right: .75, bottom: .75 } } } });
+    expect(saveNewPhoto).not.toHaveBeenCalled();
+    expect(mockSaveLocalPhoto).not.toHaveBeenCalled();
+    await fireEvent.press(screen.getByText('Use original'));
+    await fireEvent.press(screen.getByRole('button', { name: 'Save Price' }));
+    expect(commitMutation.mock.calls[1][0].action).toMatchObject({ kind: 'price', priceKey: cloudId,
+      base: { kind: 'operation', operationId: commitMutation.mock.calls[0][0].operationId },
+      change: { photoSelection: { role: 'original' } } });
+    expect(screen.getByLabelText('Price photo preview')).toHaveProp('source', { uri: original.uri });
+  });
+
+  it.each(['fresh', 'unavailable'])('only first-syncs a completed local photo after a verified empty source lookup (%s)', async status => {
+    mockPermission = { granted: false };
+    const original = { uri: 'file:///protected-local.jpg', width: 400, height: 200, mimeType: 'image/jpeg' };
+    const review = { productName: 'Local oats', price: '1.95', currency: 'GBP', shop: 'Test market', unitPrice: '', unit: '' };
+    const record = { id: 'completed-local', capturedAt: '2026-11-12T12:00:00.000000Z', original, selected: original,
+      shop: { id: 'stable-shop', displayName: review.shop }, review };
+    mockSharedReads.mockResolvedValue({ assertCurrent: jest.fn(), loadPriceHistory: jest.fn().mockResolvedValue({
+      status, ...(status === 'fresh' ? { value: { observations: [] } } : {}),
+    }) });
+    const saveNewPhoto = jest.fn().mockImplementation(async draft => ({ record: draft, pending: 'waiting' }));
+    const commitMutation = jest.fn();
+    mockUseCheapoShopping.mockReturnValue({ commitMutation, retry: jest.fn().mockResolvedValue(undefined), assertOwner: async () => {},
+      priceQueue: { read: async () => ({ entries: [] }) }, loadPriceChanges: async () => [],
+      priceRecords: { loadPhotos: async () => [record], saveNewPhoto },
+      subscribeSync: () => () => {}, readPriceSaveStatus: async () => 'waiting',
+    });
+    await render(<CameraComponent />);
+    await fireEvent.press(await screen.findByRole('button', { name: /^Review / }));
+    await fireEvent.changeText(await screen.findByLabelText('Pack price'), '2.20');
+    await fireEvent.press(screen.getByRole('button', { name: 'Save Price' }));
+    if (status === 'fresh') {
+      expect(saveNewPhoto).toHaveBeenCalledWith(expect.objectContaining({ id: record.id, original,
+        review: expect.objectContaining({ price: '2.20' }) }));
+    } else {
+      expect(await screen.findByRole('alert')).toHaveTextContent('Cheapo could not match this saved price. Connect and open it again to save your changes.');
+      expect(saveNewPhoto).not.toHaveBeenCalled();
+      expect(screen.getByLabelText('Pack price')).toHaveDisplayValue('2.20');
+    }
+    expect(mockSaveLocalPhoto).not.toHaveBeenCalled();
+    expect(commitMutation).not.toHaveBeenCalled();
   });
 
   it('lets the shopper confirm one barcode from the original and saves the photo under the new product ID', async () => {

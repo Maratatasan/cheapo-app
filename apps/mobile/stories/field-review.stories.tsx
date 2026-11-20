@@ -8,6 +8,8 @@ import { PhotoAnalysisControls } from '../component/photo-analysis-review';
 import { PhotoReview } from '../component/photo-review';
 import { CurrentShopPrice } from '../component/results/current-shop-price';
 import { applyPhotoSuggestion, emptyReview, type ManualReview } from '../data/photo-review';
+import cropLabel from './fixtures/price-label-crop.jpg';
+import originalLabel from './fixtures/price-label-original.jpg';
 
 const meta = { title: 'Screens/Field review', component: PhotoReview } satisfies Meta<typeof PhotoReview>;
 export default meta;
@@ -73,6 +75,34 @@ export const PhotoSynced: Story = {
   play: async ({ canvas, userEvent }) => {
     await userEvent.click(canvas.getByRole('button', { name: 'Save Price' }));
     await expect(canvas.getByText('Synced to Cheapo')).toBeVisible();
+  },
+};
+
+function SavedPhotoSelectionPreview() {
+  const [showOriginal, setOriginal] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [review, setReview] = useState<ManualReview>({
+    ...emptyReview('Example Market'), productName: 'Whole rolled oats', packSize: '500 g', price: '3.19',
+  });
+  const photo = { uri: showOriginal ? originalLabel : cropLabel, width: 600, height: 400, mimeType: 'image/jpeg' as const };
+  return <View style={{ height: 720, maxWidth: '100%', width: 380 }}>
+    <SafeAreaProvider initialMetrics={{ frame: { x: 0, y: 0, width: 380, height: 720 }, insets: { top: 0, bottom: 0, left: 0, right: 0 } }}>
+      <PhotoReview photo={photo} review={review} selectedShopName="Example Market" saved={saved}
+        savedStatus={saved ? 'Saved on this phone · Waiting to sync' : undefined} busy={false}
+        onReviewChange={next => { setReview(next); setSaved(false); }} onSave={() => setSaved(true)}
+        onCrop={() => { setOriginal(false); setSaved(false); }} onOriginal={showOriginal ? undefined : () => { setOriginal(true); setSaved(false); }} />
+    </SafeAreaProvider>
+  </View>;
+}
+
+export const ReopenSavedPhoto: Story = {
+  render: () => <SavedPhotoSelectionPreview />,
+  play: async ({ canvas, userEvent }) => {
+    await expect(canvas.getByLabelText('Price photo preview')).toBeVisible();
+    await userEvent.click(canvas.getByRole('button', { name: 'Use original' }));
+    await expect(canvas.queryByRole('button', { name: 'Use original' })).not.toBeInTheDocument();
+    await userEvent.click(canvas.getByRole('button', { name: 'Save Price' }));
+    await expect(canvas.getByText('Saved on this phone · Waiting to sync')).toBeVisible();
   },
 };
 
