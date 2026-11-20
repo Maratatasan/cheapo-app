@@ -14,11 +14,11 @@ type ScanCallbacks = { onCancel: () => void; onRead: (code: string) => void; onE
 type Match = { code: string; product?: Product };
 
 type Props = {
-  record: LocalPhotoDraft & { review: ManualReview };
+  record: Pick<LocalPhotoDraft, 'id'> & { review: ManualReview; original?: LocalPhotoDraft['original'] };
   lookup: (code: string) => Promise<Product | undefined>;
   readPhoto?: (uri: string) => Promise<PhotoBarcodeResult>;
   renderScanner?: (callbacks: ScanCallbacks) => ReactNode;
-  link: typeof linkSavedPriceToBarcode;
+  link: (...args: Parameters<typeof linkSavedPriceToBarcode>) => Promise<{ product: Product }>;
   disabled?: boolean;
   onSavingChange?: (saving: boolean) => void;
   onLinked: (code: string) => void;
@@ -38,16 +38,19 @@ export function SavedPriceBarcode({ record, lookup, readPhoto, renderScanner, li
   const target = match?.product ?? details;
   const pack = target.pack?.label ?? (target.pack && `${target.pack.quantity} ${target.pack.unit}`);
   const productDescription = [target.productType, target.brand, target.variety, pack].filter(Boolean).join(' · ');
+  const original = record.original?.uri;
 
   useEffect(() => {
     active.current = true;
-    if (readPhoto) void readPhoto(record.original.uri).then(result => {
-      if (active.current) setDetected(result);
+    let cancelled = false;
+    setDetected(undefined);
+    if (readPhoto && original) void readPhoto(original).then(result => {
+      if (!cancelled) setDetected(result);
     }).catch(() => {
-      if (active.current) setDetected({ status: 'error' });
+      if (!cancelled) setDetected({ status: 'error' });
     });
-    return () => { active.current = false; };
-  }, [readPhoto, record.original.uri]);
+    return () => { cancelled = true; active.current = false; };
+  }, [readPhoto, original]);
 
   function change(code: string) {
     setValue(code); setError(undefined); setMatch(undefined);
@@ -94,7 +97,7 @@ export function SavedPriceBarcode({ record, lookup, readPhoto, renderScanner, li
 
   const locked = busy || disabled;
   return <View style={styles.panel}>
-    <PhotoBarcodeReview result={detected ?? (readPhoto ? undefined : { status: 'unavailable' })} value={value}
+    <PhotoBarcodeReview result={detected ?? (readPhoto && original ? undefined : { status: 'unavailable' })} value={value}
       confirmed={Boolean(match)} confirmLabel="Check barcode" confirmedLabel="Barcode checked" busy={Boolean(locked)} error={error} onChange={change}
       onConfirm={() => { void confirm(); }} onClear={() => change('')}
       onScan={renderScanner ? () => setScanning(true) : undefined} />

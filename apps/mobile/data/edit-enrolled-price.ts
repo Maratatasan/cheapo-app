@@ -10,7 +10,7 @@ import type { CheapoShoppingRuntime } from './shopping-sync-runtime';
 type PriceAction = Extract<ShoppingMutation['action'], { kind: 'price' }>;
 type Correction = Extract<PriceAction['change'], { action: 'correct' }>;
 export type PriceEditTarget = { priceKey: string; base: PriceAction['base'] };
-export type PriceEditRecord = Pick<SavedPriceRecord, 'id' | 'capturedAt' | 'review' | 'productId' | 'shop' | 'original' | 'selected'>;
+export type PriceEditRecord = Pick<SavedPriceRecord, 'id' | 'capturedAt' | 'review' | 'productId' | 'shop' | 'original' | 'selected' | 'cropBox'>;
 
 function selectedPhoto(observation?: PriceObservationDetail): PricePhotoSelection | undefined {
   if (observation?.cropSource !== 'original') return undefined;
