@@ -2,7 +2,7 @@ import React from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import EditSavedPrice from '@/app/edit-price/[id]';
 import { BarcodeScan } from '@/component/barcode-scan';
-import { emptyReview, reviewComplete, loadLocalPhotos, loadSavedPriceRecords, linkSavedPriceToBarcode, saveLocalPhoto, saveLocalPhotoReview, saveManualPrice, type LocalPhotoDraft } from '../data/local-photo';
+import { emptyReview, reviewComplete, loadLocalPhotos, loadLocalShoppingBackup, loadSavedPriceRecords, linkSavedPriceToBarcode, saveLocalPhoto, saveLocalPhotoReview, saveManualPrice, type LocalPhotoDraft } from '../data/local-photo';
 import { addLocalProduct, findLocalProductByBarcode, replaceLocalProductBarcode } from '../data/local-products';
 import { savedProductDetails } from '../data/photo-review';
 import { comparisonRowFromDraft } from '../data/saved-comparison';
@@ -229,6 +229,17 @@ it('keeps the prior review on interrupted edits and rejects missing or unsafe re
 const riceBarcode = '036000291452';
 const otherBarcode = '4006381333931';
 const savedRiceReview = { ...emptyReview('Original shop'), productName: 'Rice', productType: 'Dry rice', price: '1.25', packSize: '500 g' };
+
+test('backs up a completed barcode link and its original observation together', async () => {
+  const saved = await saveLocalPhoto({ ...draft, review: savedRiceReview });
+  const pendingLink = linkSavedPriceToBarcode(saved.id, riceBarcode, { kind: 'new', details: savedProductDetails(savedRiceReview) });
+  const backup = loadLocalShoppingBackup();
+  await pendingLink;
+  await expect(backup).resolves.toMatchObject({
+    records: [{ ...saved, productId: saved.id }],
+    catalog: { originalProducts: [{ id: saved.id, barcode: '00036000291452' }] },
+  });
+});
 
 test('links two legacy observations to the same confirmed product without recopying images', async () => {
   const shop = { id: 'shop-rice', displayName: 'Original shop' };

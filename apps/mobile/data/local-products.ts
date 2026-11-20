@@ -3,25 +3,27 @@ import { randomUUID } from 'expo-crypto';
 import { Directory, File, Paths } from 'expo-file-system';
 import { canonicalProductBarcode } from './product-barcode';
 
-async function readLegacyProducts(): Promise<Map<string, Product>> {
+async function readLegacyProducts() {
   const file = new File(Paths.document, 'saved-products.json');
-  if (!file.exists) return new Map();
+  const products: Product[] = [];
+  const barcodes = new Map<string, Product>();
+  if (!file.exists) return { products, barcodes };
   const snapshot: unknown = JSON.parse(await file.text());
   if (!Array.isArray(snapshot)) throw Error('Invalid saved product catalog.');
 
   const { productSchema } = require('@cheapo/domain') as typeof import('@cheapo/domain');
   const ids = new Set<string>();
-  const barcodes = new Map<string, Product>();
   for (const entry of snapshot) {
     const product = productSchema.parse(entry);
     if (ids.has(product.id)) throw Error('Duplicate saved product ID.');
     ids.add(product.id);
+    products.push(product);
     if (!product.barcode) continue;
     const key = canonicalProductBarcode(product.barcode);
     if (!key || barcodes.has(key)) throw Error('Invalid or duplicate saved barcode.');
     barcodes.set(key, product);
   }
-  return barcodes;
+  return { products, barcodes };
 }
 
 const productsDirectory = () => new Directory(Paths.document, 'products-by-barcode');
@@ -30,8 +32,11 @@ let pendingMutation: Promise<unknown> = Promise.resolve();
 
 async function findOriginalProduct(key: string): Promise<Product | undefined> {
   const file = new File(productsDirectory(), `${key}.json`);
-  if (!file.exists) return (await readLegacyProducts()).get(key);
+  if (!file.exists) return (await readLegacyProducts()).barcodes.get(key);
+  return readOriginalProduct(file, key);
+}
 
+async function readOriginalProduct(file: File, key: string): Promise<Product> {
   const { productSchema } = require('@cheapo/domain') as typeof import('@cheapo/domain');
   const product = productSchema.parse(JSON.parse(await file.text()));
   if (!product.barcode || canonicalProductBarcode(product.barcode) !== key) throw Error('Invalid saved barcode association.');
@@ -78,13 +83,25 @@ export async function findLocalProductById(id: string): Promise<Product | undefi
       if (product?.id === id) return product;
     }
   }
-  return [...(await readLegacyProducts()).values()].find(product => product.id === id);
+  return [...(await readLegacyProducts()).barcodes.values()].find(product => product.id === id);
 }
 
 function serialize<T>(operation: () => Promise<T>): Promise<T> {
   const result = pendingMutation.then(operation);
   pendingMutation = result.catch(() => {});
   return result;
+}
+
+export function loadLocalCatalogBackup() {
+  return serialize(async () => {
+    const { products: legacyProducts } = await readLegacyProducts();
+    const directory = productsDirectory();
+    const files = directory.exists ? directory.list().filter((entry): entry is File =>
+      entry instanceof File && /^\d{14}\.json$/.test(entry.name)).sort((a, b) => a.name.localeCompare(b.name)) : [];
+    const originalProducts = await Promise.all(files.map(file => readOriginalProduct(file, file.name.slice(0, -5))));
+    const corrections = await readCorrections();
+    return { legacyProducts, originalProducts, corrections };
+  });
 }
 
 export function addLocalProduct(input: Product & { barcode: string }): Promise<Product> {

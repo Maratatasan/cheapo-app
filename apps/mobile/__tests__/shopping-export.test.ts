@@ -1,7 +1,7 @@
 import { shareAsync, isAvailableAsync } from 'expo-sharing';
 import { unzipSync } from 'fflate/browser';
 
-import { emptyReview, loadSavedPriceRecords, type LocalPhotoDraft } from '@/data/local-photo';
+import { emptyReview, loadLocalShoppingBackup, type LocalPhotoDraft, type SavedPriceRecord } from '@/data/local-photo';
 import type { ShopRepository } from '@/data/shop-repository';
 import { exportShoppingData } from '@/lib/shopping-export';
 
@@ -13,6 +13,7 @@ const mockDelete = jest.fn();
 let mockFailWrite = false;
 
 jest.mock('expo-crypto', () => ({ randomUUID: () => 'export-id' }));
+jest.mock('expo-constants', () => ({ __esModule: true, default: { expoConfig: { name: 'Cheapo Field', version: '0.1.8', android: { versionCode: 10 }, extra: { token: 'must-not-export' } } } }));
 jest.mock('expo-sharing', () => ({ isAvailableAsync: jest.fn(), shareAsync: jest.fn() }));
 jest.mock('expo-file-system', () => {
   class Directory {
@@ -51,17 +52,27 @@ jest.mock('expo-file-system', () => {
   }
   return { Directory, File, FileMode: { ReadOnly: 'r', WriteOnly: 'w' }, Paths: { document: 'file:///documents', cache: 'file:///cache' } };
 });
-jest.mock('../data/local-photo', () => ({ ...jest.requireActual('../data/local-photo'), loadSavedPriceRecords: jest.fn() }));
+jest.mock('../data/local-photo', () => ({ ...jest.requireActual('../data/local-photo'), loadLocalShoppingBackup: jest.fn() }));
+const catalog = {
+  legacyProducts: [{ id: 'legacy-rice', name: 'Legacy rice' }],
+  originalProducts: [{ id: 'catalog-rice', name: 'Rice', barcode: '00036000291452' }],
+  corrections: [{ revision: 1, previous: '00036000291452', product: { id: 'catalog-rice', name: 'Rice', barcode: '04006381333931' } }],
+};
 const shopRepository = { loadSavedShops: jest.fn<ReturnType<ShopRepository['loadSavedShops']>, []>() };
+
+function setRecords(records: SavedPriceRecord[]) {
+  jest.mocked(loadLocalShoppingBackup).mockResolvedValue({ records, catalog });
+}
 
 const original = { uri: 'file:///documents/price-photos/rice-original.jpg', width: 1000, height: 600, mimeType: 'image/jpeg' } as const;
 const crop = { ...original, uri: 'file:///documents/price-photos/rice-crop.jpg', width: 500, height: 300 };
 const complete: LocalPhotoDraft = {
   id: 'rice', capturedAt: '2026-11-12T12:00:00Z', original, selected: crop,
   shop: { id: 'test-shop-id', displayName: 'Test shop' },
-  review: { ...emptyReview('Test shop'), productName: 'Basmati rice', price: '1.25', unitPrice: '2.50', unit: 'kg', productType: 'Dry rice', variety: 'Basmati', brand: 'Example brand' },
+  productId: 'catalog-rice',
+  review: { ...emptyReview('Test shop'), productName: 'Basmati rice', price: '1.25', unitPrice: '2.50', unit: 'kg', productType: ' Dry rice ', variety: 'Basmati', brand: 'Example brand' },
 };
-const old: LocalPhotoDraft = { ...complete, id: 'old', selected: original, shop: undefined, review: emptyReview('Previous shop') };
+const old: LocalPhotoDraft = { ...complete, id: 'old', selected: original, productId: undefined, shop: undefined, review: emptyReview('Previous shop') };
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -72,13 +83,14 @@ beforeEach(() => {
   mockFiles.set(crop.uri, Uint8Array.of(5, 9, 1));
   jest.mocked(isAvailableAsync).mockResolvedValue(true);
   jest.mocked(shareAsync).mockResolvedValue(undefined);
-  jest.mocked(loadSavedPriceRecords).mockResolvedValue([complete, old]);
-  shopRepository.loadSavedShops.mockResolvedValue({ shops: [{ id: 'test-shop-id', nickname: 'Test shop' }] });
+  setRecords([complete, old]);
+  const currentShop = { id: 'test-shop-id', nickname: 'Test shop' };
+  shopRepository.loadSavedShops.mockResolvedValue({ shops: [currentShop], currentShop });
 });
 
 test('shares an extractable ZIP with reviewed records, older drafts, and portable photo references', async () => {
   await exportShoppingData(new AbortController().signal, shopRepository);
-  expect(loadSavedPriceRecords).toHaveBeenCalledWith({ requireAll: true });
+  expect(loadLocalShoppingBackup).toHaveBeenCalledTimes(1);
   expect(shareAsync).toHaveBeenCalledTimes(1);
   const [uri, options] = jest.mocked(shareAsync).mock.calls[0];
   expect(uri).toMatch(/^file:\/\/\/cache\/cheapo-shopping-exports\/cheapo-shopping-.*\.zip$/);
@@ -93,11 +105,19 @@ test('shares an extractable ZIP with reviewed records, older drafts, and portabl
   expect(mockClose).toHaveBeenCalledWith(uri);
   const json = new TextDecoder().decode(archive['manifest.json']);
   expect(json).not.toContain('file:');
+  expect(json).not.toContain('must-not-export');
   expect(JSON.parse(json)).toMatchObject({
-    version: 1,
+    version: 3,
     exportedAt: expect.any(String),
+    source: { appName: 'Cheapo Field', appVersion: '0.1.8', androidVersionCode: 10 },
+    currentShopId: 'test-shop-id',
+    catalog: {
+      legacyProducts: [{ id: 'legacy-rice', name: 'Legacy rice' }],
+      originalProducts: [{ id: 'catalog-rice', name: 'Rice', barcode: '00036000291452' }],
+      corrections: [{ revision: 1, previous: '00036000291452', product: { id: 'catalog-rice', name: 'Rice', barcode: '04006381333931' } }],
+    },
     records: [
-      { id: 'rice', capturedAt: complete.capturedAt, status: 'complete', productName: 'Basmati rice', testShop: true,
+      { id: 'rice', productId: 'catalog-rice', capturedAt: complete.capturedAt, status: 'complete', productName: 'Basmati rice', testShop: true,
         shop: { id: 'test-shop-id', displayName: 'Test shop' }, review: complete.review,
         photos: { original: { path: 'photos/1/original.jpg' }, crop: { path: 'photos/1/crop.jpg' }, selectedPath: 'photos/1/crop.jpg' } },
       { id: 'old', status: 'draft', testShop: false, shop: { id: null, displayName: 'Previous shop' },
@@ -115,6 +135,7 @@ test('exports historical shop identity and photos after a shop leaves the catalo
   const archive = unzipSync(Buffer.concat(mockWrites.get(uri)!));
   const manifest = JSON.parse(new TextDecoder().decode(archive['manifest.json']));
   expect(manifest.savedShops).toEqual([]);
+  expect(manifest.currentShopId).toBeNull();
   expect(manifest.records[0].shop).toEqual(complete.shop);
   expect(archive['photos/1/crop.jpg']).toEqual(mockFiles.get(crop.uri));
 });
@@ -122,13 +143,13 @@ test('exports historical shop identity and photos after a shop leaves the catalo
 test('exports manual prices as dated records without creating image entries', async () => {
   const manual = { id: 'manual-price', productId: 'catalog-rice', capturedAt: complete.capturedAt,
     shop: complete.shop!, review: complete.review! };
-  jest.mocked(loadSavedPriceRecords).mockResolvedValue([manual, complete]);
+  setRecords([manual, complete]);
   await exportShoppingData(new AbortController().signal, shopRepository);
   const [[uri]] = jest.mocked(shareAsync).mock.calls;
   const archive = unzipSync(Buffer.concat(mockWrites.get(uri)!));
   expect(Object.keys(archive).sort()).toEqual(['manifest.json', 'photos/2/crop.jpg', 'photos/2/original.jpg']);
   const manifest = JSON.parse(new TextDecoder().decode(archive['manifest.json']));
-  expect(manifest.version).toBe(2);
+  expect(manifest.version).toBe(3);
   expect(manifest.records[0]).toMatchObject({
     id: 'manual-price', productId: 'catalog-rice', status: 'complete', capturedAt: manual.capturedAt, photos: null,
   });
@@ -137,9 +158,16 @@ test('exports manual prices as dated records without creating image entries', as
 test('does not share an incomplete archive or read outside the saved photo directory', async () => {
   const outside = { ...original, uri: 'file:///documents/private/other.jpg' };
   mockFiles.set(outside.uri, Uint8Array.of(1));
-  jest.mocked(loadSavedPriceRecords).mockResolvedValue([{ ...complete, original: outside }]);
+  setRecords([{ ...complete, original: outside }]);
   await expect(exportShoppingData(new AbortController().signal, shopRepository)).rejects.toThrow('saved photo is missing or unreadable');
   expect(mockRead).not.toHaveBeenCalled();
+  expect(shareAsync).not.toHaveBeenCalled();
+});
+
+test('reports a missing linked product before creating an archive', async () => {
+  setRecords([{ ...complete, productId: 'missing-product' }]);
+  await expect(exportShoppingData(new AbortController().signal, shopRepository)).rejects.toThrow('refers to a missing product');
+  expect(mockWrites.size).toBe(0);
   expect(shareAsync).not.toHaveBeenCalled();
 });
 
