@@ -2,6 +2,7 @@ import type { Pool } from 'pg';
 
 import { createCatalogHandler, isCatalogPath } from './catalog.ts';
 import { postgresCatalog } from './postgres-catalog.ts';
+import { postgresPriceAppend } from './postgres-price-append.ts';
 import { postgresPriceHistory } from './postgres-price-history.ts';
 import { postgresSavedShops } from './postgres-saved-shops.ts';
 import type { ShoppingQuery, ShoppingTransaction } from './postgres-shopping.ts';
@@ -33,7 +34,7 @@ export function createShoppingApi({ query, transaction }: {
   const preferences = createPreferencesHandler(postgresPreferences({ query }));
   const shops = createSavedShopHandler(postgresSavedShops(transaction));
   const catalog = createCatalogHandler(postgresCatalog(transaction));
-  const prices = createPriceHistoryHandler(postgresPriceHistory(transaction));
+  const prices = createPriceHistoryHandler(postgresPriceHistory(transaction), postgresPriceAppend(transaction));
   return (request: Request) => {
     const path = new URL(request.url).pathname;
     if (isSavedShopPath(path)) return shops(request);
