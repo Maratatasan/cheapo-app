@@ -1,4 +1,5 @@
 const AUTH='https://auth.openai.com/api/accounts/authorize';
+export type PhoneAuthBrowser = 'default' | 'chrome';
 export const PLAN_SCOPES='openid profile email offline_access resource.invoke chatgpt.tokens.use.direct';
 export function authorizeUrl({port,hostId,clientId,state,nonce,challenge,appName='Cheapo Android direct-auth test'}:{port:number;hostId:string;clientId?:string;state:string;nonce:string;challenge:string;appName?:string}) {
   if(!Number.isInteger(port)||port<1||port>65535||![state,nonce,challenge].every(value=>value.length>=32)||!/^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(hostId))throw Error('Invalid phone authorization parameters');
@@ -7,6 +8,9 @@ export function authorizeUrl({port,hostId,clientId,state,nonce,challenge,appName
   for(const [name,value]of Object.entries(params))url.searchParams.set(name,value);
   if(!clientId)url.searchParams.set('agent_name_hint',appName);
   return url.toString();
+}
+export function browserLaunchUrl(authorization: string, browser: PhoneAuthBrowser) {
+  return browser === 'chrome' ? authorization.replace(/^https:\/\//, 'googlechromes://') : authorization;
 }
 export function validateCallback(target:string,{port,state,clientId}:{port:number;state:string;clientId?:string}) {
   const expected=`http://127.0.0.1:${port}/auth/callback`;

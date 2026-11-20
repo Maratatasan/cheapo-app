@@ -36,6 +36,38 @@ it('identifies Cheapo for iPhone sign-in and reports the iPhone Keychain on rest
   const restored=createPhoneAuth(dependencies);
   await restored.restore();expect(restored.getState().message).toContain('restored from the iPhone Keychain');
 });
+it('launches the chosen browser while keeping the same callback and explicit Continue',async()=>{
+  const s=setup();
+  const client=createPhoneAuth(s.dependencies,true);
+  const pending=client.signIn('chrome');
+  try {
+    await settle();
+    const [authorization]=s.openBrowser.mock.calls[0];
+    expect(s.openBrowser).toHaveBeenCalledWith(authorization,'chrome');
+    expect(new URL(authorization).origin).toBe('https://auth.openai.com');
+    expect(client.getState().awaitingContinue).toBe(true);
+    expect(s.native.requestJson).toHaveBeenCalledTimes(1);
+    client.continueSignIn();
+    await pending;
+  } finally {
+    if(client.getState().busy){await client.cancel();await pending;}
+  }
+  const [exchange,form]=(s.native.requestJson as jest.Mock).mock.calls[1];
+  expect(exchange).toBe('https://auth.openai.com/api/accounts/oauth/token');
+  expect(new URLSearchParams(form).get('redirect_uri')).toBe('http://127.0.0.1:45678/auth/callback');
+  expect(client.getState().signedIn).toBe(true);
+});
+it('reports an unavailable Chrome without retrying in another browser or leaking launch details',async()=>{
+  const s=setup();
+  s.openBrowser.mockRejectedValueOnce(Error('private authorization URL'));
+  await s.client.signIn('chrome');
+  expect(s.openBrowser).toHaveBeenCalledTimes(1);
+  expect(s.native.stopReceiver).toHaveBeenCalledTimes(1);
+  expect(s.native.requestJson).toHaveBeenCalledTimes(1);
+  expect(s.client.getState()).toMatchObject({awaitingContinue:false,busy:false,signedIn:false,
+    message:'Chrome could not open. Install or update Chrome, then try again.'});
+  expect(s.storage.has('direct-auth.session')).toBe(false);
+});
 it('serializes renewal, retains rotating refresh tokens and clears only terminal failures',async()=>{
   const s=setup();await s.client.signIn();s.expire();await Promise.all([s.client.restore(),s.client.restore()]);
   expect(JSON.parse(s.storage.get('direct-auth.session')!).refreshToken).toBe('rotated-refresh');

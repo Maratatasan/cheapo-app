@@ -6,6 +6,7 @@ import * as SecureStore from 'expo-secure-store';
 
 import { createPhoneAuth, type PhoneNative } from './client';
 import { phonePhotoAnalysisRequested } from './config';
+import { browserLaunchUrl } from './protocol';
 
 type Check = { callbackVerified: boolean; signatureVerified: boolean; boundAddress: string };
 const extra = Constants.expoConfig?.extra;
@@ -30,6 +31,9 @@ export const phoneAuth = phoneAuthNative ? createPhoneAuth({
   challenge: async (verifier) => (await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, verifier, {
     encoding: Crypto.CryptoEncoding.BASE64,
   })).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_'),
-  openBrowser: (url) => Linking.openURL(url),
+  openBrowser: async (url, browser) => {
+    if (browser === 'chrome' && !iphone) throw new Error('Chrome sign-in requires the iPhone build.');
+    return Linking.openURL(browserLaunchUrl(url, browser));
+  },
   isAppActive: () => AppState.currentState === 'active',
 }) : null;

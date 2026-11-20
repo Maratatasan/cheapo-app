@@ -1,4 +1,10 @@
-import { authorizeUrl,validateCallback } from '../lib/direct-auth/protocol';
+import { authorizeUrl,browserLaunchUrl,validateCallback } from '../lib/direct-auth/protocol';
+it('changes only the outer protocol for the Chrome launch',()=>{
+  const query='?redirect_uri=http%3A%2F%2F127.0.0.1%3A45678%2Fauth%2Fcallback&state=mock%2Bstate&agent_name_hint=Cheapo+App';
+  const authorization='https://auth.openai.com/api/accounts/authorize'+query;
+  expect(browserLaunchUrl(authorization,'chrome')).toBe('googlechromes://auth.openai.com/api/accounts/authorize'+query);
+  expect(browserLaunchUrl(authorization,'default')).toBe(authorization);
+});
 const state='s'.repeat(43),nonce='n'.repeat(43),challenge='c'.repeat(43);
 it('uses phone loopback, S256, fresh state/nonce and the direct plan scopes',()=>{
   const url=new URL(authorizeUrl({port:45678,hostId:'urn:uuid:821e1a44-0f2d-4d0a-9354-52cbd8e1f937',state,nonce,challenge}));

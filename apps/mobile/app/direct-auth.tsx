@@ -4,6 +4,7 @@ import { Stack } from 'expo-router';
 import Constants from 'expo-constants';
 import * as Crypto from 'expo-crypto';
 import * as SecureStore from 'expo-secure-store';
+import { ChatGPTSignInActions } from '@/component/chatgpt-sign-in-actions';
 import { ui } from '@/component/results/theme';
 import { fieldPhotoAnalysisEnabled,phoneAuth as auth,phoneAuthNative as native,randomHex } from '@/lib/direct-auth/phone-session';
 
@@ -35,11 +36,11 @@ export default function DirectAuthTest() {
       <Text style={ui.body}>{status}</Text>
       <Button title={busy?'Checking…':'Check this phone'} disabled={busy||authState?.busy} onPress={check} />
     </> : <Text style={ui.body}>Connect your ChatGPT plan to suggest details from a photo you choose. You can still save photos and enter details manually.</Text>}
-    <Text style={ui.body}>{authState?.message || 'Install the Android field app to sign in.'}</Text>
-    <Text style={ui.small}>Identity: {authState?.signedIn?'verified':'not verified'} · Plan permission: {authState?.planAllowed?'granted':'not granted'} · Saved login: {authState?.savedLogin?'yes':'no'}</Text>
-    <Button title={authState?.busy?'Completing phone sign-in…':'Sign in with ChatGPT on this phone'} disabled={!auth||busy||authState?.busy} onPress={()=>void auth?.signIn()} />
-    {authState?.awaitingContinue?<Button title="Continue sign-in" onPress={()=>auth?.continueSignIn()} />:null}
-    {authState?.busy?<Button title="Cancel phone sign-in" onPress={()=>void auth?.cancel()} />:null}
+    <ChatGPTSignInActions state={authState} checking={busy}
+      showChromeOption={Platform.OS==='ios'&&fieldPhotoAnalysisEnabled&&Boolean(auth)}
+      onSignIn={auth?.signIn}
+      onContinue={()=>auth?.continueSignIn()} onCancel={()=>void auth?.cancel()}
+    />
     {experiment?<Button title="Check OpenAI connection" disabled={!auth||busy||authState?.busy} onPress={()=>void auth?.checkConnection()} />:null}
     <Button title="Check saved phone sign-in" disabled={!auth||busy||authState?.busy} onPress={()=>void auth?.restore()} />
     {experiment?<Button title="Clear phone login / sign out" disabled={!auth||busy||authState?.busy} onPress={()=>void auth?.signOut()} />:null}
