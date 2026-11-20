@@ -134,7 +134,7 @@ include canonical product fields and omit archive and observation details.
 | --- | --- |
 | `GET /v1/products?gtin={barcode}` | Finds one exact product for a valid barcode, with equivalent UPC, EAN and GTIN values mapped to the same canonical key. |
 | `GET /v1/products/{id}` | Finds an exact product by stable ID. |
-| `PUT /v1/products/{id}` | Creates the product at the client’s stable ID. Send the barcode, name, product type and any reviewed catalog fields. Repeating identical details returns the saved product. |
+| `PUT /v1/products/{id}` | Creates the product at the client’s stable ID. Send the reviewed name and any known fields. Include a product type when supplying a barcode. Omit the barcode for a manually identified product. Repeating identical details returns the saved product. |
 
 A successful response is `{ "product": {...} }`. A lookup miss returns
 `{ "product": null }`. The barcode is a 14-digit string when present. A

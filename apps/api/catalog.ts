@@ -7,7 +7,7 @@ import { readCredentialDigest } from './credential.ts';
 export type CatalogProduct = Omit<Product, 'photoIds'>;
 export type CatalogAction =
   | { kind: 'find'; key: 'barcode' | 'id'; value: string }
-  | { kind: 'create'; product: CatalogProduct & { barcode: string } };
+  | { kind: 'create'; product: CatalogProduct };
 export type CatalogResult =
   | { status: 'ok'; product: CatalogProduct | null }
   | { status: 'conflict'; product: CatalogProduct }
@@ -50,12 +50,14 @@ async function readAction(request: Request, url: URL): Promise<CatalogAction | R
   const body = await readJson(request, 8_192, 'invalid_product');
   if (body instanceof Response) return body;
   const value = body.value;
-  if (!value || typeof value !== 'object' || !('barcode' in value) || typeof value.barcode !== 'string') return invalid();
-  const barcode = canonicalProductBarcode(value.barcode);
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return invalid();
+  const code = 'barcode' in value ? value.barcode : undefined;
+  const barcode = typeof code === 'string' ? canonicalProductBarcode(code) : undefined;
+  if (code !== undefined && !barcode) return invalid();
   const product = productSchema.safeParse({ ...value, id, barcode });
-  if (!barcode || !product.success || !product.data.productType) return invalid();
+  if (!product.success || (barcode && !product.data.productType)) return invalid();
   const { photoIds: _privateSource, ...fields } = product.data;
-  return { kind: 'create', product: { ...fields, barcode } };
+  return { kind: 'create', product: fields };
 }
 
 export function createCatalogHandler(execute: ExecuteCatalog) {
