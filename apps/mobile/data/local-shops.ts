@@ -2,7 +2,7 @@ import type { Shop } from '@cheapo/domain';
 import { shopDisplayName } from '@cheapo/domain/names';
 import { randomUUID } from 'expo-crypto';
 
-import { readShopSnapshot, writeShopSnapshot } from './shop-snapshot';
+import { clearShopSnapshot, readShopSnapshot, writeShopSnapshot } from './shop-snapshot';
 import type { EditableShopDetails, SavedShopState, ShopInput } from './shop-repository';
 type ShopSnapshot = {
   version: 1;
@@ -64,6 +64,10 @@ async function persist(snapshot: ShopSnapshot): Promise<SavedShopState> {
   } catch (cause) {
     throw new Error('Could not save your shop changes. Try again.', { cause });
   }
+}
+
+export function clearLegacySavedShops() {
+  return serialize(clearShopSnapshot);
 }
 
 export function loadSavedShops(): Promise<SavedShopState> {

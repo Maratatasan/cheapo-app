@@ -242,6 +242,25 @@ export async function openShoppingMutationQueue(input: PriceQueueOwner) {
 
   return {
     owner,
+    withProtectedPriceReferences<T>(clear: (ids: ReadonlySet<string>) => Promise<T>) {
+      return serializePublication(async () => {
+        const root = shoppingMutationRoot();
+        for (const scopeDirectory of root.exists ? root.list() : []) {
+          if (!(scopeDirectory instanceof Directory)) throw Error('Could not check protected changes.');
+          const files = scopeDirectory.list();
+          if (scopeDirectory.name !== scope) {
+            if (files.length) throw Error('Another phone enrollment has protected work.');
+          } else if (files.some(file => !(file instanceof File) || !phaseFileName.test(file.name))) {
+            throw Error('Could not check protected changes.');
+          }
+        }
+        const { entries, recovery } = await readAll();
+        if (recovery.length) throw Error('Could not check protected changes.');
+        const ids = entries.flatMap(({ intent }) => intent.action.kind === 'price'
+          ? [intent.action.priceKey, ...(intent.action.base.kind === 'append' ? [intent.action.base.sourceId] : [])] : []);
+        return clear(new Set(ids));
+      });
+    },
     backup<T>(capture: (snapshot: { files: QueueBackupFile[]; entries: QueuedShoppingMutation[]; recovery: Recovery[] }) => Promise<T>) {
       return serializePublication(async () => capture({
         ...await readAll(),

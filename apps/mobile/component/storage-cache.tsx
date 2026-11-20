@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
+import type { LegacyCleanupResult } from "../data/legacy-shopping-cleanup";
 import { color, spacing, typography, ui } from "./results/theme";
 
 type CacheControls = {
@@ -8,7 +9,14 @@ type CacheControls = {
   clear(): Promise<void>;
 };
 type Measurement = { status: "loading" | "unavailable" } | { status: "ready"; bytes: number };
-type Props = { cache: CacheControls; onBack: () => void; bottomInset?: number };
+type Props = {
+  cache: CacheControls;
+  onBack: () => void;
+  bottomInset?: number;
+  legacyCleanup?: () => Promise<LegacyCleanupResult>;
+};
+type Cleanup = { status: "idle" | "confirming" | "clearing" | "blocked" }
+  | { status: "finished"; result: LegacyCleanupResult };
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -36,13 +44,15 @@ function PageButton({ title, onPress, secondary, disabled = false }: {
   );
 }
 
-export function StorageCache({ cache, onBack, bottomInset = 0 }: Props) {
+export function StorageCache({ cache, onBack, bottomInset = 0, legacyCleanup }: Props) {
   const [measurement, setMeasurement] = useState<Measurement>({ status: "loading" });
   const [attempt, setAttempt] = useState(0);
   const [confirming, setConfirming] = useState(false);
   const [clearing, setClearing] = useState(false);
   const [clearFailed, setClearFailed] = useState(false);
   const clearPending = useRef(false);
+  const [cleanup, setCleanup] = useState<Cleanup>({ status: "idle" });
+  const cleanupPending = useRef(false);
   const bytes = measurement.status === "ready" ? measurement.bytes : undefined;
 
   useEffect(() => {
@@ -81,6 +91,19 @@ export function StorageCache({ cache, onBack, bottomInset = 0 }: Props) {
     }
   }
 
+  async function confirmLegacyCleanup() {
+    if (!legacyCleanup || cleanup.status !== "confirming" || cleanupPending.current) return;
+    cleanupPending.current = true;
+    setCleanup({ status: "clearing" });
+    try {
+      setCleanup({ status: "finished", result: await legacyCleanup() });
+    } catch {
+      setCleanup({ status: "blocked" });
+    } finally {
+      cleanupPending.current = false;
+    }
+  }
+
   return (
     <View style={ui.page}>
       <ScrollView style={ui.page} contentContainerStyle={ui.content} contentInsetAdjustmentBehavior="automatic">
@@ -114,9 +137,33 @@ export function StorageCache({ cache, onBack, bottomInset = 0 }: Props) {
             Saved shopping records, original photos, device credentials, pending changes and conflict copies use separate storage.
           </Text>
         </View>
+        {legacyCleanup ? <View style={ui.card}>
+          <Text accessibilityRole="header" style={styles.heading}>Old phone-only shopping data</Text>
+          {cleanup.status === "confirming" ? <View style={styles.confirmation}>
+            <Text accessibilityRole="header" style={styles.heading}>Remove old phone data?</Text>
+            <Text style={ui.body}>This removes reviewed phone-only prices and their photos, old saved shops, and old barcode matches.
+              Shared history, unfinished drafts, pending work, sign-ins, exports, and the phone gallery are kept.</Text>
+            <PageButton title="Remove old records" onPress={() => void confirmLegacyCleanup()} />
+            <PageButton title="Cancel removal" secondary onPress={() => setCleanup({ status: "idle" })} />
+          </View> : <>
+            {cleanup.status === "finished" ? <>
+              <Text accessibilityLiveRegion="polite" style={ui.body}>
+                Removed {cleanup.result.removedPrices} old price records. Kept {cleanup.result.keptPrices} protected prices or drafts.
+              </Text>
+              {cleanup.result.failedParts > 0 ? <Text accessibilityRole="alert" style={styles.warning}>
+                Some old data could not be removed. Try again to finish.
+              </Text> : <Text style={ui.body}>Old saved shops and barcode matches were cleared.</Text>}
+            </> : null}
+            {cleanup.status === "blocked" ? <Text accessibilityRole="alert" style={styles.warning}>
+              Could not verify protected shopping data. No old data was removed.
+            </Text> : null}
+            <PageButton title={cleanup.status === "clearing" ? "Removing old records…" : "Remove old phone data"}
+              secondary disabled={cleanup.status === "clearing"} onPress={() => setCleanup({ status: "confirming" })} />
+          </>}
+        </View> : null}
       </ScrollView>
       <View style={[styles.footer, { paddingBottom: spacing.md + bottomInset }]}>
-        <PageButton title="Back to Home" secondary onPress={onBack} />
+        <PageButton title="Back to Home" secondary disabled={cleanup.status === "clearing"} onPress={onBack} />
       </View>
     </View>
   );

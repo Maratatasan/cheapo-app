@@ -7,3 +7,7 @@ export async function readShopSnapshot(): Promise<string | null> {
 export async function writeShopSnapshot(contents: string): Promise<void> {
   globalThis.localStorage.setItem(storageKey, contents);
 }
+
+export async function clearShopSnapshot(): Promise<void> {
+  globalThis.localStorage.removeItem(storageKey);
+}
