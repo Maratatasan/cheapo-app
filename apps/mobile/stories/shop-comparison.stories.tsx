@@ -61,6 +61,17 @@ export const MissingPhotoAndUnitPrice: Story = {
     comparisons: [{ ...samplePrices[0], unit_price: null }],
   },
 };
+export const PersonalComparisonBasis: Story = {
+  args: {
+    comparisons: [samplePrices[2], samplePrices[3]],
+    preference: { basis: "100g", checked: true, saving: false, loading: false, choose: fn() },
+  },
+  play: async ({ canvas }) => {
+    await expect(canvas.getByRole("radio", { name: "Per 100 g" })).toBeChecked();
+    await expect(canvas.getByLabelText("£0.12 / 100 g")).toBeVisible();
+    await expect(canvas.getByRole("radio", { name: "Automatic" })).toBeVisible();
+  },
+};
 export const ErrorWithRetry: Story = {
   args: { state: "error", onRetry: fn() },
   play: async ({ canvas, args, userEvent }) => {

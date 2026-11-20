@@ -10,6 +10,7 @@ const mockPush = jest.fn();
 const mockUseCheapoShopping = jest.fn();
 const mockCatalog = jest.fn();
 const mockOpenHistory = jest.fn();
+const mockComparisonPreference = jest.fn();
 const mockCacheClear = new Set<() => void>();
 const mockCameraProps = jest.fn<unknown, [Parameters<typeof CameraComponent>[0]]>();
 jest.mock('expo-router', () => ({
@@ -27,6 +28,9 @@ jest.mock('@/data/local-products', () => ({ addLocalProduct: jest.fn(), findLoca
 jest.mock('@/data/local-photo', () => ({ loadSavedPriceRecords: jest.fn(), saveManualPrice: jest.fn() }));
 jest.mock('@/component/cheapo-shopping-provider', () => ({ useCheapoShopping: () => mockUseCheapoShopping() }));
 jest.mock('@/hooks/use-enrolled-catalog', () => ({ useEnrolledCatalog: () => mockCatalog() }));
+jest.mock('@/hooks/use-comparison-preference', () => ({
+  useComparisonPreference: (...args: unknown[]) => mockComparisonPreference(...args),
+}));
 jest.mock('@/data/cheapo-shopping-read-device', () => ({ openCheapoSavedPriceReads: () => mockOpenHistory() }));
 jest.mock('@/data/cheapo-shopping-read-cache', () => ({ cheapoShoppingReadCache: {
   subscribeClear: (listener: () => void) => { mockCacheClear.add(listener); return () => mockCacheClear.delete(listener); },
@@ -59,6 +63,7 @@ beforeEach(() => {
   jest.resetAllMocks();
   mockUseCheapoShopping.mockReturnValue(null);
   mockCatalog.mockReturnValue(null);
+  mockComparisonPreference.mockReturnValue(undefined);
   mockOpenHistory.mockResolvedValue({ loadPriceHistory: jest.fn(async () => ({ status: 'unavailable' })), assertCurrent: jest.fn() });
 });
 
@@ -423,6 +428,8 @@ test('loads bounded exact and comparable shared price pages and opens the correc
   }));
   const loadPriceObservation = jest.fn(async () => ({ status: 'fresh', value: { observation: own } }));
   const loadSelectedPhoto = jest.fn(async () => ({ status: 'fresh', value: { uri: photo.uri } }));
+  mockComparisonPreference.mockImplementation((_shopping, group) => group === 'dry-rice'
+    ? { basis: '100g', checked: true, saving: false, loading: false, choose: jest.fn() } : undefined);
   mockOpenHistory.mockResolvedValue({ loadPriceHistory, loadPriceObservation, loadSelectedPhoto, assertCurrent: jest.fn() });
   mockCatalog.mockReturnValue({ findByBarcode: jest.fn(async () => catalogProduct) });
   mockUseCheapoShopping.mockReturnValue({
@@ -439,6 +446,8 @@ test('loads bounded exact and comparable shared price pages and opens the correc
   expect(loadPriceHistory).toHaveBeenCalledWith({ productId: product.id, limit: 25, cursor: undefined }, expect.anything());
   expect(loadPriceHistory).toHaveBeenCalledWith({ productType: product.productType, comparableGroupId: 'dry-rice', limit: 25, cursor: undefined }, expect.anything());
   expect(screen.getByText('£3.00 pack')).toBeOnTheScreen();
+  expect(screen.getByRole('radio', { name: 'Per 100 g', checked: true })).toBeOnTheScreen();
+  expect(screen.getByLabelText('£0.40 / 100 g')).toBeOnTheScreen();
   expect(screen.getByText(/Last synced/)).toBeOnTheScreen();
   expect(await screen.findByLabelText(`Scan photo for ${product.name}`)).toBeOnTheScreen();
   expect(loadPriceObservation).toHaveBeenCalledWith(own.id, expect.anything());

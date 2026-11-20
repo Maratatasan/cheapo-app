@@ -60,6 +60,22 @@ test("shows an error and delegates retry to the supplied callback", async () => 
   expect(retry).toHaveBeenCalledTimes(1);
 });
 
+test("shows the saved comparison basis and sends a change only when a compatible basis is chosen", async () => {
+  const choose = jest.fn(async () => {});
+  const measured = { ...comparisons[0], productType: "Potatoes", pack: "2 kg" };
+  const unconfirmed = { ...measured, id: "unconfirmed", shop: "Unconfirmed vendor", pack: undefined,
+    unit_price: { amount: 0.35, unit: "item" } };
+  await render(<ShopComparison product={product} catalogProduct={{ productType: "Potatoes" }}
+    comparisons={[measured, unconfirmed]}
+    preference={{ basis: "100g", checked: true, loading: false, saving: false, choose }} />);
+  expect(screen.getByRole("radio", { name: "Per 100 g", checked: true })).toBeOnTheScreen();
+  expect(screen.getByLabelText("£0.12 / 100 g")).toBeOnTheScreen();
+  expect(screen.getByText("These prices have no confirmed rate for the selected basis.")).toBeOnTheScreen();
+  expect(screen.queryByRole("radio", { name: "Per wash" })).not.toBeOnTheScreen();
+  await fireEvent.press(screen.getByRole("radio", { name: "Automatic" }));
+  expect(choose).toHaveBeenCalledWith(null);
+});
+
 test("sorts by unit price, keeps equal prices stable, and puts missing unit prices last", async () => {
   const supplied = Object.freeze([
     { id: "unknown", shop: "Unknown unit price shop", price: 0.5, currency: "GBP" },

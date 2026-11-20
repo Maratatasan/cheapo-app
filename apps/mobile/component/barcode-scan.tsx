@@ -20,11 +20,13 @@ import { CameraActionButton, CameraPermissionActions } from './camera-actions';
 import { loadSavedPriceRecords, saveManualPrice, type DraftShop, type ManualPriceRecord } from '@/data/local-photo';
 import { loadSharedBarcodePhoto, loadSharedBarcodePrices, type BarcodeSharedPriceHistory } from '@/data/barcode-shared-prices';
 import { cheapoShoppingReadCache } from '@/data/cheapo-shopping-read-cache';
+import { comparisonPreferenceGroup } from '@/data/enrolled-comparison-preferences';
 import { addLocalProduct, findLocalProductByBarcode, replaceLocalProductBarcode } from '@/data/local-products';
 import { canonicalProductBarcode } from '@/data/product-barcode';
 import { comparisonRowFromDraft } from '@/data/saved-comparison';
 import { calculatePackUnitPrice, emptyReview, reviewComplete, type ManualReview } from '@/data/photo-review';
 import { useEnrolledCatalog } from '@/hooks/use-enrolled-catalog';
+import { useComparisonPreference } from '@/hooks/use-comparison-preference';
 import { usePriceSaveNotice } from '@/hooks/use-price-save-notice';
 import type { PhotoSavePending } from '@/data/price-records';
 import type { CheapoShoppingRuntime } from '@/data/shopping-sync-runtime';
@@ -91,6 +93,9 @@ export function BarcodeScan({ currentShop, onScanLabel }: { currentShop?: DraftS
   const selected = useRef<{ product: Product; barcode: string } | undefined>(undefined);
   const pendingSave = useRef(false);
   const referencePhoto = result?.kind === 'known' && !entry && !barcodeEdit ? result.history?.referencePhoto : undefined;
+  const selectedGroup = shopping && result?.kind === 'known' && !entry && !barcodeEdit
+    ? comparisonPreferenceGroup(result.product.comparableGroupId, result.product.productType) : undefined;
+  const preference = useComparisonPreference(shopping, selectedGroup);
   const photoId = referencePhoto?.id;
   const photoVersion = referencePhoto?.version;
   useEffect(() => {
@@ -355,6 +360,7 @@ export function BarcodeScan({ currentShop, onScanLabel }: { currentShop?: DraftS
             <BarcodePriceComparison currentShop={currentShop} currentPrice={result.currentPrice} history={result.history} paging={paging}
               onRecord={() => { if (currentShop) startPrice(result.product, currentShop); }} onMore={() => { void loadMore(); }}
               comparison={{ catalogProduct: result.product, comparisons: result.comparisons, reference: result.reference,
+                preference,
                 exactProductId: result.history && !result.product.productType ? result.product.id : undefined,
                 product: { name: result.product.name, pack: packLabel(result.product.pack),
                   photo: sharedPhoto && sharedPhoto.owner === shopping && sharedPhoto.id === photoId && sharedPhoto.version === photoVersion

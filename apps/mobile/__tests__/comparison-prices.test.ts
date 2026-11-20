@@ -66,3 +66,21 @@ test('ranks eggs and each prices together and preserves other printed bases outs
   expect(result.groups[0].entries[1].row.unit_price).toEqual({ amount: 4.8, unit: '12 eggs' });
   expect(result.differentBasis).toEqual([byWeight]);
 });
+
+test('saves the observed rate and uses only compatible reviewed measures for a chosen basis', () => {
+  const mass = row('mass', { price: 8, pack: '2 × 500 g', unit_price: null });
+  const labelled = row('labelled', { unit_price: { amount: 5, unit: 'kg' } });
+  const volume = row('volume', { pack: '1 L', unit_price: { amount: 1, unit: 'litre' } });
+  const result = comparePrices([mass, labelled, volume], reference, undefined, undefined, undefined, '100g');
+  expect(result.groups[0].entries.map(({ row: offer, unitPrice }) => [offer.id, unitPrice])).toEqual([
+    ['labelled', { amount: 0.5, unit: '100 g' }],
+    ['mass', { amount: 0.8, unit: '100 g' }],
+  ]);
+  expect(result.unranked).toEqual([volume]);
+  expect(labelled.unit_price).toEqual({ amount: 5, unit: 'kg' });
+
+  const explicitYield = row('wash', { unit_price: { amount: 0.2, unit: 'per wash' } });
+  const byWash = comparePrices([explicitYield, mass, volume], reference, undefined, undefined, undefined, 'wash');
+  expect(byWash.groups[0].entries.map(({ row: offer }) => offer.id)).toEqual(['wash']);
+  expect(byWash.unranked).toEqual([mass, volume]);
+});

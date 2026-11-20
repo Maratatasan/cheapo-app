@@ -1,14 +1,16 @@
+import { derivePackageUnitPrices, type PackageMeasures, type PackagePriceBasis } from '@cheapo/domain';
 import { normalizeName } from '@cheapo/domain/names';
 
 import { knownUnitPrice, type PriceValues } from './observation';
 import type { ProductMetadata } from './product-metadata';
+import { reviewedPackParts } from './reviewed-pack';
 
 export type ComparisonPrice = ProductMetadata & Omit<PriceValues, 'unit_price'> &
-  Partial<Pick<PriceValues, 'unit_price'>> & { id: string; productId?: string | null };
+  Partial<Pick<PriceValues, 'unit_price'>> & { id: string; productId?: string | null; pack?: string };
 export type ComparisonFilters = { sameVariety: boolean; sameBrand: boolean };
 
 type Unit = 'kg' | 'litre' | 'item';
-type UnitPrice = { amount: number; unit: Unit };
+type UnitPrice = { amount: number; unit: Unit | '100 g' | '100 mL' | 'wash' };
 const units: Record<string, { unit: Unit; multiplier: number }> = {
   kg: { unit: 'kg', multiplier: 1 },
   g: { unit: 'kg', multiplier: 1000 },
@@ -36,8 +38,41 @@ export function normalizedUnitPrice(value: ComparisonPrice['unit_price']): UnitP
   return Number.isFinite(quantity) && quantity > 0 && Number.isFinite(amount) ? { amount, unit } : null;
 }
 
-function matchName(value?: string) {
+export function matchComparisonName(value?: string) {
   return normalizeName(value)?.normalize('NFC').toLowerCase().replace(/\s+/g, ' ');
+}
+
+const bases = {
+  kg: { unit: 'kg', parent: 'kg', ratio: 1 },
+  '100g': { unit: '100 g', parent: 'kg', ratio: 0.1 },
+  litre: { unit: 'litre', parent: 'litre', ratio: 1 },
+  '100mL': { unit: '100 mL', parent: 'litre', ratio: 0.1 },
+  item: { unit: 'item', parent: 'item', ratio: 1 },
+  wash: { unit: 'wash', parent: 'wash', ratio: 1 },
+} as const;
+
+function reviewedPackageMeasures(pack?: string): PackageMeasures {
+  const parts = pack && reviewedPackParts(pack);
+  const key = parts && parts.unit.toLowerCase();
+  if (!parts || !key || !Object.hasOwn(units, key)) return {};
+  const { unit, multiplier } = units[key];
+  const quantity = Number(parts.quantity) * parts.count / multiplier;
+  if (unit === 'kg') return { mass: { total: { quantity, unit: 'kg' } } };
+  if (unit === 'litre') return { volume: { total: { quantity, unit: 'L' } } };
+  return { itemCount: quantity };
+}
+
+export function comparisonUnitPrice(row?: ComparisonPrice, basis?: PackagePriceBasis): UnitPrice | null {
+  const saved = knownUnitPrice(row?.unit_price);
+  const normalized = normalizedUnitPrice(saved);
+  if (!basis || !row) return normalized;
+  if (!row.currency || !/^[A-Z]{3}$/.test(row.currency)) return null;
+  const choice = bases[basis];
+  if (normalized?.unit === choice.parent) return { amount: normalized.amount * choice.ratio, unit: choice.unit };
+  if (basis === 'wash' && saved && /^(?:per\s+)?wash$/i.test(saved.unit.trim())) return { amount: saved.amount, unit: 'wash' };
+  if (row.price === null) return null;
+  const derived = derivePackageUnitPrices({ amount: row.price, currency: row.currency }, reviewedPackageMeasures(row.pack))[basis];
+  return derived ? { amount: derived.amount, unit: choice.unit } : null;
 }
 
 export function comparePrices<T extends ComparisonPrice>(
@@ -45,11 +80,12 @@ export function comparePrices<T extends ComparisonPrice>(
   filters: ComparisonFilters = { sameVariety: false, sameBrand: false },
   catalogProduct?: ProductMetadata,
   exactProductId?: string,
+  basis?: PackagePriceBasis,
 ) {
   const selection = catalogProduct ?? reference;
-  const type = matchName(selection?.productType);
-  const variety = matchName(selection?.variety);
-  const brand = matchName(selection?.brand);
+  const type = matchComparisonName(selection?.productType);
+  const variety = matchComparisonName(selection?.variety);
+  const brand = matchComparisonName(selection?.brand);
   const missing: string[] = [];
   if (selection) {
     if (!type && !exactProductId) missing.push('product type');
@@ -58,8 +94,8 @@ export function comparePrices<T extends ComparisonPrice>(
       if (filters.sameBrand && !brand) missing.push('brand');
     }
   }
-  const referenceUnit = normalizedUnitPrice(reference?.unit_price)?.unit;
-  const groups = new Map<string, { unit: Unit; currency: string; entries: { row: T; unitPrice: UnitPrice }[] }>();
+  const referenceUnit = comparisonUnitPrice(reference, basis)?.unit;
+  const groups = new Map<string, { unit: UnitPrice['unit']; currency: string; entries: { row: T; unitPrice: UnitPrice }[] }>();
   const unranked: T[] = [];
   const differentBasis: T[] = [];
   if (missing.length) return { groups: [], unranked, differentBasis, missing };
@@ -67,10 +103,10 @@ export function comparePrices<T extends ComparisonPrice>(
   for (const row of prices) {
     if (reference && (row.id === reference.id || row.currency !== reference.currency)) continue;
     if (exactProductId && row.productId !== exactProductId) continue;
-    if (selection && ((!exactProductId && matchName(row.productType) !== type) ||
-      (filters.sameVariety && matchName(row.variety) !== variety) || (filters.sameBrand && matchName(row.brand) !== brand))) continue;
-    const unitPrice = normalizedUnitPrice(row.unit_price);
-    if (!unitPrice || !row.currency || !/^[A-Z]{3}$/.test(row.currency) || (reference && !referenceUnit && !catalogProduct)) {
+    if (selection && ((!exactProductId && matchComparisonName(row.productType) !== type) ||
+      (filters.sameVariety && matchComparisonName(row.variety) !== variety) || (filters.sameBrand && matchComparisonName(row.brand) !== brand))) continue;
+    const unitPrice = comparisonUnitPrice(row, basis);
+    if (!unitPrice || !row.currency || !/^[A-Z]{3}$/.test(row.currency) || (reference && !referenceUnit && !catalogProduct && !basis)) {
       unranked.push(row);
       continue;
     }

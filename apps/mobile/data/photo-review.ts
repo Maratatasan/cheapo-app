@@ -2,6 +2,7 @@ import { normalizeName } from '@cheapo/domain/names';
 import { normalizedUnitPrice } from './comparison-prices';
 import type { AiPriceDraft } from './ai-observation';
 import type { ProductMetadata } from './product-metadata';
+import { reviewedPackParts } from './reviewed-pack';
 
 export type ManualReview = ProductMetadata & { productName: string; packSize?: string; price: string; currency: string; shop: string; unitPrice: string; unit: string };
 export const emptyReview = (shop = ''): ManualReview => ({ productName: '', price: '', currency: 'GBP', shop, unitPrice: '', unit: '' });
@@ -34,23 +35,15 @@ export function applyPhotoSuggestion(review: ManualReview, suggestion: AiPriceDr
 export const packSizeMaxLength = 50;
 const validPrice = (value: string, fraction = 2) => new RegExp(`^\\d+(\\.\\d{1,${fraction}})?$`).test(value.trim()) && value.length <= 24 && Number(value) > 0 && Number(value) <= 9999999.99;
 
-function packParts(pack: string) {
-  const match = /^(?:(\d+)\s*[x×]\s*)?(\d+(?:\.\d+)?)\s*([a-z]+)$/i.exec(pack.trim());
-  if (!match) return null;
-  const count = Number(match[1] ?? 1);
-  if (!Number.isSafeInteger(count) || count < 1) return null;
-  return { count, quantity: match[2], unit: match[3] };
-}
-
 export function calculatePackUnitPrice(total: string, pack: string) {
-  const parts = packParts(pack);
+  const parts = reviewedPackParts(pack);
   if (!validPrice(total) || !parts) return null;
   return normalizedUnitPrice({ amount: Number(total) / parts.count, unit: `${parts.quantity} ${parts.unit}` });
 }
 
 export function productPackFromText(value: string) {
   const label = value.trim();
-  const parts = packParts(label);
+  const parts = reviewedPackParts(label);
   if (!parts || !calculatePackUnitPrice('1', label)) return undefined;
   const quantity = Number(parts.quantity) * parts.count;
   return Number.isFinite(quantity) ? { quantity, unit: parts.unit, label } : undefined;
