@@ -517,6 +517,42 @@ it('coalesces full passes and checks that a queued read still belongs to the sel
   await expect(shopping.loadPriceChanges()).rejects.toThrow('Cheapo access changed');
 });
 
+it('notifies the saved shop view of an acknowledged write even when a later sync stage cannot read prices', async () => {
+  let acknowledged = false;
+  const version = '1:fa91641f-d265-4a3b-9695-4ff553ab5138';
+  const request = jest.fn(async () => {
+    acknowledged = true;
+    return Response.json({ shop: queuedShop, version });
+  });
+  const runtime = (await openCheapoShopping({ lastVerifiedOwner: async () => owner,
+    openShoppingWriteSession: async () => ({ owner, assertCurrent() {}, request }) }))!;
+  await runtime.commitMutation({ operationId: 'shop-accepted', title: 'Saved shop', createdAt: operationTime,
+    action: { kind: 'save-shop', shop: queuedShop } });
+  const read = runtime.priceQueue.read;
+  const fault = jest.spyOn(runtime.priceQueue, 'read').mockImplementation(async () => {
+    if (acknowledged) throw Error('Price storage unavailable');
+    return read();
+  });
+  const redraw = jest.fn();
+  const unsubscribe = runtime.subscribeSync(redraw);
+  await expect(runtime.retry()).rejects.toThrow('Price storage unavailable');
+  expect(redraw).toHaveBeenCalledWith(undefined, new Set(['save-shop']));
+  expect((await runtime.mutationQueue.read()).entries[0]?.outcome).toMatchObject({ kind: 'applied', receipt: { version } });
+  unsubscribe();
+  fault.mockRestore();
+});
+
+it('leaves the selected owner’s saved price and pending operation on device when a credential is refused', async () => {
+  const request = jest.fn(async () => new Response(null, { status: 403 }));
+  const runtime = (await openCheapoShopping({ lastVerifiedOwner: async () => owner,
+    openShoppingWriteSession: async () => fixtureSession(request) }))!;
+  await runtime.priceRecords.saveManual(record);
+  await expect(runtime.retry()).resolves.toMatchObject({ state: 'blocked', items: [{ sourceId: record.id, state: 'waiting' }] });
+  expect(await runtime.priceRecords.load(record.id)).toEqual(record);
+  expect((await runtime.priceQueue.read()).entries[0]).toMatchObject({ record, body });
+  expect(request).toHaveBeenCalledTimes(1);
+});
+
 it('keeps pending read overlays in dependency order even for same-time edits and separate server identities', async () => {
   const runtime = (await openCheapoShopping({ lastVerifiedOwner: async () => owner, openShoppingWriteSession: jest.fn() }))!;
   await runtime.priceRecords.saveManual(record);

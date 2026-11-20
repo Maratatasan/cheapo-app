@@ -53,7 +53,7 @@ function PendingShopping({ shopping }: { shopping: CheapoShoppingRuntime }) {
     const controller = new AbortController();
     active.current = controller;
     const unsubscribe = shopping.subscribeSync(result => {
-      if (!controller.signal.aborted) {
+      if (result && !controller.signal.aborted) {
         readRevision.current += 1;
         setItems(result.items);
         setUnavailable(false);

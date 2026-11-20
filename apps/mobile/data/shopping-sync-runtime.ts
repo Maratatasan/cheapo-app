@@ -52,6 +52,7 @@ function readConflict(intent: ShoppingMutation, request: MutationRequest, value:
 
 async function flushShoppingChanges(
   mutations: ShoppingMutationQueue, prices: PriceAppendQueue, openSession: OpenSession, attempted: Set<string>,
+  onApplied: (kind: ShoppingMutation['action']['kind']) => void,
 ) {
   const receipts = new Map((await prices.read()).entries.map(({ record, receipt }) => [record.id, receipt]));
   const loadAppendReceipt = async (sourceId: string) => receipts.get(sourceId);
@@ -83,6 +84,7 @@ async function flushShoppingChanges(
         const receipt = status === 200 || status === 201 ? decodeMutationAcknowledgement(intent, request, body) : undefined;
         if (receipt) {
           await mutations.settle(operationId, { kind: 'applied', receipt });
+          onApplied(intent.action.kind);
           progressed = true;
           continue;
         }
@@ -170,7 +172,7 @@ export function createShoppingSync(access: SyncAccess, priceQueue: PriceAppendQu
     return 'recovery';
   }
 
-  async function synchronize(): Promise<SyncSnapshot> {
+  async function synchronize(onApplied: (kind: ShoppingMutation['action']['kind']) => void): Promise<SyncSnapshot> {
     await assertOwner();
     let capturedSession: ReturnType<OpenSession> | undefined;
     const openSession: OpenSession = () => capturedSession ??= access.openShoppingWriteSession().then(session => {
@@ -178,12 +180,12 @@ export function createShoppingSync(access: SyncAccess, priceQueue: PriceAppendQu
       return session;
     });
     const attempted = new Set<string>();
-    let blocked = await flushShoppingChanges(mutationQueue, priceQueue, openSession, attempted) === 'blocked';
+    let blocked = await flushShoppingChanges(mutationQueue, priceQueue, openSession, attempted, onApplied) === 'blocked';
     if (!blocked) {
       const canSend = await appendEligibility(mutationQueue);
       blocked = await createPriceAppendSync(priceQueue, openSession, canSend)() === 'blocked';
     }
-    if (!blocked) blocked = await flushShoppingChanges(mutationQueue, priceQueue, openSession, attempted) === 'blocked';
+    if (!blocked) blocked = await flushShoppingChanges(mutationQueue, priceQueue, openSession, attempted, onApplied) === 'blocked';
     if (!blocked) blocked = await createPriceEvidenceSync(priceQueue, openSession)() === 'blocked';
     const items = await readPending();
     return { state: blocked ? 'blocked' : items.length ? 'pending' : 'complete', items };
@@ -191,7 +193,7 @@ export function createShoppingSync(access: SyncAccess, priceQueue: PriceAppendQu
 
   let active: Promise<SyncSnapshot> | undefined;
   let requested = false;
-  const listeners = new Set<(snapshot: SyncSnapshot) => void>();
+  const listeners = new Set<(snapshot: SyncSnapshot | undefined, updated: ReadonlySet<ShoppingMutation['action']['kind']>) => void>();
   return {
     assertOwner,
     async commitMutation(intent: ShoppingMutationInput) {
@@ -217,7 +219,7 @@ export function createShoppingSync(access: SyncAccess, priceQueue: PriceAppendQu
       await assertOwner();
       return status;
     },
-    subscribeSync(listener: (snapshot: SyncSnapshot) => void) {
+    subscribeSync(listener: (snapshot: SyncSnapshot | undefined, updated: ReadonlySet<ShoppingMutation['action']['kind']>) => void) {
       listeners.add(listener);
       return () => { listeners.delete(listener); };
     },
@@ -226,16 +228,27 @@ export function createShoppingSync(access: SyncAccess, priceQueue: PriceAppendQu
       if (!active) {
         active = Promise.resolve().then(async () => {
           let snapshot: SyncSnapshot = { state: 'pending', items: [] };
+          let completed = false;
+          const applied = new Set<ShoppingMutation['action']['kind']>();
           try {
             while (requested) {
               requested = false;
-              snapshot = await synchronize();
+              try {
+                snapshot = await synchronize(kind => { applied.add(kind); });
+              } catch (error) {
+                if (!requested) throw error;
+              }
             }
+            completed = true;
+            return snapshot;
           } finally {
             active = undefined;
+            if (completed || applied.size) {
+              for (const listener of listeners) {
+                try { listener(completed ? snapshot : undefined, applied); } catch { /* A view cannot change a durable receipt. */ }
+              }
+            }
           }
-          listeners.forEach(listener => listener(snapshot));
-          return snapshot;
         });
       }
       return active;

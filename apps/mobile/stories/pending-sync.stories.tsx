@@ -5,6 +5,7 @@ import { View } from 'react-native';
 
 import { PendingSync, type PendingSyncItem } from '../component/pending-sync';
 import { ShopPicker } from '../component/shop/shop-picker';
+import { ShopHome } from '../component/shop/shop-home';
 
 type Fixture = 'pending' | 'attention' | 'syncing' | 'empty' | 'unavailable' | 'loading' | 'recovery';
 const pending: readonly PendingSyncItem[] = [
@@ -103,5 +104,25 @@ export const ChooseShopForPrice: Story = {
     await expect(canvas.getByRole('heading', { name: 'Choose shop for saved price' })).toBeVisible();
     await userEvent.click(canvas.getByRole('button', { name: 'Weekly shop Example Market' }));
     await expect(args.onChooseShop).toHaveBeenCalledWith('fixture');
+  },
+};
+
+function HomeWithPending({ onBack, onChooseShop, onReviewConflict }: Parameters<typeof Preview>[0]) {
+  const [showPending, setPending] = useState(false);
+  return <View style={{ width: '100%', maxWidth: 420, height: 640, alignSelf: 'center' }}>
+    {showPending ? <Preview fixture="pending" onChooseShop={onChooseShop} onReviewConflict={onReviewConflict}
+      onBack={() => { onBack(); setPending(false); }} />
+      : <ShopHome currentShop={{ id: 'fixture', name: 'Example Market' }} onScan={() => {}} onChooseShop={() => {}}
+        onFindBarcode={() => {}} onOpenSaved={() => {}} onOpenStorage={() => {}} onOpenPending={() => setPending(true)} />}
+  </View>;
+}
+
+export const FromHome: Story = {
+  render: args => <HomeWithPending {...args} />,
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole('button', { name: 'Pending sync' }));
+    await expect(canvas.getByRole('heading', { name: 'Pending changes' })).toBeVisible();
+    await userEvent.click(canvas.getByRole('button', { name: 'Back to Home' }));
+    await expect(canvas.getByRole('button', { name: 'Pending sync' })).toBeVisible();
   },
 };

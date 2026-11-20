@@ -20,6 +20,7 @@ export type CheapoReadSession = {
 };
 export type AccessState = "missing" | "connected" | "denied" | "unavailable";
 type ShoppingIdentity = { householdId: string; shopperId: string };
+type VerifiedOwner = ShoppingIdentity & { origin: string };
 type Enrollment = { origin: string; credential: string; identity?: ShoppingIdentity };
 type Probe = { state: "connected"; identity: ShoppingIdentity } | { state: "denied" | "unavailable" };
 
@@ -45,6 +46,7 @@ export function createCheapoAccess(
   const probeUrl = new URL("/v1/me", origin);
   let enrollmentRevision = 0;
   let pendingEnrollmentWrite: Promise<unknown> = Promise.resolve();
+  const enrollmentListeners = new Set<(owner: VerifiedOwner | null) => void>();
 
   async function loadEnrollment(): Promise<Enrollment | null> {
     await pendingEnrollmentWrite;
@@ -115,6 +117,10 @@ export function createCheapoAccess(
       const committedRevision = replacement ? ++enrollmentRevision : revision;
       if (enrollment) await storage.setItem(storageKey, JSON.stringify(enrollment));
       else await storage.deleteItem(storageKey);
+      const owner = enrollment?.identity ? Object.freeze({ origin, ...enrollment.identity }) : null;
+      for (const listener of enrollmentListeners) {
+        try { listener(owner); } catch { /* A view listener does not change a committed enrollment. */ }
+      }
       return committedRevision;
     });
     pendingEnrollmentWrite = pending.catch(() => {});
@@ -145,6 +151,10 @@ export function createCheapoAccess(
   }
 
   return {
+    subscribeEnrollment(listener: (owner: VerifiedOwner | null) => void) {
+      enrollmentListeners.add(listener);
+      return () => { enrollmentListeners.delete(listener); };
+    },
     async check(): Promise<AccessState> {
       const revision = enrollmentRevision;
       try {

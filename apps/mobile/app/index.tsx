@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Button, Platform, View } from "react-native";
 import { Stack, useRouter } from "expo-router";
 import Constants from "expo-constants";
+import { useCheapoShopping } from "@/component/cheapo-shopping-provider";
 import { ShopChooser, ShopLoadFeedback, ShopSyncFeedback } from "@/component/shop/shop-chooser";
 import { ShopHome } from "@/component/shop/shop-home";
 import { useSavedShops } from "@/hooks/use-saved-shops";
@@ -10,6 +11,7 @@ import { ui } from "@/component/results/theme";
 
 export default function Index() {
   const router = useRouter();
+  const shopping = useCheapoShopping();
   const [choosing, setChoosing] = useState(false);
   const { shopRepository, shops, setShops, readError, retry } = useSavedShops();
   const showDeveloperTools = Constants.expoConfig?.extra?.directAuthTest === true;
@@ -55,6 +57,7 @@ export default function Index() {
             onScan={() => router.push("/scan")}
             onFindBarcode={Platform.OS === "web" ? undefined : () => router.push("/find-product")}
             onOpenSaved={() => router.push("/saved-products")}
+            onOpenPending={shopping ? () => router.push("/pending-sync") : undefined}
             onExploreSamples={() => router.push("/results")}
             onOpenStorage={Platform.OS === "web" ? undefined : () => router.push("/storage-cache")}
           />
