@@ -38,8 +38,14 @@ export async function openCheapoSavedPriceReads(owner: PriceQueueOwner) {
   };
   const { loadPriceHistory, loadPriceObservation } = createCheapoShoppingReads(openBound, cheapoShoppingReadCache);
   const loadPhoto = createCheapoPricePhotoRead(openBound, cheapoPricePhotoCache);
+  const loadSelectedPhoto = createSelectedPricePhotoRead(session, cheapoPricePhotoCache, loadPhoto, renderSelectedPriceCrop);
   return {
-    loadPriceHistory, loadPriceObservation, assertCurrent: session.assertCurrent, loadPhoto,
-    loadSelectedPhoto: createSelectedPricePhotoRead(session, cheapoPricePhotoCache, loadPhoto, renderSelectedPriceCrop),
+    loadPriceHistory, loadPriceObservation, assertCurrent: session.assertCurrent, loadPhoto, loadSelectedPhoto,
+    cached: {
+      loadPriceHistory: (query: Parameters<typeof loadPriceHistory>[0], signal: AbortSignal) => loadPriceHistory(query, signal, 'cache-only'),
+      loadPriceObservation: (id: string, signal: AbortSignal) => loadPriceObservation(id, signal, 'cache-only'),
+      loadSelectedPhoto: (observation: Parameters<typeof loadSelectedPhoto>[0], role: Parameters<typeof loadSelectedPhoto>[1], signal: AbortSignal) =>
+        loadSelectedPhoto(observation, role, signal, 'cache-only'),
+    },
   };
 }

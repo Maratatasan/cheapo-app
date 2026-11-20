@@ -43,7 +43,11 @@ test('uses the verified original for a revised crop and isolates derived files b
     { role: 'original', width: 1200, height: 800 }, { role: 'crop', width: 600, height: 400 },
   ]);
   expect(await read(observation, 'crop')).toMatchObject({ status: 'cached', value: { uri: 'file:///replaceable-derived.jpg' } });
-  await read(observation, 'crop');
+  expect(await read(observation, 'crop', undefined, 'cache-only')).toMatchObject({
+    status: 'cached', value: { uri: 'file:///replaceable-derived.jpg' },
+  });
+  expect(await read({ ...observation, version: 5 }, 'crop', undefined, 'cache-only')).toEqual({ status: 'unavailable' });
+  expect(loadPhoto).toHaveBeenLastCalledWith(id, 'original', undefined, 'cache-only');
   expect(render).toHaveBeenCalledTimes(1);
   expect(render).toHaveBeenCalledWith(original, observation.cropBox);
   await read({ ...observation, version: 5 }, 'crop');

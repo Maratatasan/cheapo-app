@@ -31,7 +31,7 @@ export function SavedPriceDetails({ draft }: { draft: SavedPriceRecord }) {
   );
 }
 
-type ThumbnailLoader = (id: string, changes: readonly PendingHistoryChange[], signal: AbortSignal) => Promise<string | undefined>;
+type ThumbnailLoader = (id: string, changes: readonly PendingHistoryChange[], signal: AbortSignal, version?: number) => Promise<string | undefined>;
 const cardViewability = { minimumViewTime: 120, itemVisiblePercentThreshold: 20 };
 
 function SharedPriceThumbnail({ observation, changes, visible, load }: {
@@ -49,7 +49,7 @@ function SharedPriceThumbnail({ observation, changes, visible, load }: {
     function complete(uri?: string) {
       if (!controller.signal.aborted) setResult({ observation, changes, load, uri });
     }
-    void load(observation.id, changes, controller.signal).then(complete, () => complete());
+    void load(observation.id, changes, controller.signal, observation.version).then(complete, () => complete());
     return () => controller.abort();
   }, [observation, changes, visible, load, current]);
 

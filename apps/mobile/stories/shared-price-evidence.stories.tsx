@@ -172,6 +172,19 @@ export const ReturnToScrolledHistory: Story = {
   },
 };
 
+export const ReopenCachedHistory: Story = {
+  render: () => <HistoryPreview />,
+  play: async ({ canvas, userEvent }) => {
+    const open = () => userEvent.click(canvas.getByRole('button', { name: 'Open Whole rolled oats' }));
+    await open();
+    await expect(canvas.getByLabelText('Cropped price photo')).toBeVisible();
+    await userEvent.click(canvas.getByRole('button', { name: 'Back to saved products' }));
+    await open();
+    await expect(canvas.getByText('Showing saved details')).toBeVisible();
+    await expect(canvas.getByLabelText('Cropped price photo')).toBeVisible();
+  },
+};
+
 export const KeptCloudOffline: Story = {
   render: () => {
     const chosen = { ...observation, version: 2, priceAmount: '3.45', selectedPhotoRole: 'original' as const };

@@ -127,8 +127,8 @@ function barcodePath(barcode: string) {
 export function createCheapoShoppingReads(openSession: () => Promise<CheapoReadSession>, cache: ReadCache) {
   async function read<T>(
     path: string, decode: Decoder<T>, cacheable: ((value: T) => boolean) | undefined, signal?: AbortSignal,
-    notFound?: () => T, { observedOperations, cacheVersioned }: {
-      observedOperations?: readonly string[]; cacheVersioned?: boolean;
+    notFound?: () => T, { observedOperations, cacheVersioned, cacheOnly }: {
+      observedOperations?: readonly string[]; cacheVersioned?: boolean; cacheOnly?: boolean;
     } = {},
   ): Promise<ShoppingRead<T>> {
     if (signal?.aborted) throw requestInterrupted();
@@ -164,6 +164,7 @@ export function createCheapoShoppingReads(openSession: () => Promise<CheapoReadS
       assertCurrent();
       return result;
     }
+    if (cacheOnly) return fromCache();
 
     let response: { ok: boolean; status: number; body: unknown; etag: string | null };
     try {
@@ -218,13 +219,13 @@ export function createCheapoShoppingReads(openSession: () => Promise<CheapoReadS
       }
       return read(`/v1/me/comparison-preferences/${encodeURIComponent(groupId)}`, decodeComparisonPreference, () => true, signal);
     },
-    loadPriceHistory(query: PriceHistoryQuery = {}, signal?: AbortSignal) {
-      return read(historyPagePath(query), decodeHistoryPage, () => true, signal);
+    loadPriceHistory(query: PriceHistoryQuery = {}, signal?: AbortSignal, mode?: 'cache-only') {
+      return read(historyPagePath(query), decodeHistoryPage, () => true, signal, undefined, { cacheOnly: mode === 'cache-only' });
     },
-    loadPriceObservation(id: string, signal?: AbortSignal) {
+    loadPriceObservation(id: string, signal?: AbortSignal, mode?: 'cache-only') {
       return read<{ observation: PriceObservationDetail | null }>(
         historyObservationPath(id), raw => decodeHistoryObservation(raw, id), value => value.observation !== null, signal,
-        () => ({ observation: null }),
+        () => ({ observation: null }), { cacheOnly: mode === 'cache-only' },
       );
     },
   };
