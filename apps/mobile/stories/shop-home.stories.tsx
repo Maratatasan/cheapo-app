@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-native-web-vite";
 import { expect, fn } from "storybook/test";
+import { ShopSyncFeedback } from "../component/shop/shop-chooser";
 import { ShopHome } from "../component/shop/shop-home";
 
 const meta = {
@@ -26,5 +27,28 @@ export const CurrentShop: Story = {
     await expect(args.onScan).toHaveBeenCalled();
     await userEvent.click(canvas.getByRole("button", { name: "Change shop" }));
     await expect(args.onChooseShop).toHaveBeenCalled();
+  },
+};
+
+export const CachedShops: Story = {
+  args: CurrentShop.args,
+  render: (args) => <>
+    <ShopSyncFeedback sync={{ status: "cached", lastSyncedAt: "2026-11-20T04:00:00.000Z" }} />
+    <ShopHome {...args} />
+  </>,
+  play: async ({ canvas }) => {
+    await expect(canvas.getByText(/^Last synced/)).toBeVisible();
+    await expect(canvas.getByText("You're at: Tandem Centre Lidl")).toBeVisible();
+  },
+};
+
+export const ShopsUnavailableOffline: Story = {
+  render: (args) => <>
+    <ShopSyncFeedback sync={{ status: "unavailable" }} />
+    <ShopHome {...args} />
+  </>,
+  play: async ({ canvas }) => {
+    await expect(canvas.getByText("Saved shops are unavailable offline. You can add a shop.")).toBeVisible();
+    await expect(canvas.getByRole("button", { name: "Select current shop" })).toBeVisible();
   },
 };

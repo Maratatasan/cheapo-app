@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Button, Platform, View } from "react-native";
 import { Stack, useRouter } from "expo-router";
 import Constants from "expo-constants";
-import { ShopChooser, ShopLoadFeedback } from "@/component/shop/shop-chooser";
+import { ShopChooser, ShopLoadFeedback, ShopSyncFeedback } from "@/component/shop/shop-chooser";
 import { ShopHome } from "@/component/shop/shop-home";
 import { useSavedShops } from "@/hooks/use-saved-shops";
 import { fieldCheapoApiOrigin } from "@/lib/cheapo-access/config";
@@ -38,8 +38,8 @@ export default function Index() {
           state={shops}
           actions={shopRepository}
           management={{
-            updateShop: (id, details) => shopRepository.updateShop(id, details),
-            removeShop: id => shopRepository.removeShop(id),
+            updateShop: (...args) => shopRepository.updateShop(...args),
+            removeShop: (...args) => shopRepository.removeShop(...args),
             onChanged: setShops,
           }}
           onSelected={(state) => { setShops(state); setChoosing(false); }}
@@ -48,6 +48,7 @@ export default function Index() {
       ) : (
         <>
           {(!shops || readError) ? <ShopLoadFeedback error={readError} onRetry={retry} /> : null}
+          <ShopSyncFeedback sync={shops?.sync} />
           <ShopHome
             currentShop={shops?.currentShop}
             onChooseShop={shops && !readError ? () => setChoosing(true) : undefined}

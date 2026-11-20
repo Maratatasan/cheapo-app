@@ -45,7 +45,7 @@ const priceChange = z.discriminatedUnion('action', [
 ]).refine(change => change.action !== 'correct' || matchesReviewedUnitPrice(change));
 
 const action = z.discriminatedUnion('kind', [
-  z.strictObject({ kind: z.literal('save-shop'), shop: savedShop }),
+  z.strictObject({ kind: z.literal('save-shop'), shop: savedShop, select: z.boolean().optional() }),
   z.strictObject({ kind: z.literal('edit-shop'), shopId: id, details: shopDetails, base: expectedBranch }),
   z.strictObject({ kind: z.literal('unlink-shop'), shopId: id, base: expectedBranch }),
   z.strictObject({ kind: z.literal('select-shop'), shopId: id }),
@@ -102,7 +102,7 @@ export function requestForMutation(
   switch (action.kind) {
     case 'save-shop': {
       const { id, ...details } = action.shop;
-      return send(shopPath(id), 'PUT', { operationId, shop: details });
+      return send(shopPath(id), 'PUT', { operationId, shop: details, ...(action.select ? { select: true } : {}) });
     }
     case 'unlink-shop':
       if (typeof version === 'string') return send(shopPath(action.shopId), 'DELETE', { operationId, expectedVersion: version });
