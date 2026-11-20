@@ -10,9 +10,10 @@ type ShopHomeProps = {
   onFindBarcode?: () => void;
   onOpenSaved?: () => void;
   onExploreSamples?: () => void;
+  onOpenStorage?: () => void;
 };
 
-export function ShopHome({ currentShop, onChooseShop, onScan, onFindBarcode, onOpenSaved, onExploreSamples }: ShopHomeProps) {
+export function ShopHome({ currentShop, onChooseShop, onScan, onFindBarcode, onOpenSaved, onExploreSamples, onOpenStorage }: ShopHomeProps) {
   const shopLabel = currentShop ? shopDisplayName(currentShop) : undefined;
 
   return (
@@ -43,6 +44,11 @@ export function ShopHome({ currentShop, onChooseShop, onScan, onFindBarcode, onO
       {onExploreSamples ? (
         <Pressable accessibilityRole="button" onPress={onExploreSamples} style={[ui.button, styles.samples]}>
           <Text style={styles.action}>Explore sample prices</Text>
+        </Pressable>
+      ) : null}
+      {onOpenStorage ? (
+        <Pressable accessibilityRole="button" onPress={onOpenStorage} style={[ui.button, styles.samples]}>
+          <Text style={styles.action}>Storage &amp; cache</Text>
         </Pressable>
       ) : null}
     </ScrollView>

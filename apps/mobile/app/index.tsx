@@ -55,6 +55,7 @@ export default function Index() {
             onFindBarcode={Platform.OS === "web" ? undefined : () => router.push("/find-product")}
             onOpenSaved={() => router.push("/saved-products")}
             onExploreSamples={() => router.push("/results")}
+            onOpenStorage={Platform.OS === "web" ? undefined : () => router.push("/storage-cache")}
           />
         </>
       )}
