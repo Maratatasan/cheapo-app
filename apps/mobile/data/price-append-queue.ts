@@ -5,6 +5,7 @@ import { Directory, File, Paths } from 'expo-file-system';
 import { parseCheapoApiOrigin } from '../lib/cheapo-access/origin';
 import { type PhotoAsset, type SavedPriceRecord, isSavedPriceRecord, savedPhotoDirectory } from './local-photo';
 import { reviewComplete, reviewUnitPrice } from './photo-review';
+import { createPriceEvidenceStore } from './price-evidence-queue';
 
 export type PriceQueueOwner = { origin: string; householdId: string; shopperId: string };
 export type PriceAppendReceipt = { id: string; sourceId: string; version: number };
@@ -126,6 +127,10 @@ export async function openPriceAppendQueue(input: PriceQueueOwner) {
 
   return {
     owner,
+    evidence: createPriceEvidenceStore(directory, (file, text) => serializePublication(async () => {
+      if (!file.exists) await publish(file, text);
+      else if (await file.text() !== text) throw Error('Different evidence has already been saved for this price.');
+    })),
     async save(value: SavedPriceRecord) {
       // Freeze a data copy before awaiting anything so edits to a screen model
       // cannot change a retry's reviewed price.
