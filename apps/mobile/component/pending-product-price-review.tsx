@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Image, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Image, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import type { ProductIdentityCheck } from '@/data/add-product-lookup';
@@ -7,9 +7,21 @@ import type { ProductCandidate } from '@/data/cheapo-shopping-reads';
 import { dateLabel, priceLabel } from '@/data/observation';
 import type { ProductPriceChoice, ProductPriceDraft } from '@/data/price-append-queue';
 import { CameraActionButton } from './camera-actions';
-import { color, spacing, ui } from './results/theme';
+import { color, radius, spacing, ui } from './results/theme';
 
-export function PendingProductPriceReview({ draft, check, busy, error, onRetry, onCompare, onConfirm, onBack }: {
+export function PendingDraftBarcodeField({ value, editable = true, onChange }: {
+  value: string;
+  editable?: boolean;
+  onChange: (value: string) => void;
+}) {
+  return <View style={ui.card}>
+    <Text style={ui.body}>Product barcode (optional)</Text>
+    <TextInput accessibilityLabel="Product barcode (optional)" value={value} keyboardType="number-pad" maxLength={14}
+      editable={editable} style={styles.barcode} onChangeText={onChange} />
+  </View>;
+}
+
+export function PendingProductPriceReview({ draft, check, busy, error, onRetry, onCompare, onConfirm, onEdit, onBack }: {
   draft: ProductPriceDraft;
   check?: ProductIdentityCheck;
   busy: boolean;
@@ -17,6 +29,7 @@ export function PendingProductPriceReview({ draft, check, busy, error, onRetry, 
   onRetry: () => void;
   onCompare: (candidate: ProductCandidate) => void;
   onConfirm: (choice: ProductPriceChoice) => void;
+  onEdit?: () => void;
   onBack: () => void;
 }) {
   const [showOriginal, setShowOriginal] = useState(false);
@@ -39,6 +52,7 @@ export function PendingProductPriceReview({ draft, check, busy, error, onRetry, 
         source={{ uri: photo.uri }} resizeMode="contain" style={styles.photo} /> : null}
       {record.original && record.original.uri !== record.selected.uri ?
         <CameraActionButton label={showOriginal ? 'View crop' : 'View original'} onPress={() => setShowOriginal(value => !value)} /> : null}
+      {onEdit ? <CameraActionButton label="Edit draft details" disabled={busy} onPress={onEdit} /> : null}
       {error ? <Text accessibilityRole="alert" style={ui.body}>{error}</Text> : null}
       {!check ? <Text accessibilityLiveRegion="polite" style={ui.body}>Checking the catalog…</Text> : null}
       {check?.kind === 'unavailable' ? <>
@@ -63,7 +77,7 @@ export function PendingProductPriceReview({ draft, check, busy, error, onRetry, 
           </View>;
         })}
         {!check.exact && !check.truncated ? <>
-          {needsProductType ? <Text style={ui.body}>A product type is needed before adding this barcode.</Text> : null}
+          {needsProductType ? <Text style={ui.body}>Edit the draft to enter the product type for this barcode.</Text> : null}
           <CameraActionButton label="Add product" primary busy={busy} disabled={needsProductType} onPress={() => onConfirm({ kind: 'add' })} />
         </> : null}
       </> : null}
@@ -76,5 +90,7 @@ export function PendingProductPriceReview({ draft, check, busy, error, onRetry, 
 
 const styles = StyleSheet.create({
   photo: { width: '100%', height: 220, backgroundColor: color.mint, borderRadius: 12 },
+  barcode: { borderColor: color.line, borderWidth: 1, borderRadius: radius.control, minHeight: 44,
+    paddingHorizontal: spacing.md, color: color.ink },
   actions: { padding: spacing.md, borderTopWidth: 1, borderColor: color.line },
 });

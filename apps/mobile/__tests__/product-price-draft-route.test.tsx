@@ -6,12 +6,13 @@ import type { ProductPriceDraft } from '@/data/price-append-queue';
 
 const mockPendingDrafts = jest.fn();
 const mockConfirm = jest.fn();
+const mockUpdate = jest.fn();
 const mockRetry = jest.fn();
 const mockBack = jest.fn();
 const mockFindByBarcode = jest.fn();
 const mockFindCandidates = jest.fn();
 const mockShopping = { owner: { origin: 'https://cheapo.example', householdId: 'home', shopperId: 'phone' },
-  productPrices: { pendingDrafts: mockPendingDrafts, confirm: mockConfirm }, retry: mockRetry };
+  productPrices: { pendingDrafts: mockPendingDrafts, confirm: mockConfirm, update: mockUpdate }, retry: mockRetry };
 const mockLookup = { findByBarcode: mockFindByBarcode, findCandidates: mockFindCandidates };
 const barcode = '00036000291452';
 const photo = { uri: 'file:///original.jpg', width: 800, height: 600, mimeType: 'image/jpeg' as const };
@@ -45,7 +46,7 @@ test('reopens protected evidence and waits until the shopper confirms reuse of t
   expect(screen.getByLabelText('Original price photo')).toHaveProp('source', { uri: 'file:///original.jpg' });
   expect(mockConfirm).not.toHaveBeenCalled();
   await fireEvent.press(reuse);
-  expect(mockConfirm).toHaveBeenCalledWith(draft.record.id, { kind: 'reuse', productId: 'canonical-oats' });
+  expect(mockConfirm).toHaveBeenCalledWith(draft.record.id, { kind: 'reuse', productId: 'canonical-oats' }, undefined);
   expect(mockRetry).toHaveBeenCalledTimes(1);
   expect(mockBack).toHaveBeenCalledTimes(1);
 });
@@ -59,5 +60,30 @@ test('keeps an unavailable draft intact and makes checked new product creation e
   expect(await screen.findByText('No matching products found')).toBeOnTheScreen();
   expect(mockConfirm).not.toHaveBeenCalled();
   await fireEvent.press(screen.getByRole('button', { name: 'Add product' }));
-  expect(mockConfirm).toHaveBeenCalledWith(draft.record.id, { kind: 'add' });
+  expect(mockConfirm).toHaveBeenCalledWith(draft.record.id, { kind: 'add' }, undefined);
+});
+
+test('edits missing product details without changing the draft source and rechecks before explicit add', async () => {
+  const prior = { ...draft, record: { ...draft.record, review: { ...draft.record.review!, productType: undefined } } };
+  mockPendingDrafts.mockResolvedValue([prior]);
+  mockFindByBarcode.mockResolvedValue(undefined);
+  mockUpdate.mockImplementation(async (_id, { review, barcode }) => {
+    const revised = { ...prior, revision: 1, barcode, record: { ...prior.record, review } };
+    mockPendingDrafts.mockResolvedValue([revised]);
+    return revised;
+  });
+  await render(<ProductPriceDraftScreen />);
+  expect(await screen.findByRole('button', { name: 'Add product' })).toBeDisabled();
+  await fireEvent.press(screen.getByRole('button', { name: 'Edit draft details' }));
+  await fireEvent.changeText(screen.getByLabelText('Product type'), 'Rolled oats');
+  await fireEvent.changeText(screen.getByLabelText('Product barcode (optional)'), '4006381333931');
+  await fireEvent.press(screen.getByRole('button', { name: 'Save draft changes' }));
+  expect(await screen.findByRole('button', { name: 'Add product' })).toBeEnabled();
+  expect(mockUpdate).toHaveBeenCalledWith(draft.record.id, { barcode: '04006381333931', expectedRevision: undefined,
+    review: expect.objectContaining({ productType: 'Rolled oats', price: '1.20' }) });
+  expect(mockFindByBarcode).toHaveBeenLastCalledWith('04006381333931', expect.any(AbortSignal));
+  expect(mockConfirm).not.toHaveBeenCalled();
+  expect(screen.getByLabelText('Reviewed price photo')).toHaveProp('source', { uri: 'file:///selected.jpg' });
+  await fireEvent.press(screen.getByRole('button', { name: 'Add product' }));
+  expect(mockConfirm).toHaveBeenCalledWith(draft.record.id, { kind: 'add' }, 1);
 });
