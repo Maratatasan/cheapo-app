@@ -38,6 +38,7 @@ psql -X -v ON_ERROR_STOP=1 -h "$root" -p "$port" -U cheapo_test -d postgres \
   -f migrations/012-versioned-comparison-preferences.sql \
   -f migrations/013-shopping-create-receipts.sql \
   -f migrations/014-saved-shop-operation-receipts.sql \
+  -f migrations/015-price-photo-selection.sql \
   -f operator/runtime-role.sql \
   -f test/shopping-history.postgres.sql >/dev/null
 CHEAPO_TEST_PG_SOCKET="$root" CHEAPO_TEST_PG_PORT="$port" node --test test/preferences.postgres.ts test/shopping-import.postgres.ts test/hosted-import.postgres.ts test/price-history.postgres.ts test/runtime-role.postgres.ts test/price-photo.postgres.ts

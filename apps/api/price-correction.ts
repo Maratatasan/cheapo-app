@@ -1,3 +1,4 @@
+import { pricePhotoSelection } from '@cheapo/domain/price-history';
 import { z } from 'zod';
 
 import { json, readJson, unauthorized } from './api-http.ts';
@@ -10,7 +11,7 @@ const common = { operationId: stableId, expectedVersion: z.int().min(1).max(2_14
 const correction = z.discriminatedUnion('action', [
   z.strictObject({
     ...common, action: z.literal('correct'), review: reviewedPrice, unitPrice: reviewedUnitPrice.nullish(),
-    productId: stableId.nullish(),
+    productId: stableId.nullish(), photoSelection: pricePhotoSelection.optional(),
     shop: z.strictObject({ id: stableId, displayName: reviewText.max(200) }).optional(),
   }).refine(matchesReviewedUnitPrice),
   z.strictObject({ ...common, action: z.literal('record_in_error'), reason: reviewText.max(300) }),

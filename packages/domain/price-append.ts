@@ -19,7 +19,7 @@ export const reviewedPrice = z.strictObject({
 });
 
 const normalizedCoordinate = z.number().min(0).max(1);
-const cropBox = z.strictObject({
+export const normalizedCropBox = z.strictObject({
   left: normalizedCoordinate, top: normalizedCoordinate,
   right: normalizedCoordinate, bottom: normalizedCoordinate,
 }).refine(box => box.left < box.right && box.top < box.bottom);
@@ -32,7 +32,7 @@ export const priceAppendSchema = z.strictObject({
   shopDisplayName: observedName,
   review: reviewedPrice,
   unitPrice: reviewedUnitPrice.nullish(),
-  cropBox: cropBox.optional(),
+  cropBox: normalizedCropBox.optional(),
 }).refine(matchesReviewedUnitPrice);
 
 export function matchesReviewedUnitPrice(value: {

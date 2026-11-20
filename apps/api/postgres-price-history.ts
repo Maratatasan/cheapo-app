@@ -43,20 +43,28 @@ const visibleObservations = `
 `;
 
 type PriceRow = PriceObservation & { errorReason: string | null };
-type DetailRow = PriceRow & { cropBox: PriceObservationDetail['cropBox'] };
+type DetailRow = PriceRow & { cropBox: PriceObservationDetail['cropBox']; photoSelectionOverridden: boolean };
 
 export async function readObservationDetail(query: ShoppingQuery, member: ShoppingMember, id: string, lock = false) {
   const { rows: [row] } = await query<DetailRow>(`
-    SELECT ${observationFields}, observation.crop_box AS "cropBox",
+    SELECT ${observationFields},
+      CASE WHEN observation.photo_selection_overridden THEN observation.selected_crop_box ELSE observation.crop_box END AS "cropBox",
+      observation.photo_selection_overridden AS "photoSelectionOverridden",
       observation.shopper_id = $3::uuid AS "ownedByCurrentShopper"
     ${visibleObservations}
     AND observation.resource_id = $2::uuid
     ${lock ? 'FOR UPDATE OF observation' : ''}
   `, [member.household_id, id, member.shopper_id]);
   if (!row) return undefined;
-  const { errorReason, ...detail } = row;
-  const selectedPhotoRole = detail.photos.find(photo => photo.role === 'crop')?.role ?? detail.photos[0]?.role ?? null;
-  return { ...detail, selectedPhotoRole, ...(errorReason ? { recordedInErrorReason: errorReason } : {}) };
+  const { errorReason, photoSelectionOverridden, ...detail } = row;
+  const original = detail.photos.find(photo => photo.role === 'original');
+  const storedCrop = detail.photos.find(photo => photo.role === 'crop');
+  const selectedPhotoRole = photoSelectionOverridden
+    ? original ? detail.cropBox ? 'crop' : 'original' : null
+    : storedCrop?.role ?? original?.role ?? null;
+  return { ...detail, selectedPhotoRole,
+    ...(photoSelectionOverridden ? { cropSource: 'original' as const } : {}),
+    ...(errorReason ? { recordedInErrorReason: errorReason } : {}) };
 }
 
 export function postgresPriceHistory(transaction: ShoppingTransaction): ExecutePriceHistory {
