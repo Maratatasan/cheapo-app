@@ -28,6 +28,14 @@ it('signs in only explicitly and persists a verified phone session without expos
   const restored=s.newClient();await restored.restore();expect(restored.getState().signedIn).toBe(true);
   expect(s.native.requestJson).toHaveBeenCalledTimes(2);
 });
+it('identifies Cheapo for iPhone sign-in and reports the iPhone Keychain on restore',async()=>{
+  const s=setup();const dependencies={...s.dependencies,appName:'Cheapo',storageName:'the iPhone Keychain'};
+  const client=createPhoneAuth(dependencies);
+  await client.signIn();expect(client.getState().message).toContain('saved in the iPhone Keychain');
+  expect(new URL(s.openBrowser.mock.calls[0][0] as string).searchParams.get('agent_name_hint')).toBe('Cheapo');
+  const restored=createPhoneAuth(dependencies);
+  await restored.restore();expect(restored.getState().message).toContain('restored from the iPhone Keychain');
+});
 it('serializes renewal, retains rotating refresh tokens and clears only terminal failures',async()=>{
   const s=setup();await s.client.signIn();s.expire();await Promise.all([s.client.restore(),s.client.restore()]);
   expect(JSON.parse(s.storage.get('direct-auth.session')!).refreshToken).toBe('rotated-refresh');
