@@ -1,6 +1,6 @@
-import { cheapoShoppingReadCache } from "../data/cheapo-shopping-read-cache";
+import { cheapoPricePhotoCache, cheapoShoppingReadCache } from "../data/cheapo-shopping-read-cache";
 
-const mockFiles = new Map<string, string>();
+const mockFiles = new Map<string, string | Uint8Array>();
 const mockDirectories = new Set<string>();
 const base = "file:///cache/cheapo-shopping-snapshots";
 
@@ -20,9 +20,9 @@ jest.mock("expo-file-system", () => {
 
     get name() { return this.uri.split("/").at(-1)!; }
     get exists() { return mockFiles.has(this.uri); }
-    get size() { return Buffer.byteLength(mockFiles.get(this.uri) ?? "", "utf8"); }
-    async text() { return mockFiles.get(this.uri)!; }
-    write(text: string) { mockFiles.set(this.uri, text); }
+    get size() { return Buffer.byteLength(mockFiles.get(this.uri) ?? ""); }
+    async text() { return mockFiles.get(this.uri) as string; }
+    write(contents: string | Uint8Array) { mockFiles.set(this.uri, contents); }
     delete() { mockFiles.delete(this.uri); }
     async move(destination: File) {
       mockFiles.set(destination.uri, mockFiles.get(this.uri)!);
@@ -72,5 +72,32 @@ test("measures downloaded UTF-8 snapshot bytes and clears only its owned directo
   await cheapoShoppingReadCache.clear();
   expect(await cheapoShoppingReadCache.measureBytes()).toBe(0);
   expect(await cheapoShoppingReadCache.read("scope\0/v1/me/saved-shops")).toBeNull();
+  expect([...mockFiles.keys()]).toEqual(protectedPaths);
+});
+
+test("measures and clears only downloaded image copies, and ignores missing files or old cache writes", async () => {
+  const protectedPaths = [
+    "file:///documents/price-photos/original.jpg",
+    "file:///documents/price-photos/selected.jpg",
+    "file:///documents/cheapo-outbox/pending.json",
+    "file:///documents/cheapo-outbox/upload-plan.json",
+  ];
+  for (const path of protectedPaths) mockFiles.set(path, "protected fixture");
+  const key = "enrollment-scope\0/v1/me/price-observations/id/photos/crop";
+  const bytes = new Uint8Array([255, 216, 1, 255, 217]);
+  const metadata = { sha256: "a".repeat(64), width: 400, height: 300, byteCount: bytes.length, lastSyncedAt: "2026-01-02T10:00:00.000Z" };
+  const revision = cheapoPricePhotoCache.revision();
+  const first = await cheapoPricePhotoCache.write(key, revision, metadata, bytes);
+  expect(first?.uri.startsWith(base)).toBe(true);
+  expect(await cheapoShoppingReadCache.measureBytes()).toBe(bytes.byteLength + Buffer.byteLength(JSON.stringify(metadata)));
+  expect(await cheapoPricePhotoCache.read(key, revision)).toEqual(first);
+  mockFiles.delete(first!.uri);
+  expect(await cheapoPricePhotoCache.read(key, revision)).toBeNull();
+  await cheapoPricePhotoCache.write(key, revision, metadata, bytes);
+
+  await cheapoShoppingReadCache.clear();
+  expect(await cheapoPricePhotoCache.read(key, cheapoPricePhotoCache.revision())).toBeNull();
+  expect(await cheapoPricePhotoCache.write(key, revision, metadata, bytes)).toBeNull();
+  expect(await cheapoShoppingReadCache.measureBytes()).toBe(0);
   expect([...mockFiles.keys()]).toEqual(protectedPaths);
 });
