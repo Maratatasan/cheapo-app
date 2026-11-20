@@ -33,13 +33,13 @@ function mockCorrection(base: object, waitFor: string[] = []) {
 beforeEach(() => {
   mockProtectedWork = false;
   mockLastVerifiedOwner.mockReset().mockResolvedValue(mockOwner);
-  mockPriceBackup.mockReset().mockResolvedValue({ entries: [], recovery: [], files: [] });
+  mockPriceBackup.mockReset().mockResolvedValue({ entries: [], productPriceDrafts: [], recovery: [], files: [] });
   mockCorrection({ kind: 'append', sourceId: 'local-rice' });
 });
 
 test('checks captured append and mutation references before creating the recovery archive', async () => {
   await expect(loadEnrolledShoppingBackup()).rejects.toThrow('work missing');
-  mockPriceBackup.mockResolvedValue({ entries: [{ record: { id: 'local-rice' } }], recovery: [], files: [] });
+  mockPriceBackup.mockResolvedValue({ entries: [{ record: { id: 'local-rice' } }], productPriceDrafts: [], recovery: [], files: [] });
   const backup = await loadEnrolledShoppingBackup();
   expect(backup?.records).toEqual([{ id: 'local-rice' }]);
   expect(backup?.files.map(file => file.path)).toEqual(['recovery/mutations/edit-rice.intent.json']);
@@ -48,9 +48,9 @@ test('checks captured append and mutation references before creating the recover
 });
 
 test('fails clearly if queued evidence is unreadable, the enrollment changes, or its owner is missing', async () => {
-  mockPriceBackup.mockResolvedValue({ entries: [], files: [], recovery: [{ sourceId: 'local-rice', reason: 'unreadable' }] });
+  mockPriceBackup.mockResolvedValue({ entries: [], productPriceDrafts: [], files: [], recovery: [{ sourceId: 'local-rice', reason: 'unreadable' }] });
   await expect(loadEnrolledShoppingBackup()).rejects.toThrow('evidence could not be read');
-  mockPriceBackup.mockResolvedValue({ entries: [{ record: { id: 'local-rice' } }], recovery: [], files: [] });
+  mockPriceBackup.mockResolvedValue({ entries: [{ record: { id: 'local-rice' } }], productPriceDrafts: [], recovery: [], files: [] });
   const backup = await loadEnrolledShoppingBackup();
   mockLastVerifiedOwner.mockResolvedValue({ ...mockOwner, shopperId: '64db4ca7-3962-4a16-8fee-782f26fd13b4' });
   await expect(backup?.assertCurrentOwner()).rejects.toThrow('Cheapo access changed');
@@ -69,4 +69,16 @@ test('rejects a different selected owner before opening any protected queues', a
   await expect(loadEnrolledShoppingBackup(mockOwner)).rejects.toThrow('Cheapo access changed');
   expect(mockPriceBackup).not.toHaveBeenCalled();
   expect(mockMutationBackup).not.toHaveBeenCalled();
+});
+
+test('includes uncommitted product-price evidence in recovery without treating it as a queued append', async () => {
+  const source = { id: 'local-rice', original: { uri: 'file:///documents/price-photos/local-rice-original.jpg' } };
+  mockPriceBackup.mockResolvedValue({ entries: [], productPriceDrafts: [{ record: source }], recovery: [], files: [
+    { name: 'local-rice.product-price-draft.json', bytes: new Uint8Array() },
+  ] });
+  await expect(loadEnrolledShoppingBackup()).rejects.toThrow('work missing');
+  mockMutationBackup.mockImplementation(async capture => capture({ entries: [], recovery: [], files: [] }));
+  const backup = await loadEnrolledShoppingBackup();
+  expect(backup?.records).toEqual([source]);
+  expect(backup?.files.map(file => file.path)).toEqual(['recovery/prices/local-rice.product-price-draft.json']);
 });
