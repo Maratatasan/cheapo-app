@@ -20,9 +20,16 @@ the local development target. GitHub’s Linux runner supplies PostgreSQL 16.
 
 For an existing **development** database, set its PostgreSQL connection settings
 using the standard `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER` and `PGPASSWORD`
-environment variables as needed. Apply the migration with `psql -X -v
-ON_ERROR_STOP=1 -f apps/api/migrations/001-comparison-preferences.sql`, then run
-`pnpm --filter @cheapo/api start`. The development server binds to
+environment variables as needed. Apply numbered migrations in order, skipping
+any already applied to that database. For an empty local database, run:
+
+```sh
+for migration in apps/api/migrations/*.sql; do
+  psql -X -v ON_ERROR_STOP=1 -f "$migration" || break
+done
+```
+
+Run `pnpm --filter @cheapo/api start` to start the preference API. It binds to
 `127.0.0.1:8787`. See the [test fixture](test/preferences.postgres.ts) for the
 shopper, membership and credential rows a trusted operator provisions.
 
@@ -57,3 +64,23 @@ Phone enrollment, hosting and the comparison selector are follow-up work in
 [#147](https://github.com/Maratatasan/cheapo-app/issues/147) and
 [#150](https://github.com/Maratatasan/cheapo-app/issues/150). The service has no
 shop, price or photo operations in this slice.
+
+## Shopping history storage
+
+Migration `002` adds tables for the offline restore in
+[#171](https://github.com/Maratatasan/cheapo-app/issues/171). Keep the original
+source IDs. A known product or branch has an optional link from an observation.
+An export can carry a source ID even if the corresponding catalog or shop entry
+is missing. Keep that ID and leave the link empty until the relationship can be
+verified. Use the captured shop display name for history and store a household's
+current nickname separately. Current shop selection requires a saved shop in
+the shopper's own household.
+
+The observation keeps the original review fields alongside the amount and
+currency when they can be parsed. Its original and cropped product price photos
+use references with file hashes and sizes. Photo bytes remain outside the
+database. Product presentation photos have a separate lifecycle.
+
+The PostgreSQL test runs synthetic fixtures for these relationships and the
+existing preference API tests. The offline importer and the real collection
+restore are subsequent work on #171.

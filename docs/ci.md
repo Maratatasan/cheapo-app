@@ -12,7 +12,7 @@ pnpm build
 ```
 
 The required `verify` job runs these commands on every pull request to main. It
-also runs the PostgreSQL preference tests, Route 1 and JDK 17 auth helper tests,
+also runs the PostgreSQL storage tests, Route 1 and JDK 17 auth helper tests,
 Expo dependency validation, and Expo Doctor directly. Expo's Android, iOS, and web exports are bundle checks.
 Device checks, native generation and binary builds, live services, and
 interactive development run without Turbo caching.
