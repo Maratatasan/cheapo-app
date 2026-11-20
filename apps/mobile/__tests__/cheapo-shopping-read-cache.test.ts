@@ -101,3 +101,20 @@ test("measures and clears only downloaded image copies, and ignores missing file
   expect(await cheapoShoppingReadCache.measureBytes()).toBe(0);
   expect([...mockFiles.keys()]).toEqual(protectedPaths);
 });
+
+test('an earlier JSON response cannot restore or delete a snapshot after Clear cache', async () => {
+  const key = 'shopping-scope\0/v1/me/saved-shops';
+  const old = cheapoShoppingReadCache.revision();
+  await cheapoShoppingReadCache.write(key, 'before clear', old);
+  const observe = jest.fn();
+  const unsubscribe = cheapoShoppingReadCache.subscribeClear(observe);
+  await cheapoShoppingReadCache.clear();
+  expect(observe).toHaveBeenCalledTimes(1);
+  unsubscribe();
+  await cheapoShoppingReadCache.write(key, 'stale result', old);
+  expect(await cheapoShoppingReadCache.read(key)).toBeNull();
+  await cheapoShoppingReadCache.write(key, 'current result');
+  await cheapoShoppingReadCache.remove(key, old);
+  expect(await cheapoShoppingReadCache.read(key, old)).toBeNull();
+  expect(await cheapoShoppingReadCache.read(key)).toBe('current result');
+});

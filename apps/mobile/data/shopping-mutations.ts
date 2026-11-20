@@ -1,5 +1,6 @@
 import { productSchema, shopSchema } from '@cheapo/domain';
 import { canonicalProductBarcode } from '@cheapo/domain/product-barcode';
+import { pricePhotoSelection } from '@cheapo/domain/price-history';
 import { matchesReviewedUnitPrice, reviewedPrice, reviewedUnitPrice } from '@cheapo/domain/price-append';
 import { z } from 'zod';
 
@@ -37,6 +38,7 @@ const shopDetails = z.strictObject({
 const priceChange = z.discriminatedUnion('action', [
   z.strictObject({
     action: z.literal('correct'), review: reviewedPrice, unitPrice: reviewedUnitPrice.nullish(),
+    photoSelection: pricePhotoSelection.optional(),
     productId: id.nullable().optional(),
     shop: z.strictObject({ id, displayName: z.string().trim().min(1).max(200).refine(value => !value.includes('\0')) }).optional(),
   }),

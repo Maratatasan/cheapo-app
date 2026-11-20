@@ -18,7 +18,9 @@ function setup() {
   };
   const download = jest.fn<Promise<Response>, [string, RequestInit]>();
   const cache = new Map<string, string>();
+  let generation = 0;
   const snapshot = {
+    revision: () => generation,
     async read(key: string) { return cache.get(key) ?? null; },
     async write(key: string, text: string) { cache.set(key, text); },
     async remove(key: string) { cache.delete(key); },
@@ -26,7 +28,7 @@ function setup() {
   const access = createCheapoAccess(origin, protectedStorage, download,
     async (key: string) => key.endsWith(first) ? "fixture-scope-one" : "fixture-scope-two");
   const start = () => createCheapoShoppingReads(access.openReadSession, snapshot);
-  return { access, download, cache, start };
+  return { access, download, cache, start, clear() { generation += 1; cache.clear(); } };
 }
 
 test("reopens a previously loaded shop snapshot offline with its actual freshness", async () => {
@@ -37,6 +39,25 @@ test("reopens a previously loaded shop snapshot offline with its actual freshnes
   expect(loaded).toEqual({ status: "fresh", value: { shops: [shop], currentShop: shop }, lastSyncedAt: expect.any(String) });
   download.mockRejectedValueOnce(new Error("Offline"));
   expect(await start().loadSavedShops()).toEqual({ ...loaded, status: "cached" });
+});
+
+test('discards a shopping response already in flight when the user clears cache', async () => {
+  const { cache, clear, download, start } = setup();
+  const response = Promise.withResolvers<Response>();
+  const began = Promise.withResolvers<void>();
+  download.mockImplementationOnce(() => { began.resolve(); return response.promise; });
+  const request = start().loadSavedShops();
+  await began.promise;
+  clear();
+  response.resolve(Response.json({ shops: [{ id: 'old-branch', name: 'Old market' }] }));
+  await expect(request).rejects.toThrow();
+  expect(cache.size).toBe(0);
+
+  download.mockRejectedValueOnce(Error('Offline'));
+  await expect(start().loadSavedShops()).resolves.toEqual({ status: 'unavailable' });
+  download.mockResolvedValueOnce(Response.json({ shops: [{ id: 'new-branch', name: 'New market' }] }));
+  await expect(start().loadSavedShops()).resolves.toMatchObject({ status: 'fresh' });
+  expect(cache.size).toBe(1);
 });
 
 test("uses a single cached canonical barcode and clears the cached hit after a checked miss", async () => {

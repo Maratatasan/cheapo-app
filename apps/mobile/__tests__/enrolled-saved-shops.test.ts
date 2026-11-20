@@ -153,6 +153,7 @@ test.each(['save', 'select', 'unlink'] as const)(
     const { args, entries } = fixture();
     const persisted = new Map<string, string>();
     const cache = {
+      revision: () => 0,
       async read(key: string) { return persisted.get(key) ?? null; },
       async write(key: string, text: string) { persisted.set(key, text); },
       async remove(key: string) { persisted.delete(key); },

@@ -7,6 +7,7 @@ import { readPricePhotoMetadata, type PricePhotoCache } from "./cheapo-price-pho
 const cacheDirectory = () => new Directory(Paths.cache, "cheapo-shopping-snapshots");
 let ongoing: Promise<unknown> = Promise.resolve();
 let revision = 0;
+const clearListeners = new Set<() => void>();
 
 function serialize<T>(operation: () => Promise<T> | T): Promise<T> {
   const result = ongoing.then(operation);
@@ -33,23 +34,31 @@ async function replaceFile(directory: Directory, file: File, contents: string | 
 }
 
 export const cheapoShoppingReadCache = {
-  read(key: string): Promise<string | null> {
+  revision: () => revision,
+  subscribeClear(listener: () => void) {
+    clearListeners.add(listener);
+    return () => { clearListeners.delete(listener); };
+  },
+  read(key: string, expectedRevision = revision): Promise<string | null> {
     return serialize(async () => {
       const file = await cacheFile(cacheDirectory(), key);
-      return file.exists ? file.text() : null;
+      if (revision !== expectedRevision || !file.exists) return null;
+      const text = await file.text();
+      return revision === expectedRevision ? text : null;
     });
   },
-  write(key: string, text: string): Promise<void> {
+  write(key: string, text: string, expectedRevision = revision): Promise<void> {
     return serialize(async () => {
       const directory = cacheDirectory();
       const file = await cacheFile(directory, key);
+      if (revision !== expectedRevision) return;
       await replaceFile(directory, file, text);
     });
   },
-  remove(key: string): Promise<void> {
+  remove(key: string, expectedRevision = revision): Promise<void> {
     return serialize(async () => {
       const file = await cacheFile(cacheDirectory(), key);
-      if (file.exists) file.delete();
+      if (revision === expectedRevision && file.exists) file.delete();
     });
   },
   measureBytes(): Promise<number> {
@@ -65,10 +74,14 @@ export const cheapoShoppingReadCache = {
   },
   clear(): Promise<void> {
     revision += 1;
-    return serialize(() => {
+    const cleared = serialize(() => {
       const directory = cacheDirectory();
       if (directory.exists) directory.delete();
     });
+    for (const listener of clearListeners) {
+      try { listener(); } catch { /* The storage clear is independent of the view. */ }
+    }
+    return cleared;
   },
 };
 
