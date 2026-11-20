@@ -14,7 +14,7 @@ import { mutationOperationId } from './shopping-mutations';
 export type PriceQueueOwner = { origin: string; householdId: string; shopperId: string };
 export type PriceAppendReceipt = { id: string; sourceId: string; version: number; deriveCropFromOriginal?: true };
 type PriceQueueEntry = { record: SavedPriceRecord; body?: string; receipt?: PriceAppendReceipt; needsShop?: true };
-type RecoveryEntry = { sourceId: string; reason: 'unfinished' | 'unreadable' };
+type RecoveryEntry = { sourceId: string; reason: 'unfinished' | 'unreadable'; confirmedProductTitle?: string };
 type FailurePhase = 'price' | 'photo';
 export type ProductPriceDraft = {
   record: SavedPriceRecord;
@@ -229,7 +229,7 @@ export async function openPriceAppendQueue(input: PriceQueueOwner) {
     return publish(file, JSON.stringify({ format: 1, owner, sourceId, choice }));
   }
 
-  async function restoreProductPriceChoice(sourceId: string) {
+  async function restoreProductPriceChoice(sourceId: string, publishRecovered = true) {
     const file = productPriceChoiceFile(sourceId);
     if (file.exists) return readChoiceFile(file, sourceId);
     if (!directory.exists) return;
@@ -241,7 +241,7 @@ export async function openPriceAppendQueue(input: PriceQueueOwner) {
       if (restored && JSON.stringify(restored) !== JSON.stringify(choice)) throw Error('The saved product choices conflict.');
       restored = choice;
     }
-    if (restored) await writeChoice(file, sourceId, restored);
+    if (restored && publishRecovered) await writeChoice(file, sourceId, restored);
     return restored;
   }
 
@@ -298,7 +298,11 @@ export async function openPriceAppendQueue(input: PriceQueueOwner) {
         const sourceId = productDraft[1];
         try {
           if (!(file instanceof File)) throw Error('The product draft is not a file.');
-          productPriceDrafts.push(await readProductPriceDraft(file, sourceId));
+          const draft = await readProductPriceDraft(file, sourceId);
+          productPriceDrafts.push(draft);
+          if (!priceFile(sourceId).exists && await restoreProductPriceChoice(sourceId, false)) {
+            recovery.push({ sourceId, reason: 'unfinished', confirmedProductTitle: draft.record.review?.productName ?? 'Saved product' });
+          }
         } catch {
           recovery.push({ sourceId, reason: 'unreadable' });
         }
@@ -307,7 +311,6 @@ export async function openPriceAppendQueue(input: PriceQueueOwner) {
         try {
           if (!(file instanceof File) || !productPriceDraftFile(sourceId).exists) throw Error('The product choice is missing its draft.');
           await readChoiceFile(file, sourceId);
-          if (!priceFile(sourceId).exists) recovery.push({ sourceId, reason: 'unfinished' });
         } catch {
           recovery.push({ sourceId, reason: 'unreadable' });
         }

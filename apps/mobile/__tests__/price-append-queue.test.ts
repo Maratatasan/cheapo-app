@@ -951,6 +951,8 @@ it('recovers an explicitly confirmed Add product with the same operation and pri
 
   mockFailedPublication = /\.price\.json$/;
   await expect(phone.productPrices.confirm(record.id, { kind: 'add' })).rejects.toThrow('Publication interrupted');
+  expect(await phone.readPending()).toContainEqual({ id: `recovery:${record.id}`, sourceId: record.id,
+    title: record.review.productName, state: 'failed' });
   expect((await phone.mutationQueue.read()).entries).toMatchObject([{ intent: {
     operationId: draft.catalogOperationId, action: { kind: 'create-product', product: { id: record.productId } },
   } }]);
@@ -980,6 +982,9 @@ it('replays only an explicitly saved reuse choice after an interrupted move and 
   mockFailedPublication = /\.product-price-choice\.json$/;
   await expect(phone.productPrices.confirm(record.id, { kind: 'reuse', productId: 'checked-product' }))
     .rejects.toThrow('Publication interrupted');
+  expect(await phone.readPending()).toEqual([{ id: `recovery:${record.id}`, sourceId: record.id,
+    title: record.review.productName, state: 'failed' }]);
+  expect(request).not.toHaveBeenCalled();
   selected = other;
   await expect(phone.productPrices.pendingDrafts()).rejects.toThrow('Cheapo access changed');
   const different = (await openCheapoShopping(access))!;

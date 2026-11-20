@@ -9,6 +9,8 @@ async function pendingPriceItems(queue: PriceAppendQueue, { entries, recovery }:
   const recoveredIds = new Set(recovery.map(({ sourceId }) => sourceId));
   const unreadableIds = new Set(recovery.filter(({ reason }) => reason === 'unreadable').map(({ sourceId }) => sourceId));
   const titleById = new Map(entries.map(({ record }) => [record.id, record.review?.productName ?? 'Saved price']));
+  const confirmedProductTitles = new Map(recovery.flatMap(({ sourceId, confirmedProductTitle }) =>
+    confirmedProductTitle && !unreadableIds.has(sourceId) ? [[sourceId, confirmedProductTitle] as const] : []));
   for (const { record, body, receipt, needsShop } of entries) {
     const sourceId = record.id;
     const title = record.review?.productName ?? 'Saved price';
@@ -34,7 +36,9 @@ async function pendingPriceItems(queue: PriceAppendQueue, { entries, recovery }:
     }
   }
   for (const sourceId of recoveredIds) {
-    rows.push({ id: `recovery:${sourceId}`, sourceId, title: titleById.get(sourceId) ?? 'Saved price', state: 'recovery' });
+    const title = confirmedProductTitles.get(sourceId);
+    rows.push({ id: `recovery:${sourceId}`, sourceId, title: title ?? titleById.get(sourceId) ?? 'Saved price',
+      state: title ? 'failed' : 'recovery' });
   }
   return rows;
 }
