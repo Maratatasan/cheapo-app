@@ -13,7 +13,7 @@ export function localHttpServer(handle: (request: Request) => Promise<Response>)
       const init = {
         method: incoming.method,
         headers,
-        body: incoming.method === 'PUT' ? Readable.toWeb(incoming) : undefined,
+        body: (incoming.method === 'PUT' || incoming.method === 'PATCH') ? Readable.toWeb(incoming) : undefined,
         duplex: 'half' as const,
       };
       const response = await handle(new Request(`http://localhost${incoming.url ?? '/'}`, init));

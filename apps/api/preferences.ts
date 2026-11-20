@@ -1,3 +1,4 @@
+import { json, readJson, unauthorized } from './api-http.ts';
 import { readCredentialDigest } from './credential.ts';
 
 // Keep aligned with the comparison bases used for confirmed package measures.
@@ -17,14 +18,6 @@ export type ExecutePreference = (
 
 const maxBodyBytes = 512;
 const pathPattern = /^\/v1\/me\/comparison-preferences\/([^/]+)$/;
-
-function json(body: object, status = 200, headers: Record<string, string> = {}) {
-  return Response.json(body, { status, headers: { 'Cache-Control': 'no-store', ...headers } });
-}
-
-function unauthorized() {
-  return json({ error: 'unauthenticated' }, 401, { 'WWW-Authenticate': 'Bearer' });
-}
 
 function decodeGroupId(encoded: string): string | null {
   try {
@@ -46,28 +39,9 @@ function readBasis(value: unknown): ComparisonBasis | undefined {
 }
 
 async function readBody(request: Request): Promise<ComparisonBasis | Response> {
-  const mediaType = request.headers.get('Content-Type')?.split(';', 1)[0].trim().toLowerCase();
-  if (mediaType !== 'application/json') return json({ error: 'expected_json' }, 415);
-
-  const reader = request.body?.getReader();
-  if (!reader) return json({ error: 'invalid_basis' }, 400);
-  let length = 0;
-  const chunks: Uint8Array[] = [];
-  try {
-    while (true) {
-      const chunk = await reader.read();
-      if (chunk.done) break;
-      length += chunk.value.byteLength;
-      if (length > maxBodyBytes) return json({ error: 'body_too_large' }, 413);
-      chunks.push(chunk.value);
-    }
-    const body = new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks, length));
-    return readBasis(JSON.parse(body)) ?? json({ error: 'invalid_basis' }, 400);
-  } catch {
-    return json({ error: 'invalid_basis' }, 400);
-  } finally {
-    reader.releaseLock();
-  }
+  const body = await readJson(request, maxBodyBytes, 'invalid_basis');
+  if (body instanceof Response) return body;
+  return readBasis(body.value) ?? json({ error: 'invalid_basis' }, 400);
 }
 
 export function createPreferencesHandler(execute: ExecutePreference) {

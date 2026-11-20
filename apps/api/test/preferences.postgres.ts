@@ -7,13 +7,14 @@ import { dirname } from 'node:path';
 import { after, before, test } from 'node:test';
 import { Pool } from 'pg';
 
+import { createLocalApi } from '../local-api.ts';
 import { postgresPreferences } from '../postgres.ts';
 import { createPreferencesHandler } from '../preferences.ts';
 import { localHttpServer } from '../server.ts';
 
 const host = process.env.CHEAPO_TEST_PG_SOCKET;
 if (!host) throw new Error('Run this test with pnpm --filter @cheapo/api test:postgres.');
-const connection = { host, port: 5432, user: 'cheapo_test', database: 'postgres', ssl: false };
+const connection = { host, port: Number(process.env.CHEAPO_TEST_PG_PORT), user: 'cheapo_test', database: 'postgres', ssl: false };
 const pool = new Pool(connection);
 const household = '00000000-0000-4000-8000-000000000001';
 const otherHousehold = '00000000-0000-4000-8000-000000000002';
@@ -21,7 +22,7 @@ const alex = '00000000-0000-4000-8000-000000000011';
 const sam = '00000000-0000-4000-8000-000000000012';
 const robin = '00000000-0000-4000-8000-000000000013';
 const token = (letter: string) => `cheapo_${letter.repeat(43)}`;
-const server = localHttpServer(createPreferencesHandler(postgresPreferences(pool)));
+const server = localHttpServer(createLocalApi(pool));
 
 async function issueSyntheticToken(letter: string, shopper: string, home: string, expiresAt: string) {
   const digest = createHash('sha256').update(token(letter)).digest('hex');
@@ -70,6 +71,109 @@ async function requestWithToken(credential: string, group: string, method = 'GET
   });
   return { status: response.status, body: await response.json() };
 }
+
+async function savedShopRequest(letter: string, suffix = '', method = 'GET', body?: object) {
+  const address = server.address();
+  assert(address && typeof address !== 'string');
+  const route = suffix === '/selection' ? '/v1/me/current-shop' : `/v1/me/saved-shops${suffix}`;
+  const response = await fetch(`http://127.0.0.1:${address.port}${route}`, {
+    method,
+    headers: { Authorization: `Bearer ${token(letter)}`, 'Content-Type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  return { status: response.status, body: await response.json() };
+}
+
+test('keeps saved shop names and current selection within their access scope', async () => {
+  const id = 'scoped-test-branch';
+  await pool.query("INSERT INTO cheapo.shop (id, name) VALUES ($1, 'High Street')", [id]);
+  await pool.query(`INSERT INTO cheapo.household_saved_shop VALUES ($1, $2, 'Our shop'), ($3, $2, 'Other name')`,
+    [household, id, otherHousehold]);
+  await pool.query('INSERT INTO cheapo.shopper_current_shop VALUES ($1, $2, $3)', [household, alex, id]);
+  assert.deepEqual(await savedShopRequest('A'), {
+    status: 200,
+    body: { shops: [{ id, name: 'High Street', nickname: 'Our shop' }], currentShop: { id, name: 'High Street', nickname: 'Our shop' } },
+  });
+  assert.deepEqual(await savedShopRequest('B'), {
+    status: 200,
+    body: { shops: [{ id, name: 'High Street', nickname: 'Our shop' }] },
+  });
+  assert.deepEqual(await savedShopRequest('C'), {
+    status: 200,
+    body: { shops: [{ id, name: 'High Street', nickname: 'Other name' }] },
+  });
+  assert.equal((await savedShopRequest('D')).status, 403);
+  assert.equal((await savedShopRequest('E')).status, 401);
+  await pool.query('DELETE FROM cheapo.shopper_current_shop WHERE shop_id = $1', [id]);
+  await pool.query('DELETE FROM cheapo.household_saved_shop WHERE shop_id = $1', [id]);
+  await pool.query('DELETE FROM cheapo.shop WHERE id = $1', [id]);
+});
+
+test('replays a shop save, shares nickname edits inside the household, and unlinks without losing history', async () => {
+  const id = 'shop-lifecycle';
+  const location = { latitude: 51.14, longitude: -0.18 };
+  const name = 'Market Road';
+  const address = '20 Market Road';
+  const original = { name, address, location, nickname: 'Our shop' };
+  const item = `/${id}`;
+  const expected = { id, ...original };
+  const primary = { status: 200, body: { shops: [expected], currentShop: expected } };
+  assert.deepEqual(await Promise.all([
+    savedShopRequest('A', item, 'PUT', { ...original, select: true }),
+    savedShopRequest('A', item, 'PUT', { ...original, select: true }),
+  ]), [primary, primary]);
+  assert.equal((await savedShopRequest('C', item, 'PATCH', { nickname: 'Illegal edit' })).status, 404);
+  assert.equal((await savedShopRequest('C', '/selection', 'PUT', { shopId: id })).status, 404);
+
+  const householdEdit = { ...expected, nickname: 'Our new name' };
+  assert.deepEqual(await savedShopRequest('B', item, 'PATCH', { nickname: householdEdit.nickname }),
+    { status: 200, body: { shops: [householdEdit] } });
+  assert.deepEqual(await savedShopRequest('A', item, 'PUT', original),
+    { status: 200, body: { shops: [householdEdit], currentShop: householdEdit } });
+
+  const otherShop = { ...expected, nickname: 'Their shop' };
+  assert.deepEqual(await savedShopRequest('C', item, 'PUT', { name: 'Untrusted rename', nickname: otherShop.nickname, select: true }),
+    { status: 200, body: { shops: [otherShop], currentShop: otherShop } });
+  assert.equal((await savedShopRequest('B', '/selection', 'PUT', { shopId: id })).status, 200);
+  await pool.query(`INSERT INTO cheapo.price_observation
+    (household_id, shopper_id, id, shop_id, shop_display_name, captured_at, status, price_amount, currency)
+    VALUES ($1, $2, 'shop-lifecycle-price', $3, 'Earlier shop name', statement_timestamp(), 'complete', 2.5, 'GBP')`,
+  [household, alex, id]);
+  assert.deepEqual(await savedShopRequest('A', item, 'DELETE'), { status: 200, body: { shops: [] } });
+  assert.deepEqual(await savedShopRequest('A', item, 'DELETE'), { status: 200, body: { shops: [] } });
+  assert.deepEqual(await savedShopRequest('B'), { status: 200, body: { shops: [] } });
+  assert.deepEqual(await savedShopRequest('C'), { status: 200, body: { shops: [otherShop], currentShop: otherShop } });
+  const { rows } = await pool.query("SELECT shop_id, shop_display_name FROM cheapo.price_observation WHERE id = 'shop-lifecycle-price'");
+  assert.deepEqual(rows, [{ shop_id: id, shop_display_name: 'Earlier shop name' }]);
+});
+
+test('validates shop data and never links branches by address alone', async () => {
+  const address = '22 Market Road';
+  for (const id of ['separate-branch-one', 'separate-branch-two']) {
+    assert.equal((await savedShopRequest('B', `/${id}`, 'PUT', { name: 'Market Road', address })).status, 200);
+  }
+  const snapshot = await savedShopRequest('B');
+  assert.deepEqual(snapshot, { status: 200, body: { shops: [
+    { id: 'separate-branch-one', name: 'Market Road', address },
+    { id: 'separate-branch-two', name: 'Market Road', address },
+  ] } });
+  assert.equal((await savedShopRequest('B', '/invalid-branch', 'PUT', { name: ' ', location: { latitude: 99, longitude: 0 } })).status, 400);
+  assert.equal((await savedShopRequest('B', '/separate-branch-one', 'PATCH', { address: ' ' })).status, 400);
+  assert.equal((await savedShopRequest('B', '/separate-branch-one', 'PATCH', { name: null })).status, 400);
+  assert.deepEqual(await savedShopRequest('B'), snapshot);
+});
+
+test('retains imported test-shop provenance across read and edit', async () => {
+  const id = 'imported-test-shop';
+  await pool.query("INSERT INTO cheapo.shop (id, name) VALUES ($1, 'Field fixture')", [id]);
+  await pool.query("INSERT INTO cheapo.household_saved_shop (household_id, shop_id, source_test_shop) VALUES ($1, $2, true)",
+    [otherHousehold, id]);
+  const record = { id, name: 'Field fixture', nickname: 'My fixture', testShop: true };
+  const update = await savedShopRequest('C', `/${id}`, 'PATCH', { nickname: record.nickname });
+  assert.equal(update.status, 200);
+  assert.ok(update.body && typeof update.body === 'object' && 'shops' in update.body && Array.isArray(update.body.shops));
+  assert.deepEqual(update.body.shops.find(shop => shop.id === id), record);
+});
 
 const ok = (basis: string | null) => ({ status: 200, body: { basis } });
 
@@ -126,7 +230,7 @@ function deviceCommand(...args: string[]) {
   return spawnSync(process.execPath, ['operator/device-credential.ts', ...args], {
     encoding: 'utf8',
     cwd: new URL('..', import.meta.url),
-    env: { ...process.env, PGHOST: host, PGPORT: '5432', PGUSER: 'cheapo_test', PGDATABASE: 'postgres' },
+    env: { ...process.env, PGHOST: host, PGPORT: String(connection.port), PGUSER: 'cheapo_test', PGDATABASE: 'postgres' },
   });
 }
 

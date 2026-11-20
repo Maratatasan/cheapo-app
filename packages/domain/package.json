@@ -5,7 +5,8 @@
   "exports": {
     ".": "./index.ts",
     "./names": "./names.ts",
-    "./package-measures": "./package-measures.ts"
+    "./package-measures": "./package-measures.ts",
+    "./product-barcode": "./product-barcode.ts"
   },
   "scripts": {
     "test": "node --test domain.test.mjs",
