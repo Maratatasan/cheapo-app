@@ -14,6 +14,8 @@ import { CameraComponent } from "../component/camera";
 
 const mockSaveLocalPhoto = jest.fn();
 const mockLoadLocalPhotos = jest.fn();
+const mockUseCheapoShopping = jest.fn();
+jest.mock('../component/cheapo-shopping-provider', () => ({ useCheapoShopping: () => mockUseCheapoShopping() }));
 const mockAddLocalProduct = jest.fn();
 const mockScanFromURLAsync = jest.fn();
 jest.mock('../data/local-products', () => ({ addLocalProduct: (...args: unknown[]) => mockAddLocalProduct(...args) }));
@@ -79,6 +81,7 @@ describe("CameraComponent", () => {
     mockScanFromURLAsync.mockReset().mockResolvedValue([]);
     mockChoosePhoto.mockReset();
     mockLoadLocalPhotos.mockResolvedValue([]);
+    mockUseCheapoShopping.mockReset().mockReturnValue(null);
     mockRequestPermission.mockReset();
     mockTakePictureAsync.mockReset();
     delete process.env.EXPO_PUBLIC_CHEAPO_TEST_PHOTO_URL;
@@ -109,6 +112,32 @@ describe("CameraComponent", () => {
     expect(screen.getByLabelText("Confirmed shop: Test shop")).toHaveTextContent("Test shop");
     expect(screen.getByLabelText("Price photo preview")).toHaveProp("source", { uri: "file:///cropped.jpg" });
     expect(mockRequestPermission).not.toHaveBeenCalled();
+  });
+
+  it.each([true, false])('commits a reviewed photo before showing its enrolled save status (confirmed shop: %s)', async linked => {
+    const shop = { id: 'saved-shop', displayName: 'Saved shop' };
+    mockPermission = { granted: false };
+    mockChoosePhoto.mockResolvedValue({ uri: 'file:///selected.jpg', width: 1200, height: 800, mimeType: 'image/jpeg' });
+    let committed = false;
+    const saveNewPhoto = jest.fn(async record => {
+      committed = true;
+      return { record, pending: linked ? 'waiting' : 'needs-shop' };
+    });
+    const retry = jest.fn(async () => { expect(committed).toBe(true); });
+    mockUseCheapoShopping.mockReturnValue({ priceRecords: { load: async () => null, loadPhotos: async () => [], saveNewPhoto }, retry });
+    await render(<CameraComponent currentShop={linked ? shop : undefined} />);
+    await fireEvent.press(screen.getByRole('button', { name: 'Choose photo' }));
+    await fireEvent.press(await screen.findByText('Apply crop'));
+    await fireEvent.changeText(screen.getByLabelText('Product name'), 'Brown rice');
+    await fireEvent.changeText(screen.getByLabelText('Pack price'), '1.95');
+    if (!linked) await fireEvent.changeText(screen.getByLabelText('Confirmed shop'), 'Known by name only');
+    await fireEvent.press(screen.getByRole('button', { name: 'Save Price' }));
+    expect(saveNewPhoto).toHaveBeenCalledWith(expect.objectContaining({ shop: linked ? shop : undefined,
+      review: expect.objectContaining({ productName: 'Brown rice', price: '1.95' }),
+      original: expect.objectContaining({ uri: 'file:///selected.jpg' }), selected: expect.objectContaining({ uri: 'file:///cropped.jpg' }) }));
+    expect(mockSaveLocalPhoto).not.toHaveBeenCalled();
+    expect(retry).toHaveBeenCalledTimes(linked ? 1 : 0);
+    expect(screen.getByText(linked ? 'Saved on this phone · Waiting to sync' : 'Saved on this phone · Needs shop')).toBeOnTheScreen();
   });
 
   it('lets the shopper confirm one barcode from the original and saves the photo under the new product ID', async () => {

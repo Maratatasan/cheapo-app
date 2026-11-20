@@ -3,17 +3,17 @@ import { CryptoDigestAlgorithm, digestStringAsync, randomUUID } from 'expo-crypt
 import { Directory, File, Paths } from 'expo-file-system';
 
 import { parseCheapoApiOrigin } from '../lib/cheapo-access/origin';
-import { type PhotoAsset, type SavedPriceRecord, isSavedPriceRecord, savedPhotoDirectory } from './local-photo';
+import { type DraftShop, type LocalPhotoDraft, type PhotoAsset, type SavedPriceRecord, isSavedPriceRecord, savedPhotoDirectory } from './local-photo';
 import { readQueueBackupFiles } from './queue-backup-files';
 import { reviewComplete, reviewUnitPrice } from './photo-review';
 import { createPriceEvidenceStore } from './price-evidence-queue';
 
 export type PriceQueueOwner = { origin: string; householdId: string; shopperId: string };
 export type PriceAppendReceipt = { id: string; sourceId: string; version: number };
-type PriceQueueEntry = { record: SavedPriceRecord; body?: string; receipt?: PriceAppendReceipt };
+type PriceQueueEntry = { record: SavedPriceRecord; body?: string; receipt?: PriceAppendReceipt; needsShop?: true };
 type RecoveryEntry = { sourceId: string; reason: 'unfinished' | 'unreadable' };
 type FailurePhase = 'price' | 'photo';
-const backupFileName = /^[A-Za-z0-9_-]{1,128}\.(?:(?:price|receipt|evidence|(?:original|crop)\.evidence-available)\.json|(?:price|photo)\.sync-failed)(?:\.[\w-]+\.pending)?$/;
+const backupFileName = /^[A-Za-z0-9_-]{1,128}\.(?:(?:price|receipt|needs-shop|evidence|(?:original|crop)\.evidence-available)\.json|(?:price|photo)\.sync-failed)(?:\.[\w-]+\.pending)?$/;
 const localId = /^[A-Za-z0-9_-]{1,128}$/;
 const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 
@@ -33,19 +33,19 @@ function validReceipt(value: unknown, sourceId: string): value is PriceAppendRec
     && typeof version === 'number' && Number.isSafeInteger(version) && version > 0;
 }
 
-function requirePriceRecord(value: unknown): SavedPriceRecord {
-  if (!isSavedPriceRecord(value) || !localId.test(value.id) || !value.shop || !value.review
-    || !reviewComplete(value.review, value.shop.displayName)) {
+function requirePriceRecord(value: unknown, needsShop = false): SavedPriceRecord {
+  if (!isSavedPriceRecord(value) || !localId.test(value.id) || !value.review
+    || !reviewComplete(value.review, value.shop?.displayName) || (needsShop ? value.shop || !value.original : !value.shop)) {
     throw Error('A reviewed price and saved shop are required.');
   }
   const { id, capturedAt, productId, shop, review, original, selected, cropBox } = value;
   const { productName, productType, brand, variety, price, currency, packSize, unitPrice, unit } = review;
   const record = {
     id, capturedAt,
-    shop: { id: shop.id, displayName: shop.displayName },
+    ...(shop ? { shop: { id: shop.id, displayName: shop.displayName } } : {}),
     review: { productName, productType, brand, variety, price, currency, packSize, unitPrice, unit, shop: review.shop },
   };
-  if (!original) return { ...record, productId: value.productId };
+  if (!original) return { ...record, shop: value.shop, productId: value.productId };
 
   const directory = savedPhotoDirectory();
   function protectedPhoto(asset: PhotoAsset, filename: string): PhotoAsset {
@@ -111,6 +111,10 @@ export async function openPriceAppendQueue(input: PriceQueueOwner) {
   const directory = new Directory(priceQueueRoot(), scope);
   const priceFile = (id: string) => new File(directory, `${id}.price.json`);
   const receiptFile = (id: string) => new File(directory, `${id}.receipt.json`);
+  function needsShopFile(id: string) {
+    if (!localId.test(id)) throw Error('Invalid pending price ID.');
+    return new File(directory, `${id}.needs-shop.json`);
+  }
 
   async function publish(file: File, text: string) {
     directory.create({ intermediates: true, idempotent: true });
@@ -124,12 +128,18 @@ export async function openPriceAppendQueue(input: PriceQueueOwner) {
     return new File(directory, `${sourceId}.${phase}.sync-failed`);
   }
 
-  async function readPrice(file: File, sourceId: string) {
+  async function readEnvelope(file: File, sourceId: string, needsShop = false) {
     const value = await readFile(file);
     if (!value || typeof value !== 'object' || !('owner' in value) || !('record' in value)
       || JSON.stringify(value.owner) !== JSON.stringify(owner)) throw Error('The queued price owner is invalid.');
-    const record = requirePriceRecord(value.record);
+    if (needsShop && (!('format' in value) || value.format !== 1)) throw Error('Unknown pending shop format.');
+    const record = requirePriceRecord(value.record, needsShop);
     if (record.id !== sourceId) throw Error('The queued price ID does not match.');
+    return { record, value };
+  }
+
+  async function readPrice(file: File, sourceId: string) {
+    const { record, value } = await readEnvelope(file, sourceId);
     if (!('format' in value) || value.format !== 1 || !('body' in value) || typeof value.body !== 'string') {
       return { record };
     }
@@ -142,6 +152,10 @@ export async function openPriceAppendQueue(input: PriceQueueOwner) {
     return { record };
   }
 
+  function publishPrice(record: SavedPriceRecord) {
+    return publish(priceFile(record.id), JSON.stringify({ format: 1, owner, record, body: encodePriceAppend(record) }));
+  }
+
   async function readEntries() {
     const entries: PriceQueueEntry[] = [];
     const recovery: RecoveryEntry[] = [];
@@ -149,7 +163,8 @@ export async function openPriceAppendQueue(input: PriceQueueOwner) {
     for (const file of directory.list()) {
       const price = /^([A-Za-z0-9_-]{1,128})\.price\.json$/.exec(file.name);
       const receipt = /^([A-Za-z0-9_-]{1,128})\.receipt\.json$/.exec(file.name);
-      const staged = /^(([A-Za-z0-9_-]{1,128})\.(?:price|receipt)\.json)\.[\w-]+\.pending$/.exec(file.name);
+      const needsShop = /^([A-Za-z0-9_-]{1,128})\.needs-shop\.json$/.exec(file.name);
+      const staged = /^(([A-Za-z0-9_-]{1,128})\.(?:price|receipt|needs-shop)\.json)\.[\w-]+\.pending$/.exec(file.name);
       if (staged) {
         try {
           const committed = new File(directory, staged[1]);
@@ -160,6 +175,15 @@ export async function openPriceAppendQueue(input: PriceQueueOwner) {
         recovery.push({ sourceId: staged[2], reason: 'unfinished' });
       } else if (receipt && !priceFile(receipt[1]).exists) {
         recovery.push({ sourceId: receipt[1], reason: 'unreadable' });
+      } else if (needsShop && !priceFile(needsShop[1]).exists) {
+        const sourceId = needsShop[1];
+        try {
+          if (!(file instanceof File)) throw Error('The queued price is not a file.');
+          const { record } = await readEnvelope(file, sourceId, true);
+          entries.push({ record, needsShop: true });
+        } catch {
+          recovery.push({ sourceId, reason: 'unreadable' });
+        }
       } else if (price) {
         const sourceId = price[1];
         let record: SavedPriceRecord | undefined;
@@ -213,7 +237,35 @@ export async function openPriceAppendQueue(input: PriceQueueOwner) {
           if (!previous.body) throw Error('The saved price needs sync recovery.');
           return;
         }
-        await publish(file, JSON.stringify({ format: 1, owner, record, body: encodePriceAppend(record) }));
+        await publishPrice(record);
+      });
+    },
+    saveNeedsShop(value: LocalPhotoDraft) {
+      const record = requirePriceRecord(value, true);
+      return serializePublication(async () => {
+        if (priceFile(record.id).exists) throw Error('This price already has a confirmed shop.');
+        const file = needsShopFile(record.id);
+        if (file.exists) {
+          const previous = await readEnvelope(file, record.id, true);
+          if (JSON.stringify(previous.record) !== JSON.stringify(record)) throw Error('A different price is already saved with this ID.');
+          return;
+        }
+        await publish(file, JSON.stringify({ format: 1, owner, record }));
+      });
+    },
+    confirmShop(sourceId: string, shop: DraftShop) {
+      const held = needsShopFile(sourceId);
+      return serializePublication(async () => {
+        const { record } = await readEnvelope(held, sourceId, true);
+        const file = priceFile(sourceId);
+        if (file.exists) {
+          const completed = await readPrice(file, sourceId);
+          if (completed.record.shop?.id !== shop.id || !completed.body) throw Error('This price already has a different confirmed shop.');
+          return completed.record;
+        }
+        const confirmed = requirePriceRecord({ ...record, shop, review: { ...record.review, shop: shop.displayName } });
+        await publishPrice(confirmed);
+        return confirmed;
       });
     },
     async read() {

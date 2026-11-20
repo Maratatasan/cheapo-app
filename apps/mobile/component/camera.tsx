@@ -12,6 +12,7 @@ import {
 import { captureGuide, fittedCameraFrame, seedGuideCrop, fullPhoto, type CropBox } from "@/data/crop-geometry";
 import { CameraView, CameraType, useCameraPermissions } from "expo-camera";
 import { CameraActionButton, CameraCaptureActions, CameraPermissionActions, CameraSavedDraftActions } from "./camera-actions";
+import { useCheapoShopping } from "./cheapo-shopping-provider";
 import { GalleryCopy } from "./gallery-copy";
 import { PhotoReview, type ReviewSuggestion } from "./photo-review";
 import { PhotoCrop } from "./photo-crop";
@@ -27,20 +28,21 @@ import { addLocalProduct } from "@/data/local-products";
 import { decodePhotoBarcodes, type PhotoBarcodeResult } from "@/data/photo-barcode";
 import { canonicalProductBarcode } from "@/data/product-barcode";
 import { choosePhoto } from "@/lib/choose-photo";
+import type { PhotoSavePending } from "@/data/price-records";
 
 type LinkedPriceCapture = {
   productId: string;
   barcode?: string;
   initialReview: ManualReview;
   onCancel: () => void;
-  onSaved: () => void;
+  onSaved: (pending?: PhotoSavePending) => void;
 };
 
 type BarcodeCapture = {
   barcode: string;
   initialReview?: ManualReview;
   onCancel: () => void;
-  onSaved: () => void;
+  onSaved: (pending?: PhotoSavePending) => void;
 };
 
 export const CameraComponent = ({ currentShop, currentShopCountry, onScanBarcode, linkedPrice, barcodeCapture }: {
@@ -50,6 +52,8 @@ export const CameraComponent = ({ currentShop, currentShopCountry, onScanBarcode
   linkedPrice?: LinkedPriceCapture;
   barcodeCapture?: BarcodeCapture;
 }) => {
+  const shopping = useCheapoShopping();
+  const loadPhotos = shopping?.priceRecords.loadPhotos ?? loadLocalPhotos;
   const [captureStage, setCaptureStage] = useState(() => Dimensions.get("window"));
   const captureFrame = fittedCameraFrame(captureStage);
   const [facing, setFacing] = useState<CameraType>("back");
@@ -60,6 +64,7 @@ export const CameraComponent = ({ currentShop, currentShopCountry, onScanBarcode
   const [cropping, setCropping] = useState(false);
   const [visitShop, setVisitShop] = useState("");
   const [saved, setSaved] = useState(false);
+  const [pendingSaveStatus, setPendingSaveStatus] = useState<PhotoSavePending>();
   const [saving, setSaving] = useState(false);
   const [barcode, setBarcode] = useState<{ value: string; confirmed?: string; error?: string }>(() => {
     const value = barcodeCapture?.barcode.trim() ?? "";
@@ -73,8 +78,16 @@ export const CameraComponent = ({ currentShop, currentShopCountry, onScanBarcode
   const savePending = useRef(false);
   useEffect(() => {
     if (linkedPrice || barcodeCapture) return;
-    loadLocalPhotos().then(photos => { setSavedPhotos(photos); if (photos[0]?.review?.shop) setVisitShop(photos[0].review.shop); }).catch(() => Alert.alert('Saved photos unavailable', 'Your saved photos could not be read. Try reopening Scan.'));
-  }, [linkedPrice, barcodeCapture]);
+    let active = true;
+    loadPhotos().then(photos => {
+      if (!active) return;
+      setSavedPhotos(photos);
+      if (photos[0]?.review?.shop) setVisitShop(photos[0].review.shop);
+    }).catch(() => {
+      if (active) Alert.alert('Saved photos unavailable', 'Your saved photos could not be read. Try reopening Scan.');
+    });
+    return () => { active = false; };
+  }, [linkedPrice, barcodeCapture, loadPhotos]);
   const barcodePhoto = !linkedPrice && !draft?.productId ? draft?.original.uri : undefined;
   const barcodeDraftId = barcodePhoto ? draft?.id : undefined;
   useEffect(() => {
@@ -122,6 +135,7 @@ export const CameraComponent = ({ currentShop, currentShopCountry, onScanBarcode
     }
     if (!barcodeCapture) changeBarcode("");
     setSaveError(undefined);
+    setPendingSaveStatus(undefined);
     setCropping(cropBox !== undefined);
     setDraft({ id: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`, capturedAt: new Date().toISOString(),
       original: photo, selected: photo, review: linkedPrice?.initialReview ?? barcodeCapture?.initialReview ?? emptyReview(currentShop?.displayName ?? visitShop),
@@ -166,11 +180,16 @@ export const CameraComponent = ({ currentShop, currentShopCountry, onScanBarcode
           return;
         }
       }
-      const persisted = await saveLocalPhoto(pendingDraft);
-      setDraft(persisted);
+      const previous = shopping && complete ? await shopping.priceRecords.load(draft.id) : null;
+      const alreadyReviewed = !!previous && reviewComplete(previous.review, previous.shop?.displayName);
+      const result = shopping && !alreadyReviewed ? await shopping.priceRecords.saveNewPhoto(pendingDraft)
+        : { record: await saveLocalPhoto(pendingDraft), pending: undefined };
+      setDraft(result.record);
       setSaved(true);
-      setSavedPhotos(current => [persisted, ...current.filter(item => item.id !== persisted.id)]);
-      (linkedPrice ?? barcodeCapture)?.onSaved();
+      setPendingSaveStatus(result.pending);
+      setSavedPhotos(current => [result.record, ...current.filter(item => item.id !== result.record.id)]);
+      if (result.pending === 'waiting') void shopping?.retry().catch(() => { /* The reviewed photo remains pending. */ });
+      (linkedPrice ?? barcodeCapture)?.onSaved(result.pending);
     } catch {
       if (barcode.confirmed && pendingDraft.productId) {
         setSaveError('Product saved. Your photo is kept here. Try saving the price again.');
@@ -194,6 +213,7 @@ export const CameraComponent = ({ currentShop, currentShopCountry, onScanBarcode
       setDraft({ ...item, review: item.review ?? emptyReview() });
       setVisitShop(item.review?.shop ?? "");
       setSaved(true);
+      setPendingSaveStatus(undefined);
       setCameraReady(false);
     }}
   />;
@@ -306,6 +326,8 @@ export const CameraComponent = ({ currentShop, currentShopCountry, onScanBarcode
         review={draft.review ?? emptyReview()}
         selectedShopName={draft.shop?.displayName}
         saved={saved}
+        savedStatus={saved && pendingSaveStatus ? pendingSaveStatus === 'waiting'
+          ? 'Saved on this phone · Waiting to sync' : 'Saved on this phone · Needs shop' : undefined}
         busy={busy}
         onReviewChange={(review, field) => {
           editedFields.current.add(field);
