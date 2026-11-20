@@ -26,10 +26,11 @@ type Props = {
   barcodeLinkStatus?: string;
   recordingPrice?: boolean;
   currentPriceConfirmation?: boolean;
+  addingProduct?: boolean;
   savedStatus?: string;
 };
 
-export function PhotoReview({ photo, review, selectedShopName, saved, savedStatus, busy, onReviewChange, onSave, onRetake, onCrop, onCancel, onOriginal, onImageError, galleryAction, children, leadContent, saveError, saveBlocked, recordingPrice, currentPriceConfirmation, suggestion, barcodeReview, savedBarcode, barcodeLinkSaved, barcodeLinkStatus }: Props) {
+export function PhotoReview({ photo, review, selectedShopName, saved, savedStatus, busy, onReviewChange, onSave, onRetake, onCrop, onCancel, onOriginal, onImageError, galleryAction, children, leadContent, saveError, saveBlocked, recordingPrice, currentPriceConfirmation, addingProduct, suggestion, barcodeReview, savedBarcode, barcodeLinkSaved, barcodeLinkStatus }: Props) {
   const container = useRef<ComponentRef<typeof View>>(null);
   const scroll = useRef<ComponentRef<typeof ScrollView>>(null);
   const fieldViews = useRef<Partial<Record<keyof ManualReview, ComponentRef<typeof View> | null>>>({});
@@ -40,8 +41,8 @@ export function PhotoReview({ photo, review, selectedShopName, saved, savedStatu
   const [headerOffset, setHeaderOffset] = useState(0);
   const hasPhoto = Boolean(photo);
   const complete = reviewComplete(review, selectedShopName);
-  const editing = !!onCancel && !recordingPrice && !onRetake;
-  const requireComplete = editing || recordingPrice;
+  const editing = !!onCancel && !recordingPrice && !onRetake && !addingProduct;
+  const requireComplete = editing || recordingPrice || addingProduct;
   const revealPosition = useCallback((y: number, margin = 12) => {
     scroll.current?.scrollTo({ y: Math.max(0, y - margin), animated: false });
   }, []);
@@ -92,8 +93,9 @@ export function PhotoReview({ photo, review, selectedShopName, saved, savedStatu
   }, [revealField, revealPosition]);
   const amount = reviewUnitPrice(review);
   const invalidPack = !!review.packSize?.trim() && !calculatePackUnitPrice('1', review.packSize);
+  const editable = !busy && (!addingProduct || !saved);
   const saveDisabled = busy || saved || Boolean(saveBlocked) || (requireComplete && !complete);
-  const saveLabel = busy ? 'Saving…' : editing ? 'Save changes' : currentPriceConfirmation ? 'Confirm current price'
+  const saveLabel = busy ? 'Saving…' : editing ? 'Save changes' : (currentPriceConfirmation || addingProduct) ? 'Confirm current price'
     : recordingPrice || complete ? 'Save Price' : 'Save on this phone';
   return <View ref={container} style={styles.root} onLayout={() => container.current?.measureInWindow((_, y) => setHeaderOffset(y))}>
     <KeyboardAvoidingView style={styles.root} behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={headerOffset}>
@@ -103,8 +105,8 @@ export function PhotoReview({ photo, review, selectedShopName, saved, savedStatu
         keyboardDismissMode={Platform.OS === 'web' ? 'none' : 'on-drag'}>
         {leadContent}
         {photo && !keyboardVisible ? <Image source={{ uri: photo.uri }} accessibilityLabel="Price photo preview" style={styles.photo} resizeMode="contain" onError={onImageError} /> : null}
-        <Text style={styles.status} accessibilityLiveRegion={savedStatus ? 'polite' : 'none'}>{savedStatus ?? (recordingPrice ? (saved ? 'On this phone' : review.productName) : editing ? 'Review saved details' : saved ? 'On this phone' : 'Review photo · Not saved')}</Text>
-        <Text style={styles.note}>{recordingPrice ? (saved ? review.productName : 'Review the current price before saving.') : editing ? 'Use the amount and unit from your saved observation. Enter both unit-price fields or leave both blank.' : complete ? 'Manual details ready' : selectedShopName ? 'Incomplete draft · Add product and price' : 'Incomplete draft · Add product, price and shop'}</Text>
+        <Text style={styles.status} accessibilityLiveRegion={savedStatus ? 'polite' : 'none'}>{savedStatus ?? (recordingPrice ? (saved ? 'On this phone' : review.productName) : addingProduct ? 'Review product and price' : editing ? 'Review saved details' : saved ? 'On this phone' : 'Review photo · Not saved')}</Text>
+        <Text style={styles.note}>{recordingPrice || addingProduct ? (saved ? review.productName : 'Review the current price before saving.') : editing ? 'Use the amount and unit from your saved observation. Enter both unit-price fields or leave both blank.' : complete ? 'Manual details ready' : selectedShopName ? 'Incomplete draft · Add product and price' : 'Incomplete draft · Add product, price and shop'}</Text>
         {onCrop ? <View style={styles.actions}>
           <Button title="Crop photo" disabled={busy} onPress={() => { Keyboard.dismiss(); onCrop(); }} />
           {onOriginal ? <Button title="Use original" disabled={busy} onPress={onOriginal} /> : null}
@@ -137,8 +139,8 @@ export function PhotoReview({ photo, review, selectedShopName, saved, savedStatu
           <Text style={styles.label}>{label}</Text>
           {field === 'packSize' && invalidPack ? <Text style={styles.note}>Enter the quantity and unit. For multipacks, include the count and size of each pack, for example 8 × 500 ml.</Text> : null}
           {field === 'productType' ? <Text style={styles.note}>Use the same type for products you would compare. For example, use different types for fresh potatoes and frozen chips.</Text> : null}
-          {field === 'shop' && selectedShopName ? <Text accessibilityLabel={`${accessibilityLabel}: ${selectedShopName}`} style={styles.input}>{selectedShopName}</Text> : (
-            <TextInput accessibilityLabel={accessibilityLabel} placeholder={placeholder} placeholderTextColor="#666" value={review[field] ?? ''} maxLength={maxLength} editable={!busy} keyboardType={field === 'price' || field === 'unitPrice' ? 'decimal-pad' : 'default'} autoCapitalize={field === 'currency' ? 'characters' : 'sentences'} style={styles.input} onFocus={() => { focused.current = field; revealField(field); }} onBlur={() => { if (focused.current === field) focused.current = null; }} onChangeText={value => onReviewChange({ ...review, [field]: field === 'currency' ? value.toUpperCase().slice(0, 3) : value }, field)} />
+          {field === 'shop' && (selectedShopName || addingProduct) ? <Text accessibilityLabel={`${accessibilityLabel}: ${selectedShopName ?? 'No current shop'}`} style={styles.input}>{selectedShopName ?? 'No current shop'}</Text> : (
+            <TextInput accessibilityLabel={accessibilityLabel} placeholder={placeholder} placeholderTextColor="#666" value={review[field] ?? ''} maxLength={maxLength} editable={editable} keyboardType={field === 'price' || field === 'unitPrice' ? 'decimal-pad' : 'default'} autoCapitalize={field === 'currency' ? 'characters' : 'sentences'} style={styles.input} onFocus={() => { focused.current = field; revealField(field); }} onBlur={() => { if (focused.current === field) focused.current = null; }} onChangeText={value => onReviewChange({ ...review, [field]: field === 'currency' ? value.toUpperCase().slice(0, 3) : value }, field)} />
           )}
           {field === 'price' && amount ? (
             <View style={styles.unitSummary}>
@@ -152,7 +154,8 @@ export function PhotoReview({ photo, review, selectedShopName, saved, savedStatu
       <SafeAreaView edges={['bottom']} style={styles.footer}>
         {saveError ? <Text accessibilityRole="alert" style={styles.note}>{saveError}</Text> : null}
         {saveBlocked ? <Text accessibilityLiveRegion="polite" style={styles.note}>{saveBlocked}</Text> : null}
-        {requireComplete && !complete ? <Text accessibilityLiveRegion="polite" style={styles.note}>{recordingPrice ? 'Enter a valid price to save.' : 'Enter a product and valid price details to save.'}</Text> : null}
+        {requireComplete && !complete ? <Text accessibilityLiveRegion="polite" style={styles.note}>{addingProduct && !selectedShopName
+          ? 'Choose the current shop and enter a valid price.' : recordingPrice ? 'Enter a valid price to save.' : 'Enter a product and valid price details to save.'}</Text> : null}
         <Pressable accessibilityRole="button" disabled={saveDisabled} onPress={() => { Keyboard.dismiss(); onSave(); }}
           style={[styles.save, saveDisabled && styles.disabled]}><Text style={styles.saveText}>{saveLabel}</Text></Pressable>
         {saved ? galleryAction : null}

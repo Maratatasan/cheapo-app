@@ -198,6 +198,15 @@ test("Home opens barcode lookup with no selected shop and keeps label scan avail
   expect(mockReplace).toHaveBeenLastCalledWith("/scan");
 });
 
+test('enrolled Home offers Add product alongside photo and exact barcode lookup', async () => {
+  mockEnrolled = true;
+  await render(<HomeScreen />);
+  expect(screen.getByRole('button', { name: 'Scan item' })).toBeOnTheScreen();
+  expect(screen.getByRole('button', { name: 'Find product by barcode' })).toBeOnTheScreen();
+  await fireEvent.press(screen.getByRole('button', { name: 'Add product' }));
+  expect(mockPush).toHaveBeenLastCalledWith('/add-product');
+});
+
 test("passes an existing selected shop to barcode lookup without changing it", async () => {
   const shop = { id: "lidl-1", nickname: "Tandem Centre Lidl" };
   jest.mocked(loadSavedShops).mockResolvedValue({ shops: [shop], currentShop: shop });
