@@ -9,7 +9,7 @@ import { openPriceAppendQueue, sameShoppingOwner, type PriceAppendQueue } from '
 import { createPriceAppendSync } from './price-append-sync';
 import { createPriceEvidenceSync } from './price-evidence-sync';
 import { createPriceRecords } from './price-records';
-import { openShoppingMutationQueue, type ShoppingMutationQueue } from './shopping-mutation-queue';
+import { openShoppingMutationQueue, rejectedBarcodeProductIds, type ShoppingMutationQueue } from './shopping-mutation-queue';
 import { decodeMutationAcknowledgement, existingBarcodeProduct, matchesCompetingBarcode, mutationVersion, type MutationRequest, type ShoppingMutation, type ShoppingMutationInput } from './shopping-mutations';
 import { readPriceChangeOverlay } from './shopping-pending-price-changes';
 import { readShoppingWriteReply } from './shopping-write-reply';
@@ -65,10 +65,12 @@ async function flushShoppingChanges(
   do {
     progressed = false;
     const { entries, recovery } = await mutations.read();
+    const rejectedProducts = rejectedBarcodeProductIds(entries);
     const unreadable = new Set(recovery.filter(({ reason }) => reason === 'unreadable').map(({ operationId }) => operationId));
     for (const { intent, outcome, superseded } of entries) {
-      const { operationId } = intent;
+      const { operationId, action } = intent;
       if (outcome || superseded || attempted.has(operationId) || unreadable.has(operationId)) continue;
+      if (action.kind === 'edit-product' && rejectedProducts.has(action.product.id)) continue;
       let request;
       try { request = await mutations.freeze(operationId, loadAppendReceipt); } catch { continue; }
       if (!request) continue;
@@ -84,6 +86,7 @@ async function flushShoppingChanges(
         const conflict = status === 409 ? readConflict(intent, request, body) : undefined;
         if (conflict) {
           await mutations.settle(operationId, conflict);
+          if (conflict.kind === 'product-match' && action.kind === 'create-product') rejectedProducts.add(action.product.id);
           continue;
         }
         const receipt = status === 200 || status === 201 ? decodeMutationAcknowledgement(intent, request, body) : undefined;
@@ -131,12 +134,14 @@ async function readPendingChanges(prices: PriceAppendQueue, mutations: ShoppingM
   const recoveryIds = new Set(recovery.map(({ operationId }) => operationId));
   const unreadable = new Set(recovery.filter(({ reason }) => reason === 'unreadable').map(({ operationId }) => operationId));
   const labels = new Map(entries.map(({ intent }) => [intent.operationId, intent.title]));
+  const rejectedProducts = rejectedBarcodeProductIds(entries);
   const mutationItems: MutationTrouble[] = [];
   for (const { intent, outcome, failure, resolution, superseded } of entries) {
-    const { operationId, title } = intent;
+    const { operationId, title, action } = intent;
     if (resolution || superseded || outcome?.kind === 'applied' || unreadable.has(operationId)) continue;
+    const heldProductEdit = action.kind === 'edit-product' && rejectedProducts.has(action.product.id);
     const state = outcome?.kind === 'product-match' ? 'needs-product-review'
-      : outcome?.kind === 'conflict' ? 'conflict' : failure ? 'failed' : 'waiting';
+      : outcome?.kind === 'conflict' ? 'conflict' : heldProductEdit ? 'recovery' : failure ? 'failed' : 'waiting';
     mutationItems.push({ id: `mutation:${operationId}`, operationId, title, state });
     recoveryIds.delete(operationId);
   }

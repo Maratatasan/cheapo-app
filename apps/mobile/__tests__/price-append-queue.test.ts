@@ -522,7 +522,8 @@ it('holds the reviewed price and photos until the shopper chooses the matching e
     if (path === `/v1/products/${record.productId}`) return Response.json({ error: 'product_conflict', product: winner }, { status: 409 });
     if (path === '/v1/me/price-observations' && typeof init.body === 'string') {
       posted.push(init.body);
-      return posted.length === 1 ? new Response(null, { status: 503 }) : Response.json(receipt, { status: 201 });
+      if (posted.length === 1) throw Error('Reply lost after the price was accepted.');
+      return Response.json(receipt, { status: 200 });
     }
     if (path === `/v1/me/price-observations/${receipt.id}` && typeof init.body === 'string') {
       corrections.push(JSON.parse(init.body));
@@ -536,6 +537,9 @@ it('holds the reviewed price and photos until the shopper chooses the matching e
   await phone.priceQueue.save(photo);
   await phone.commitMutation({ operationId: 'raced-product', title: proposed.name, createdAt: operationTime,
     action: { kind: 'create-product', product: proposed } });
+  const intendedEdit = { ...proposed, name: 'Revised phone product name' };
+  await phone.commitMutation({ operationId: 'rejected-product-edit', title: 'Correct the phone product', createdAt: operationTime,
+    action: { kind: 'edit-product', product: intendedEdit, base: { kind: 'operation', operationId: 'raced-product' } } });
   await phone.commitMutation({ operationId: 'linked-correction', title: 'Correct the held price', createdAt: operationTime,
     waitFor: ['raced-product'], action: { kind: 'price', priceKey: record.id, base: { kind: 'append', sourceId: record.id },
       change: { action: 'correct', productId: proposed.id, review: { productName: record.review.productName, price: '1.40', currency: 'GBP' } } } });
@@ -548,13 +552,17 @@ it('holds the reviewed price and photos until the shopper chooses the matching e
   expect(posted).toEqual([]);
   await reopened.useExistingProduct('raced-product', winner.id);
   await reopened.retry();
-  await (await openCheapoShopping(access))!.retry();
+  const restarted = (await openCheapoShopping(access))!;
+  await restarted.retry();
 
   expect(posted).toHaveLength(2);
   expect(posted[0]).toBe(posted[1]);
   expect(JSON.parse(posted[0])).toMatchObject({ sourceId: record.id, productId: winner.id, review: { price: '1.20' }, shopId: shop.id });
   expect(request.mock.calls.filter(([path]) => path.startsWith('/v1/products/'))).toHaveLength(1);
   expect(corrections).toMatchObject([{ operationId: 'linked-correction', productId: winner.id, review: { price: '1.40' } }]);
+  expect(await restarted.readPending()).toContainEqual(expect.objectContaining({ operationId: 'rejected-product-edit', state: 'recovery' }));
+  expect((await restarted.mutationQueue.read()).entries.find(({ intent }) => intent.operationId === 'rejected-product-edit'))
+    .toMatchObject({ intent: { action: { product: intendedEdit } } });
   expect((await phone.priceQueue.read()).entries[0]).toMatchObject({ record: photo, receipt });
   expect(mockFiles.get(photo.original.uri)).toBe('synthetic original');
   expect(mockFiles.get(photo.selected.uri)).toBe('synthetic crop');

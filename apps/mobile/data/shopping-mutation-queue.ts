@@ -43,6 +43,12 @@ export type QueuedShoppingMutation = {
   resolves?: string;
   superseded?: true;
 };
+
+export function rejectedBarcodeProductIds(entries: readonly QueuedShoppingMutation[]) {
+  return new Set(entries.flatMap(({ intent: { action }, outcome }) =>
+    action.kind === 'create-product' && outcome?.kind === 'product-match' ? [action.product.id] : []));
+}
+
 type Recovery = { operationId: string; reason: 'unfinished' | 'unreadable' };
 type AppendReceiptReader = (sourceId: string) => Promise<PriceAppendReceipt | undefined>;
 type Phase = 'intent' | 'request' | 'outcome' | 'failure' | 'resolution';
