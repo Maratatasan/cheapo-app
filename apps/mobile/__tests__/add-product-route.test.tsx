@@ -10,6 +10,7 @@ const mockRetry = jest.fn();
 const mockFindByBarcode = jest.fn();
 const mockFindCandidates = jest.fn();
 const mockChoosePhoto = jest.fn();
+const mockTakePhoto = jest.fn();
 const mockLoadPrices = jest.fn();
 let mockId = 0;
 let mockPhotoSource: string | undefined;
@@ -30,7 +31,7 @@ jest.mock('@/component/photo-barcode-scan', () => ({ PhotoBarcodeScan: ({ onRead
 jest.mock('@/component/cheapo-shopping-provider', () => ({ useCheapoShopping: () => mockShopping }));
 jest.mock('@/hooks/use-enrolled-catalog', () => ({ useEnrolledCatalog: () => mockCatalog }));
 jest.mock('@/hooks/use-saved-shops', () => ({ useSavedShops: () => ({ shops: mockShops }) }));
-jest.mock('@/lib/choose-photo', () => ({ choosePhoto: () => mockChoosePhoto() }));
+jest.mock('@/lib/choose-photo', () => ({ choosePhoto: () => mockChoosePhoto(), takePhoto: () => mockTakePhoto() }));
 jest.mock('@/lib/cheapo-access/config', () => ({ fieldCheapoApiOrigin: () => 'https://cheapo.example' }));
 jest.mock('@/data/cheapo-shopping-read-device', () => ({ createOwnerShoppingReads: () => ({ searchProductCandidates: mockFindCandidates }) }));
 jest.mock('@/data/barcode-shared-prices', () => ({ loadSharedBarcodePrices: (...args: unknown[]) => mockLoadPrices(...args) }));
@@ -45,6 +46,7 @@ beforeEach(() => {
   mockFindByBarcode.mockReset().mockResolvedValue(undefined);
   mockFindCandidates.mockReset().mockResolvedValue({ status: 'fresh', value: { candidates: [], truncated: false } });
   mockChoosePhoto.mockReset();
+  mockTakePhoto.mockReset();
   mockLoadPrices.mockReset().mockResolvedValue({ history: {} });
 });
 
@@ -153,4 +155,25 @@ test('carries the same camera photo, reviewed metadata and stable source into Ad
   }) }));
   await view.unmount();
   expect(addProductPhotoSources.has(mockPhotoSource)).toBe(false);
+});
+
+
+test('takes a photo from Add, keeps typed fields and retains it if a replacement is cancelled', async () => {
+  const asset = { uri: 'file:///captured.jpg', width: 800, height: 600, mimeType: 'image/jpeg' };
+  mockTakePhoto.mockResolvedValueOnce(asset).mockResolvedValueOnce(undefined);
+  await render(<AddProductScreen />);
+  await enterPrice();
+  await fireEvent.press(screen.getByRole('button', { name: 'Take photo' }));
+  await fireEvent.press(await screen.findByRole('button', { name: 'Take another photo' }));
+  expect(mockTakePhoto).toHaveBeenCalledTimes(2);
+  expect(mockChoosePhoto).not.toHaveBeenCalled();
+  expect(screen.getByLabelText('Product name')).toHaveDisplayValue('Sample tea');
+  expect(screen.getByLabelText('Pack price')).toHaveDisplayValue('2.35');
+  expect(mockStage).not.toHaveBeenCalled();
+  await fireEvent.press(screen.getByRole('button', { name: 'Check product' }));
+  await fireEvent.press(await screen.findByRole('button', { name: 'Add as new product' }));
+  await fireEvent.press(screen.getByRole('button', { name: 'Confirm current price' }));
+  expect(mockStage).toHaveBeenCalledWith(expect.objectContaining({
+    record: expect.objectContaining({ original: asset, selected: asset }),
+  }));
 });

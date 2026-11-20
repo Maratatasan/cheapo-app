@@ -38,6 +38,7 @@ export type AddProductPriceReviewProps = {
   onChooseShop: () => void;
   onCompare: (candidate: ProductCandidate) => void;
   onPickPhoto?: () => void;
+  onTakePhoto?: () => void;
   onScanBarcode?: (read: (barcode: string) => void) => void;
   onSubmit: (value: ProductPriceSubmission) => Promise<'queued' | 'draft'>;
   onCancel: () => void;
@@ -46,7 +47,7 @@ export type AddProductPriceReviewProps = {
 const identityFields = new Set<keyof ManualReview>(['productName', 'productType', 'brand', 'variety', 'packSize']);
 
 export function AddProductPriceReview({ shop, shopCountry, initialReview, initialBarcode, photo, lookup, loadLatestPrice,
-  onChooseShop, onCompare, onPickPhoto, onScanBarcode, onSubmit, onCancel }: AddProductPriceReviewProps) {
+  onChooseShop, onCompare, onPickPhoto, onTakePhoto, onScanBarcode, onSubmit, onCancel }: AddProductPriceReviewProps) {
   const [review, setReview] = useState(() => ({ ...emptyReview(), ...initialReview }));
   const [barcode, setBarcode] = useState(initialBarcode ?? '');
   const [check, setCheck] = useState<Check>({ kind: 'entry' });
@@ -151,6 +152,8 @@ export function AddProductPriceReview({ shop, shopCountry, initialReview, initia
     }}
     onSave={() => { if (choice) void submit(choice); }} onCancel={onCancel} saveError={saveError} saveBlocked={blocked}>
     {!shop ? <CameraActionButton label="Choose current shop" disabled={disabled} onPress={onChooseShop} /> : null}
+    {onTakePhoto ? <CameraActionButton label={photo ? 'Take another photo' : 'Take photo'} disabled={disabled}
+      onPress={onTakePhoto} /> : null}
     {onPickPhoto ? <CameraActionButton label={photo ? 'Replace photo' : 'Choose photo'} disabled={disabled}
       onPress={onPickPhoto} /> : null}
     {controls}

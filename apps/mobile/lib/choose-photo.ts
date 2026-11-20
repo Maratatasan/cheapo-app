@@ -1,10 +1,18 @@
-import { launchImageLibraryAsync } from 'expo-image-picker';
+import { launchCameraAsync, launchImageLibraryAsync, requestCameraPermissionsAsync } from 'expo-image-picker';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 
 import type { PhotoAsset } from '@/data/local-photo';
 
 export async function choosePhoto(): Promise<PhotoAsset | undefined> {
-  const result = await launchImageLibraryAsync({ mediaTypes: ['images'], quality: 1 });
+  return toPhotoAsset(await launchImageLibraryAsync({ mediaTypes: ['images'], quality: 1 }));
+}
+
+export async function takePhoto(): Promise<PhotoAsset | 'camera-denied' | undefined> {
+  if (!(await requestCameraPermissionsAsync()).granted) return 'camera-denied';
+  return toPhotoAsset(await launchCameraAsync({ mediaTypes: ['images'], quality: 1 }));
+}
+
+async function toPhotoAsset(result: Awaited<ReturnType<typeof launchImageLibraryAsync>>): Promise<PhotoAsset | undefined> {
   if (result.canceled) return undefined;
   const asset = result.assets[0];
   if (!asset?.uri) throw new Error('Photo selection was unavailable.');
