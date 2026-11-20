@@ -69,7 +69,8 @@ Phone enrollment, hosting and the comparison selector are follow-up work in
 A trusted operator can run the credential command using an authorized
 PostgreSQL connection after applying migration `003`. Use the existing
 household and shopper IDs for the intended member and choose a future UTC
-expiration such as a date in the format `YYYY-MM-DDTHH:MM:SSZ`.
+expiration. For the private beta, use 30 days and record the expiration with
+the revocation ID. Supply the date in the format `YYYY-MM-DDTHH:MM:SSZ`.
 
 ```sh
 pnpm --filter @cheapo/api exec node operator/device-credential.ts issue "$household_id" "$shopper_id" "$expires_at"
@@ -85,6 +86,16 @@ shell commands, logs, and issue reports. If delivery is interrupted or the
 credential is exposed, revoke its ID and issue a replacement. Revoking one ID
 preserves the member's data and other phone credentials. Checking an ID for
 revocation does not require the token.
+
+For an Android Field build, set `CHEAPO_FIELD_TEST=1` and
+`CHEAPO_API_ORIGIN` to the approved public HTTPS origin, with no path or
+credential. On the phone, open **Cheapo access** from Home and enter the
+delivered credential. The phone checks it through the read-only comparison
+preferences route before saving it in SecureStore. If access expires, the
+operator can issue a replacement and enter it using **Use new credential**.
+An unsuccessful replacement preserves the previous credential. Clear
+the credential from any clipboard used during handoff. **Clear credential**
+removes the local copy. To end remote access, revoke the credential ID.
 
 ## Saved shops contract
 
