@@ -97,6 +97,16 @@ An unsuccessful replacement preserves the previous credential. Clear
 the credential from any clipboard used during handoff. **Clear credential**
 removes the local copy. To end remote access, revoke the credential ID.
 
+## Verify the enrolled shopper
+
+`GET /v1/me` accepts the Cheapo bearer credential and returns only
+`{ "householdId": "<uuid>", "shopperId": "<uuid>" }` for its active membership.
+These IDs stay the same when an operator replaces a credential for the same
+membership. The phone can use them to keep pending saves with their original
+owner. The route rejects query parameters and does not cache responses.
+Invalid, expired or revoked credentials get `401`. An inactive membership
+gets `403`.
+
 ## Saved shops contract
 
 Send the same Cheapo bearer credential for each request. The service resolves
