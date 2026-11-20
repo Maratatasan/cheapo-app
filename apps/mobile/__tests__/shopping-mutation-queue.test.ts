@@ -4,6 +4,7 @@ import type { ShoppingMutationInput } from '../data/shopping-mutations';
 const mockFiles = new Map<string, string>();
 let mockSequence = 0;
 let mockFailMove = false;
+let mockFailResolution = false;
 
 jest.mock('expo-crypto', () => ({
   CryptoDigestAlgorithm: { SHA256: 'SHA-256' },
@@ -22,7 +23,9 @@ jest.mock('expo-file-system', () => {
     async text() { return mockFiles.get(this.uri); }
     async write(value: string) { mockFiles.set(this.uri, value); }
     async move(target: File) {
-      if (mockFailMove || target.exists) throw Error('Interrupted publication.');
+      if (mockFailMove || target.exists || (mockFailResolution && target.name?.endsWith('.resolution.json'))) {
+        throw Error('Interrupted publication.');
+      }
       mockFiles.set(target.uri, mockFiles.get(this.uri)!);
       mockFiles.delete(this.uri);
     }
@@ -61,6 +64,7 @@ const editPrice: ShoppingMutationInput = {
 beforeEach(() => {
   mockFiles.clear();
   mockFailMove = false;
+  mockFailResolution = false;
 });
 
 it('stores a single intended edit in protected owner storage across restarts', async () => {
@@ -208,4 +212,87 @@ it('retains an immutable branch edit and blocks a dependant from borrowing anoth
     action: { kind: 'edit-shop', shopId: 'other', details: { nickname: 'Other market' },
       base: { kind: 'operation', operationId: edit.operationId } },
   })).rejects.toThrow('different record');
+});
+
+function laterPriceEdit(id: string, predecessor = editPrice.operationId): ShoppingMutationInput {
+  return {
+    operationId: id, createdAt, title: `Later price edit ${id}`,
+    action: { kind: 'price', priceKey: append.sourceId, base: { kind: 'operation', operationId: predecessor },
+      change: { action: 'correct', review: { productName: 'Rice', price: '1.35', currency: 'GBP' } } },
+  };
+}
+
+async function conflictedPrice() {
+  const queue = await openShoppingMutationQueue(owner);
+  await queue.enqueue(editPrice);
+  await queue.freeze(editPrice.operationId, async () => append);
+  await queue.settle(editPrice.operationId, { kind: 'conflict', currentVersion: 2, current: { id: append.id, priceAmount: '1.20' } });
+  return queue;
+}
+
+it('retains both versions through a repeated phone choice and pins a later edit to the replacement receipt', async () => {
+  const queue = await conflictedPrice();
+  await queue.enqueue(laterPriceEdit('later-rice'));
+  expect(await queue.freeze('later-rice')).toBeUndefined();
+  await queue.resolve(editPrice.operationId, { kind: 'keep-phone', replacementId: 'retry-price-1', createdAt });
+  expect(JSON.parse((await queue.freeze('retry-price-1'))?.body ?? '{}')).toMatchObject({
+    operationId: 'retry-price-1', expectedVersion: 2, review: { price: '1.25' },
+  });
+  await queue.settle('retry-price-1', { kind: 'conflict', currentVersion: 3, current: { id: append.id, priceAmount: '1.30' } });
+  const reopened = await openShoppingMutationQueue(owner);
+  expect(await reopened.laterEdits('retry-price-1')).toEqual([{ id: 'later-rice', title: 'Later price edit later-rice' }]);
+  expect(await reopened.freeze('later-rice')).toBeUndefined();
+  await reopened.resolve('retry-price-1', { kind: 'keep-phone', replacementId: 'retry-price-2', createdAt });
+  const replacement = await reopened.freeze('retry-price-2');
+  expect(replacement?.path).toBe(`/v1/me/price-observations/${append.id}`);
+  expect(JSON.parse(replacement?.body ?? '{}')).toMatchObject({ expectedVersion: 3 });
+  await reopened.settle('retry-price-2', { kind: 'applied', receipt: { id: append.id, version: 4 } });
+  expect(JSON.parse((await reopened.freeze('later-rice'))?.body ?? '{}')).toMatchObject({
+    expectedVersion: 4, review: { price: '1.35' },
+  });
+  expect((await reopened.read()).entries.filter(entry => entry.outcome?.kind === 'conflict').map(entry => entry.outcome)).toEqual([
+    { kind: 'conflict', currentVersion: 2, current: { id: append.id, priceAmount: '1.20' } },
+    { kind: 'conflict', currentVersion: 3, current: { id: append.id, priceAmount: '1.30' } },
+  ]);
+});
+
+it('requires confirmation of every later local edit before keeping cloud and holds only that record’s branch', async () => {
+  const queue = await conflictedPrice();
+  await queue.enqueue(laterPriceEdit('later-a'));
+  const reviewed = await queue.laterEdits(editPrice.operationId);
+  await queue.enqueue(laterPriceEdit('later-b', 'later-a'));
+  await queue.enqueue({ ...createProduct, waitFor: [editPrice.operationId] });
+  await expect(queue.resolve(editPrice.operationId, { kind: 'keep-cloud', laterIds: reviewed.map(item => item.id) }))
+    .rejects.toThrow('Later edits changed');
+  const checked = await queue.laterEdits(editPrice.operationId);
+  expect(checked.map(item => item.id)).toEqual(['later-a', 'later-b']);
+  await queue.resolve(editPrice.operationId, { kind: 'keep-cloud', laterIds: checked.map(item => item.id) });
+  const reopened = await openShoppingMutationQueue(owner);
+  const { entries } = await reopened.read();
+  expect(entries.filter(entry => entry.superseded).map(entry => entry.intent.operationId)).toEqual(['later-a', 'later-b']);
+  expect(entries.find(entry => entry.intent.operationId === editPrice.operationId)).toMatchObject({
+    outcome: { kind: 'conflict', current: { priceAmount: '1.20' } },
+    resolution: { kind: 'keep-cloud', laterIds: ['later-a', 'later-b'] },
+  });
+  expect(await reopened.freeze('later-a')).toBeUndefined();
+  expect(await reopened.freeze('later-b')).toBeUndefined();
+  expect(await reopened.freeze(createProduct.operationId)).toMatchObject({ path: '/v1/products/rice-01' });
+  await expect(reopened.enqueue(laterPriceEdit('stale-screen', 'later-b'))).rejects.toThrow('Reopen this record');
+});
+
+it('does not expose or send a replacement choice until the resolution is durably published', async () => {
+  const queue = await conflictedPrice();
+  const choice = { kind: 'keep-phone', replacementId: 'retry-price', createdAt } as const;
+  mockFailResolution = true;
+  await expect(queue.resolve(editPrice.operationId, choice)).rejects.toThrow('Interrupted publication');
+  const reopened = await openShoppingMutationQueue(owner);
+  const before = await reopened.read();
+  expect(before.entries).toHaveLength(1);
+  expect(before.entries[0].resolution).toBeUndefined();
+  expect(await reopened.freeze(choice.replacementId)).toBeUndefined();
+  mockFailResolution = false;
+  await reopened.resolve(editPrice.operationId, choice);
+  await reopened.resolve(editPrice.operationId, choice);
+  expect((await reopened.read()).recovery).toEqual([]);
+  expect(JSON.parse((await reopened.freeze(choice.replacementId))?.body ?? '{}')).toMatchObject({ expectedVersion: 2 });
 });
