@@ -158,6 +158,18 @@ original source IDs and product or shop names. Photos identify the original
 or crop by role and provide its dimensions. The archive retains drafts and
 test-shop history for private recovery.
 
+To reopen one observation, call `GET /v1/me/price-observations/{id}` using
+its opaque resource ID. The `observation` response includes its saved crop box
+when present and the selected photo role. A crop is selected when present.
+Both the original and crop remain separate evidence references.
+
+Use `productId` for exact product history. For comparisons, filter with
+`comparableGroupId` and optionally include `productType` to match legacy
+observations without a canonical group. A `productType` filter on its own
+uses the reviewed category with the catalog category as a fallback.
+`currency` can narrow a page to one currency. Keep the same filters while
+following the returned cursor.
+
 Send a reviewed observation to `POST /v1/me/price-observations` as JSON.
 Keep the same `sourceId` on retries. Include the ISO 8601 `capturedAt`, the
 saved `shopId`, the historic `shopDisplayName`, and the `review` object
