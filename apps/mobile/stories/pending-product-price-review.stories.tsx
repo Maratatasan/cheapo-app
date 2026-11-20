@@ -1,12 +1,11 @@
 import type { Meta, StoryObj } from '@storybook/react-native-web-vite';
 import { expect, fn } from 'storybook/test';
 import { useState } from 'react';
-import { Text, TextInput, View } from 'react-native';
+import { View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
-import { PendingProductPriceReview } from '../component/pending-product-price-review';
+import { PendingDraftBarcodeField, PendingProductPriceReview } from '../component/pending-product-price-review';
 import { PhotoReview } from '../component/photo-review';
-import { ui } from '../component/results/theme';
 import { emptyReview, type ManualReview } from '../data/photo-review';
 import type { ProductPriceDraft } from '../data/price-append-queue';
 
@@ -57,10 +56,7 @@ function DraftDetails({ draft }: { draft: ProductPriceDraft }) {
   const [barcode, setBarcode] = useState(draft.barcode ?? '');
   return <PhotoReview addingProduct updatingDraft review={review} photo={record.selected} selectedShopName={record.shop?.displayName}
     saved={false} busy={false} onReviewChange={setReview} onSave={() => {}} onCancel={() => {}}
-    barcodeReview={<View style={ui.card}>
-      <Text style={ui.body}>Product barcode (optional)</Text>
-      <TextInput accessibilityLabel="Product barcode (optional)" value={barcode} onChangeText={setBarcode} style={ui.body} />
-    </View>} />;
+    barcodeReview={<PendingDraftBarcodeField value={barcode} onChange={setBarcode} />} />;
 }
 
 export const EditDraftDetails: Story = {

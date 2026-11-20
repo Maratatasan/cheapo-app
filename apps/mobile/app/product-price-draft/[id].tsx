@@ -1,10 +1,10 @@
 import { Redirect, Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useRef, useState } from 'react';
-import { Platform, Text, TextInput, View } from 'react-native';
+import { Platform, Text, View } from 'react-native';
 
 import { CameraActionButton } from '@/component/camera-actions';
 import { useCheapoShopping } from '@/component/cheapo-shopping-provider';
-import { PendingProductPriceReview } from '@/component/pending-product-price-review';
+import { PendingDraftBarcodeField, PendingProductPriceReview } from '@/component/pending-product-price-review';
 import { PhotoReview } from '@/component/photo-review';
 import { ui } from '@/component/results/theme';
 import { checkProductIdentity, type AddProductLookup, type ProductIdentityCheck } from '@/data/add-product-lookup';
@@ -112,11 +112,8 @@ function DraftReview({ id, shopping, lookup }: { id: string; shopping: CheapoSho
       saveBlocked={invalidBarcode ? 'Enter a valid barcode or leave it blank.' : undefined}
       onReviewChange={review => setEdit(current => current && { ...current, review })}
       onSave={() => { void saveEdits(); }} onCancel={() => { setEdit(undefined); reload(); }}
-      barcodeReview={<View style={ui.card}>
-        <Text style={ui.body}>Product barcode (optional)</Text>
-        <TextInput accessibilityLabel="Product barcode (optional)" value={edit.barcode} keyboardType="number-pad" maxLength={14}
-          editable={!busy} style={ui.body} onChangeText={barcode => setEdit(current => current && { ...current, barcode })} />
-      </View>} /> : draft ? <PendingProductPriceReview draft={draft} check={check} busy={busy} error={error}
+      barcodeReview={<PendingDraftBarcodeField value={edit.barcode} editable={!busy}
+        onChange={barcode => setEdit(current => current && { ...current, barcode })} />} /> : draft ? <PendingProductPriceReview draft={draft} check={check} busy={busy} error={error}
       onRetry={reload} onBack={() => router.back()} onConfirm={choice => { void confirm(choice); }}
       onEdit={reviewed ? () => {
         setError(undefined);

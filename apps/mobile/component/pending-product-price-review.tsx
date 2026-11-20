@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Image, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Image, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import type { ProductIdentityCheck } from '@/data/add-product-lookup';
@@ -7,7 +7,19 @@ import type { ProductCandidate } from '@/data/cheapo-shopping-reads';
 import { dateLabel, priceLabel } from '@/data/observation';
 import type { ProductPriceChoice, ProductPriceDraft } from '@/data/price-append-queue';
 import { CameraActionButton } from './camera-actions';
-import { color, spacing, ui } from './results/theme';
+import { color, radius, spacing, ui } from './results/theme';
+
+export function PendingDraftBarcodeField({ value, editable = true, onChange }: {
+  value: string;
+  editable?: boolean;
+  onChange: (value: string) => void;
+}) {
+  return <View style={ui.card}>
+    <Text style={ui.body}>Product barcode (optional)</Text>
+    <TextInput accessibilityLabel="Product barcode (optional)" value={value} keyboardType="number-pad" maxLength={14}
+      editable={editable} style={styles.barcode} onChangeText={onChange} />
+  </View>;
+}
 
 export function PendingProductPriceReview({ draft, check, busy, error, onRetry, onCompare, onConfirm, onEdit, onBack }: {
   draft: ProductPriceDraft;
@@ -78,5 +90,7 @@ export function PendingProductPriceReview({ draft, check, busy, error, onRetry, 
 
 const styles = StyleSheet.create({
   photo: { width: '100%', height: 220, backgroundColor: color.mint, borderRadius: 12 },
+  barcode: { borderColor: color.line, borderWidth: 1, borderRadius: radius.control, minHeight: 44,
+    paddingHorizontal: spacing.md, color: color.ink },
   actions: { padding: spacing.md, borderTopWidth: 1, borderColor: color.line },
 });
