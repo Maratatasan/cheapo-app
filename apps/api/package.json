@@ -4,12 +4,13 @@
   "type": "module",
   "scripts": {
     "start": "node start.ts",
-    "test": "node --test test/preferences.test.ts test/shopping-import.test.ts test/s3-import-photos.test.ts test/rds-data.test.ts",
+    "test": "node --test test/preferences.test.ts test/shopping-import.test.ts test/s3-import-photos.test.ts test/rds-data.test.ts test/hosted-http.test.ts",
     "test:postgres": "sh test/run-postgres.sh",
     "typecheck": "tsc --noEmit",
     "import:plan": "node shopping-import-plan.ts",
     "import:local": "node import-shopping-local.ts",
-    "import:hosted": "node import-shopping-hosted.ts"
+    "import:hosted": "node import-shopping-hosted.ts",
+    "build:hosted": "esbuild hosted-api.ts --bundle --platform=node --target=node24 --format=cjs --outfile=dist/hosted/index.js"
   },
   "dependencies": {
     "@aws-sdk/client-rds-data": "3.1173.0",
@@ -21,6 +22,7 @@
   "devDependencies": {
     "@types/node": "22.15.21",
     "@types/pg": "8.23.1",
+    "esbuild": "0.28.2",
     "typescript": "6.0.3"
   }
 }

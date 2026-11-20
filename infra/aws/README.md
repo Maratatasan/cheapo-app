@@ -4,6 +4,7 @@
   Serverless v2 with one writer and a private, versioned S3 photo bucket.
 - [Migration access stack](shopping-migration-access.yaml) temporarily adds a
   Systems Manager runner and its database access for [#171](https://github.com/Maratatasan/cheapo-app/issues/171).
+- [Shopping API hosting](shopping-api.md) describes the separate reviewed HTTPS service and activation gate.
 
 See [D-09 in the Drive decision log](https://docs.google.com/document/d/1RiVeT6NU-aVZa9y-uvB5qSQ1OYPbxUB8tzFhrNS7Z84/edit)
 for costs, evidence, and the future API design.
