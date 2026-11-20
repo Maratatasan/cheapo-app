@@ -43,6 +43,7 @@ psql -X -v ON_ERROR_STOP=1 -h "$root" -p "$port" -U cheapo_test -d postgres \
   -f test/shopping-history.postgres.sql >/dev/null
 CHEAPO_TEST_PG_SOCKET="$root" CHEAPO_TEST_PG_PORT="$port" node --test test/preferences.postgres.ts test/shopping-import.postgres.ts test/hosted-import.postgres.ts test/price-history.postgres.ts test/runtime-role.postgres.ts test/price-photo.postgres.ts
 
+# Run the cross-app rehearsal directly so mobile changes always reach this check.
 mkdir "$root/device-fixtures"
 CHEAPO_TEST_PG_SOCKET="$root" CHEAPO_TEST_PG_PORT="$port" CHEAPO_TEST_FILES="$root/device-fixtures" \
-  node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./test/fixtures/phone-runtime-hooks.mjs test/phone-runtime.postgres.mjs
+  node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/shopping-runtime/node-hooks.mjs ../../tools/shopping-runtime/two-shoppers.postgres.mjs

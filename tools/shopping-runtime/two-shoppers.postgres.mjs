@@ -1,25 +1,24 @@
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { createRequire } from 'node:module';
 import { randomBytes, randomUUID, createHash } from 'node:crypto';
 import { readFile, writeFile, rm, mkdir } from 'node:fs/promises';
-import { Pool } from 'pg';
 
-import { configureObjectTransport, device } from './fixtures/phone-runtime-expo.mjs';
+import { credentialDigest } from '../../apps/api/credential.ts';
+import { createLocalApi } from '../../apps/api/local-api.ts';
+import { createCheapoPricePhotoRead } from '../../apps/mobile/data/cheapo-price-photo-read.ts';
+import { cheapoShoppingReadCache, cheapoPricePhotoCache } from '../../apps/mobile/data/cheapo-shopping-read-cache.ts';
+import { createCheapoShoppingReads } from '../../apps/mobile/data/cheapo-shopping-reads.ts';
+import { readEnrolledPriceEdit } from '../../apps/mobile/data/edit-enrolled-price.ts';
+import { createEnrolledSavedShops } from '../../apps/mobile/data/enrolled-saved-shops.ts';
+import { emptyReview } from '../../apps/mobile/data/photo-review.ts';
+import { projectSharedPrice } from '../../apps/mobile/data/saved-price-history.ts';
+import { openCheapoShopping } from '../../apps/mobile/data/shopping-sync-runtime.ts';
+import { createCheapoAccess } from '../../apps/mobile/lib/cheapo-access/client.ts';
+import { configureObjectTransport, device } from './expo-fixtures.mjs';
 
-const checkout = fileURLToPath(new URL('../../../', import.meta.url));
-const load = path => import(pathToFileURL(join(checkout, path)).href);
-const { createLocalApi } = await load('apps/api/local-api.ts');
-const { credentialDigest } = await load('apps/api/credential.ts');
-const { createCheapoAccess } = await load('apps/mobile/lib/cheapo-access/client.ts');
-const { openCheapoShopping } = await load('apps/mobile/data/shopping-sync-runtime.ts');
-const { createCheapoShoppingReads } = await load('apps/mobile/data/cheapo-shopping-reads.ts');
-const { createCheapoPricePhotoRead } = await load('apps/mobile/data/cheapo-price-photo-read.ts');
-const { cheapoShoppingReadCache, cheapoPricePhotoCache } = await load('apps/mobile/data/cheapo-shopping-read-cache.ts');
-const { projectSharedPrice } = await load('apps/mobile/data/saved-price-history.ts');
-const { emptyReview } = await load('apps/mobile/data/photo-review.ts');
-const { createEnrolledSavedShops } = await load('apps/mobile/data/enrolled-saved-shops.ts');
-const { readEnrolledPriceEdit, recordFromObservation } = await load('apps/mobile/data/edit-enrolled-price.ts');
+// Use the installed PostgreSQL client from the package that owns the real API adapter.
+const { Pool } = createRequire(new URL('../../apps/api/package.json', import.meta.url))('pg');
 
 const host = process.env.CHEAPO_TEST_PG_SOCKET;
 const fixture = process.env.CHEAPO_TEST_FILES;
@@ -33,8 +32,7 @@ const outside = randomUUID();
 const origin = 'https://shopping.example';
 const authors = { A: house, B: house, C: outside };
 const people = {};
-const files = 'apps/mobile/stories/fixtures';
-const fixturePhoto = name => pathToFileURL(join(checkout, files, name)).href;
+const fixturePhoto = name => new URL('../../apps/mobile/stories/fixtures/' + name, import.meta.url).href;
 const digest = (value, format = 'hex') => createHash('sha256').update(value).digest(format);
 const blobPath = (key) => join(fixture, 'objects', digest(key));
 const grantUrl = key => 'https://fixtures.s3.amazonaws.com/object/' + encodeURIComponent(key) + '?X-Amz-Signature=' + 'a'.repeat(64);

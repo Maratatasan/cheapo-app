@@ -1,7 +1,7 @@
 import { registerHooks } from 'node:module';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-const fixture = new URL('./phone-runtime-expo.mjs', import.meta.url).href;
+const fixture = new URL('./expo-fixtures.mjs', import.meta.url).href;
 registerHooks({
   resolve(specifier, context, next) {
     if (['expo-file-system', 'expo-crypto', 'expo/fetch'].includes(specifier)) {
