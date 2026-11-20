@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { S3Client } from '@aws-sdk/client-s3';
+import { HeadObjectCommand, S3Client, S3ServiceException } from '@aws-sdk/client-s3';
 
-import { signS3PhotoUpload, signS3PricePhoto } from '../s3-price-photo.ts';
+import { signS3PhotoUpload, signS3PricePhoto, verifyS3PhotoObject } from '../s3-price-photo.ts';
 
 test('signs an HTTPS GET for exactly one existing object with private cache policy and one minute expiry', async () => {
   const client = new S3Client({
@@ -52,4 +52,41 @@ test('binds a conditional JPEG PUT to the expected length and SHA-256', async ()
   } finally {
     client.destroy();
   }
+});
+
+test('verifies storage checksum, length, and content type without downloading bytes', async () => {
+  const photo = { sha256: '7'.repeat(64), byteCount: 2200, width: 800, height: 600 };
+  const key = 'price-evidence/fixture/original/photo.jpg';
+  const signal = AbortSignal.timeout(50_000);
+  const metadata = {
+    ChecksumSHA256: Buffer.from(photo.sha256, 'hex').toString('base64'),
+    ContentLength: photo.byteCount,
+    ContentType: 'image/jpeg',
+  };
+  let object: Partial<typeof metadata> = metadata;
+  let statusCode = 200;
+  const client = { send: async (command: HeadObjectCommand, options: { abortSignal: AbortSignal }) => {
+    assert(command instanceof HeadObjectCommand);
+    assert.deepEqual(command.input, { Bucket: 'cheapo-fixture', Key: key, ChecksumMode: 'ENABLED' });
+    assert.equal(options.abortSignal, signal);
+    if (statusCode !== 200) throw new S3ServiceException({
+      name: 'FixtureFailure', $fault: 'client', $metadata: { httpStatusCode: statusCode },
+    });
+    return object;
+  } } as Pick<S3Client, 'send'>;
+
+  const verify = verifyS3PhotoObject(client, 'cheapo-fixture');
+  assert.equal(await verify(key, photo, signal), 'verified');
+  for (const fields of [{ ChecksumSHA256: 'wrong' }, { ContentLength: 1 }, { ContentType: 'text/plain' }]) {
+    object = { ...metadata, ...fields };
+    assert.equal(await verify(key, photo, signal), 'mismatch');
+  }
+  object = { ContentLength: 2200, ContentType: 'image/jpeg' };
+  assert.equal(await verify(key, photo, signal), 'mismatch');
+  for (const failure of [403, 404]) {
+    statusCode = failure;
+    assert.equal(await verify(key, photo, signal), 'missing');
+  }
+  statusCode = 429;
+  await assert.rejects(verify(key, photo, signal), { name: 'FixtureFailure' });
 });

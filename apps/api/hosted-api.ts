@@ -4,7 +4,7 @@ import { json } from './api-http.ts';
 import { createGatewayHandler } from './hosted-http.ts';
 import { createShoppingApi } from './local-api.ts';
 import { createRdsDataDatabase } from './rds-data.ts';
-import { signS3PhotoUpload, signS3PricePhoto } from './s3-price-photo.ts';
+import { signS3PhotoUpload, signS3PricePhoto, verifyS3PhotoObject } from './s3-price-photo.ts';
 
 const {
   CHEAPO_AWS_CLUSTER_ARN: resourceArn,
@@ -16,6 +16,7 @@ const storage = new S3Client({ maxAttempts: 1 });
 const evidence = photoBucket ? {
   read: signS3PricePhoto(storage, photoBucket),
   upload: signS3PhotoUpload(storage, photoBucket),
+  verify: verifyS3PhotoObject(storage, photoBucket),
 } : undefined;
 const api = resourceArn && secretArn && database
   ? createShoppingApi(createRdsDataDatabase({ resourceArn, secretArn, database }), evidence)

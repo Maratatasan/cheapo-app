@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
+import { once } from 'node:events';
 import { after, before, test } from 'node:test';
 import { Pool } from 'pg';
 
 import { credentialDigest } from '../credential.ts';
 import { importedEvidenceKey, newEvidenceKey } from '../evidence-key.ts';
 import { createLocalApi } from '../local-api.ts';
+import { localHttpServer } from '../server.ts';
 
 const host = process.env.CHEAPO_TEST_PG_SOCKET;
 if (!host) throw new Error('Run this suite through the disposable PostgreSQL test driver.');
@@ -25,13 +27,21 @@ const token = (letter: string) => `cheapo_${'r190'.repeat(10)}${letter.repeat(3)
 const signed: string[] = [];
 const signedFixture = 'https://evidence.example/fixture-url';
 const uploads: string[] = [];
+const checked: string[] = [];
+let objectStatus: 'verified' | 'missing' | 'mismatch' = 'missing';
 const api = createLocalApi(runtime, {
   read: async key => { signed.push(key); return signedFixture; },
+  verify: async (key, _photo, signal) => {
+    assert.equal(signal.aborted, false);
+    checked.push(key);
+    return objectStatus;
+  },
   upload: async key => {
     uploads.push(key);
     return { url: 'https://evidence.example/fixture-upload', headers: { 'Content-Type': 'image/jpeg' } };
   },
 });
+const server = localHttpServer(api);
 
 before(async () => {
   await operator.query('CREATE ROLE cheapo_fixture_photo_runtime LOGIN IN ROLE cheapo_api_runtime');
@@ -73,9 +83,12 @@ before(async () => {
     INSERT INTO cheapo.price_photo (household_id, shopper_id, observation_id, role, storage_key, sha256, byte_count, width, height)
     VALUES ($1, $2, $3, 'crop', $4, $5, 1100, 400, 300)
   `, [household, owner, 'restored-' + completed, importedEvidenceKey(household, owner, sha), sha]);
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
 });
 
 after(async () => {
+  await new Promise<void>(resolve => server.close(() => resolve()));
   await runtime.end();
   await operator.end();
 });
@@ -125,8 +138,8 @@ test('allows private draft recovery only for its active enrolled owner', async (
 
 const uploadMetadata = { sha256: '8'.repeat(64), byteCount: 2_000, width: 800, height: 600 };
 
-function prepare(id: string, actor: string, metadata = uploadMetadata) {
-  return api(new Request(`http://localhost/v1/me/price-observations/${id}/photos/original/upload`, {
+function prepare(id: string, actor: string, metadata = uploadMetadata, role = 'original') {
+  return api(new Request(`http://localhost/v1/me/price-observations/${id}/photos/${role}/upload`, {
     method: 'PUT',
     headers: { Authorization: `Bearer ${token(actor)}`, 'Content-Type': 'application/json' },
     body: JSON.stringify(metadata),
@@ -167,4 +180,87 @@ test('denies foreign, draft, test, existing, oversized and conflicting photo dec
   assert.equal(uploads.length, before);
   await assert.rejects(runtime.query('UPDATE cheapo.price_photo_upload SET sha256 = sha256'), { code: '42501' });
   await assert.rejects(runtime.query('DELETE FROM cheapo.price_photo_upload'), { code: '42501' });
+});
+
+function complete(id: string, actor: string, role = 'original') {
+  const address = server.address();
+  assert(address && typeof address !== 'string');
+  return fetch(`http://127.0.0.1:${address.port}/v1/me/price-observations/${id}/photos/${role}/upload`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token(actor)}` },
+  });
+}
+
+async function visiblePhotos(id: string, selected = 'original') {
+  const response = await api(new Request('http://localhost/v1/me/price-observations/' + id, {
+    headers: { Authorization: `Bearer ${token('B')}` },
+  }));
+  assert.equal(response.status, 200);
+  const body = await response.json() as { observation: { photos: unknown[]; selectedPhotoRole: string } };
+  assert.equal(body.observation.selectedPhotoRole, selected);
+  return body.observation.photos;
+}
+
+test('shows pending metadata to household readers and publishes only a verified object', async () => {
+  assert.equal((await prepare(awaitingPhoto, 'A')).status, 200);
+  const base = { role: 'original', width: 800, height: 600 };
+  assert.deepEqual(await visiblePhotos(awaitingPhoto), [{ ...base, availability: 'pending' }]);
+  assert.equal((await photo(awaitingPhoto, 'original', 'B')).status, 404);
+
+  const denied = await complete(awaitingPhoto, 'B');
+  assert.equal(denied.status, 404);
+  assert.deepEqual(checked, []);
+  assert.deepEqual(await (await complete(awaitingPhoto, 'A')).json(), {
+    role: 'original', availability: 'pending',
+  });
+  objectStatus = 'mismatch';
+  const mismatch = await complete(awaitingPhoto, 'A');
+  assert.equal(mismatch.status, 409);
+  assert.deepEqual(await mismatch.json(), { error: 'photo_checksum_mismatch' });
+  assert.deepEqual(await visiblePhotos(awaitingPhoto), [{ ...base, availability: 'pending' }]);
+
+  objectStatus = 'verified';
+  const final = await Promise.all([complete(awaitingPhoto, 'A'), complete(awaitingPhoto, 'A')]);
+  for (const response of final) {
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { role: 'original', availability: 'available' });
+  }
+  const readKey = newEvidenceKey(household, awaitingPhoto, 'original', uploadMetadata.sha256);
+  assert(checked.length > 0);
+  assert(checked.every(key => key === readKey));
+  assert.deepEqual(await visiblePhotos(awaitingPhoto), [base]);
+  assert.equal((await photo(awaitingPhoto, 'original', 'B')).status, 200);
+  assert.equal(signed.at(-1), readKey);
+});
+
+test('recovers a lost response by replaying completion or identical preparation', async () => {
+  const before = checked.length;
+  const grants = uploads.length;
+  for (const response of [await complete(awaitingPhoto, 'A'), await prepare(awaitingPhoto, 'A')]) {
+    assert.deepEqual(await response.json(), { role: 'original', availability: 'available' });
+  }
+  assert.equal((await prepare(awaitingPhoto, 'A', { ...uploadMetadata, width: 801 })).status, 409);
+  assert.equal(checked.length, before);
+  assert.equal(uploads.length, grants);
+  const { rows: [{ count }] } = await operator.query(`
+    SELECT count(*)::int AS count FROM cheapo.price_photo
+    WHERE household_id = $1 AND observation_id = $2
+  `, [household, 'restored-' + awaitingPhoto]);
+  assert.equal(count, 1);
+  await assert.rejects(runtime.query('UPDATE cheapo.price_photo SET sha256 = sha256'), { code: '42501' });
+  await assert.rejects(runtime.query('DELETE FROM cheapo.price_photo'), { code: '42501' });
+});
+
+test('retains the original and the selected crop as separate evidence', async () => {
+  const crop = { sha256: '4'.repeat(64), byteCount: 1200, width: 400, height: 300 };
+  assert.equal((await prepare(awaitingPhoto, 'A', crop, 'crop')).status, 200);
+  const base = { role: 'original', width: 800, height: 600 };
+  const selected = { role: 'crop', width: 400, height: 300 };
+  assert.deepEqual(await visiblePhotos(awaitingPhoto, 'crop'), [base, { ...selected, availability: 'pending' }]);
+  assert.deepEqual(await (await complete(awaitingPhoto, 'A', 'crop')).json(), {
+    role: 'crop', availability: 'available',
+  });
+  assert.deepEqual(await visiblePhotos(awaitingPhoto, 'crop'), [base, selected]);
+  assert.equal((await photo(awaitingPhoto, 'original', 'B')).status, 200);
+  assert.equal((await photo(awaitingPhoto, 'crop', 'B')).status, 200);
 });

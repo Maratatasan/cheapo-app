@@ -39,7 +39,7 @@ export type PriceObservation = {
   currency: string | null;
   review: Record<string, unknown> | null;
   unitPrice: { amount: number; unit: string } | null;
-  photos: { role: 'original' | 'crop'; width: number; height: number }[];
+  photos: { role: 'original' | 'crop'; width: number; height: number; availability?: 'pending' }[];
 };
 type PriceCropBox = { left: number; top: number; right: number; bottom: number };
 export type PriceObservationDetail = PriceObservation & {

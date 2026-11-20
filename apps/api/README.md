@@ -215,14 +215,19 @@ Use `PUT /v1/me/price-observations/{observationId}/photos/{role}/upload` as
 the originating shopper of an eligible saved observation. Send a JSON object
 with lower-case hex `sha256`, integer `byteCount` up to 32 MiB, `width`, and
 `height` for the selected JPEG. Each role has an immutable declaration.
-An identical replay can issue a fresh grant. A changed declaration or an
-already-saved photo for that role returns `409`.
+An identical replay can issue a fresh grant while the photo remains pending.
+It returns `availability: "available"` once the same upload has been verified.
+A changed declaration or a pre-existing archived photo returns `409`.
 
 The grant response reports `availability: "pending"` and returns a 120-second
 URL plus the exact required request headers. Upload the JPEG to that URL
 using PUT and those headers. Leave the Cheapo bearer header out of the object
-request. A successful transfer still needs the separate object verification
-step before the photo can be displayed as available.
+request. After transfer, send `POST` to the same Cheapo path with no body.
+The API checks the stored object's SHA-256, length, and JPEG content type.
+Unconfirmed bytes return `pending`, a mismatch returns `409`, and confirmed
+evidence returns `available`. A repeated confirmation of the same evidence
+returns `available` again. In household price history and detail, a declared
+photo carries `availability: "pending"` until verification is complete.
 
 ## Shopping history storage
 

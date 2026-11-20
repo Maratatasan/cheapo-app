@@ -5,18 +5,18 @@ import { postgresCatalog } from './postgres-catalog.ts';
 import { postgresPriceAppend } from './postgres-price-append.ts';
 import { postgresPriceHistory } from './postgres-price-history.ts';
 import { postgresPricePhoto } from './postgres-price-photo.ts';
-import { postgresPhotoUpload } from './postgres-price-photo-upload.ts';
+import { postgresCompletePhotoUpload, postgresPhotoUpload } from './postgres-price-photo-upload.ts';
 import { postgresSavedShops } from './postgres-saved-shops.ts';
 import type { ShoppingQuery, ShoppingTransaction } from './postgres-shopping.ts';
 import { postgresPreferences } from './postgres.ts';
 import { createPreferencesHandler } from './preferences.ts';
 import { createPriceHistoryHandler, isPriceHistoryPath } from './price-history.ts';
 import { createPricePhotoHandler, isPricePhotoPath, type SignPricePhoto } from './price-photo.ts';
-import { createPricePhotoUploadHandler, isPricePhotoUploadPath, type SignPhotoUpload } from './price-photo-upload.ts';
+import { createPricePhotoUploadHandler, isPricePhotoUploadPath, type SignPhotoUpload, type VerifyPhotoObject } from './price-photo-upload.ts';
 import { createSavedShopHandler, isSavedShopPath } from './saved-shops.ts';
 import { createShoppingIdentityHandler } from './shopping-identity.ts';
 
-type EvidenceStorage = { read?: SignPricePhoto; upload?: SignPhotoUpload };
+type EvidenceStorage = { read?: SignPricePhoto; upload?: SignPhotoUpload; verify?: VerifyPhotoObject };
 
 function localTransaction(pool: Pool): ShoppingTransaction {
   return async run => {
@@ -44,7 +44,8 @@ export function createShoppingApi({ query, transaction }: {
   const prices = createPriceHistoryHandler(postgresPriceHistory(transaction), postgresPriceAppend(transaction));
   const identity = createShoppingIdentityHandler(query);
   const photos = createPricePhotoHandler(postgresPricePhoto(transaction), evidence.read);
-  const uploads = createPricePhotoUploadHandler(postgresPhotoUpload(transaction), evidence.upload);
+  const verify = evidence.verify ? postgresCompletePhotoUpload(transaction, evidence.verify) : undefined;
+  const uploads = createPricePhotoUploadHandler(postgresPhotoUpload(transaction), evidence.upload, verify);
   return (request: Request) => {
     const path = new URL(request.url).pathname;
     if (path === '/v1/me') return identity(request);

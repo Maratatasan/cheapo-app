@@ -12,11 +12,25 @@ const observationFields = `
   observation.price_amount::text AS "priceAmount", observation.currency,
   observation.review, observation.unit_price AS "unitPrice",
   COALESCE((
-    SELECT jsonb_agg(jsonb_build_object('role', photo.role, 'width', photo.width, 'height', photo.height)
-      ORDER BY photo.role DESC)
-    FROM cheapo.price_photo AS photo
-    WHERE (photo.household_id, photo.shopper_id, photo.observation_id) =
-      (observation.household_id, observation.shopper_id, observation.id)
+    SELECT jsonb_agg(jsonb_strip_nulls(jsonb_build_object(
+      'role', evidence.role, 'width', evidence.width, 'height', evidence.height,
+      'availability', evidence.availability)) ORDER BY evidence.role DESC)
+    FROM (
+      SELECT photo.role, photo.width, photo.height, NULL::text AS availability
+      FROM cheapo.price_photo AS photo
+      WHERE (photo.household_id, photo.shopper_id, photo.observation_id) =
+        (observation.household_id, observation.shopper_id, observation.id)
+      UNION ALL
+      SELECT pending.role, pending.width, pending.height, 'pending'::text
+      FROM cheapo.price_photo_upload AS pending
+      WHERE (pending.household_id, pending.shopper_id, pending.observation_id) =
+        (observation.household_id, observation.shopper_id, observation.id)
+        AND NOT EXISTS (
+          SELECT 1 FROM cheapo.price_photo AS photo
+          WHERE (photo.household_id, photo.shopper_id, photo.observation_id, photo.role) =
+            (pending.household_id, pending.shopper_id, pending.observation_id, pending.role)
+        )
+    ) AS evidence
   ), '[]'::jsonb) AS photos
 `;
 
