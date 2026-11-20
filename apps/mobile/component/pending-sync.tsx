@@ -5,16 +5,17 @@ import { color, spacing, typography, ui } from './results/theme';
 export type PendingSyncItem = {
   id: string;
   title: string;
-  state: 'waiting' | 'failed' | 'photo-pending' | 'needs-shop' | 'conflict';
+  state: 'waiting' | 'failed' | 'photo-pending' | 'photo-failed' | 'needs-shop' | 'conflict' | 'recovery';
 };
 
 type Props = {
   snapshot: { state: 'loading' | 'unavailable' } | { state: 'ready'; items: readonly PendingSyncItem[] };
   retrying?: boolean;
+  syncProblem?: 'access' | 'service';
   onRetry(): void;
   onReload(): void;
   onChooseShop(id: string): void;
-  onReviewConflict(id: string): void;
+  onReviewConflict?(id: string): void;
   onBack(): void;
   bottomInset?: number;
 };
@@ -23,8 +24,10 @@ const stateText = {
   waiting: 'Saved on this phone · Waiting to sync',
   failed: 'Could not sync',
   'photo-pending': 'Price synced · Photo pending',
+  'photo-failed': 'Price synced · Could not sync the photo',
   'needs-shop': 'Needs shop',
   conflict: 'Conflicting changes',
+  recovery: 'Held for recovery · Included in protected shopping data',
 } satisfies Record<PendingSyncItem['state'], string>;
 
 function SyncButton({ label, accessibleLabel, onPress, secondary, disabled = false }: {
@@ -42,12 +45,12 @@ function SyncButton({ label, accessibleLabel, onPress, secondary, disabled = fal
   );
 }
 
-export function PendingSync({ snapshot, retrying = false, onRetry, onReload, onChooseShop, onReviewConflict, onBack, bottomInset = 0 }: Props) {
+export function PendingSync({ snapshot, retrying = false, syncProblem, onRetry, onReload, onChooseShop, onReviewConflict, onBack, bottomInset = 0 }: Props) {
   const items = snapshot.state === 'ready' ? snapshot.items : [];
-  const canRetry = items.some(({ state }) => state !== 'needs-shop' && state !== 'conflict');
+  const canRetry = items.some(({ state }) => state === 'waiting' || state === 'failed' || state === 'photo-pending' || state === 'photo-failed');
 
   function renderItem({ item }: { item: PendingSyncItem }) {
-    const warning = item.state === 'failed' || item.state === 'needs-shop' || item.state === 'conflict';
+    const warning = item.state !== 'waiting' && item.state !== 'photo-pending';
     return (
       <View style={[ui.card, styles.item]}>
         <Text style={styles.title}>{item.title}</Text>
@@ -55,7 +58,7 @@ export function PendingSync({ snapshot, retrying = false, onRetry, onReload, onC
         {item.state === 'needs-shop' ? (
           <SyncButton label="Choose shop" accessibleLabel={`Choose shop for ${item.title}`} secondary onPress={() => onChooseShop(item.id)} />
         ) : null}
-        {item.state === 'conflict' ? (
+        {item.state === 'conflict' && onReviewConflict ? (
           <SyncButton label="Review conflict" accessibleLabel={`Review conflict for ${item.title}`} secondary onPress={() => onReviewConflict(item.id)} />
         ) : null}
       </View>
@@ -67,7 +70,12 @@ export function PendingSync({ snapshot, retrying = false, onRetry, onReload, onC
       <FlatList style={ui.page} contentContainerStyle={ui.content} contentInsetAdjustmentBehavior="automatic"
         data={items} renderItem={renderItem} keyExtractor={item => item.id}
         ItemSeparatorComponent={Gap}
-        ListHeaderComponent={<Text accessibilityRole="header" style={styles.heading}>Pending changes</Text>}
+        ListHeaderComponent={<View>
+          <Text accessibilityRole="header" style={styles.heading}>Pending changes</Text>
+          {syncProblem ? <Text accessibilityRole="alert" style={styles.warning}>
+            {syncProblem === 'access' ? 'Check your Cheapo access to resume sync.' : 'Could not start sync.'} Saved changes are still on this phone.
+          </Text> : null}
+        </View>}
         ListEmptyComponent={snapshot.state === 'unavailable' ? (
           <View style={ui.card}>
             <Text accessibilityRole="alert" style={styles.warning}>Could not read pending changes.</Text>

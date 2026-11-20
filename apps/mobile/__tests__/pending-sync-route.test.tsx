@@ -1,0 +1,83 @@
+import { act, fireEvent, render, screen } from '@testing-library/react-native';
+
+import PendingSyncRoute from '@/app/pending-sync';
+import type { PendingShoppingChange } from '@/data/shopping-sync-runtime';
+
+const mockReadPending = jest.fn();
+const mockRetry = jest.fn();
+const mockConfirmShop = jest.fn();
+const mockDismiss = jest.fn();
+const mockSubscribe = jest.fn();
+const held: PendingShoppingChange = { id: 'price:rice', sourceId: 'rice', title: 'Brown rice', state: 'needs-shop' };
+
+jest.mock('expo-router', () => ({
+  Redirect: () => null, Stack: { Screen: () => null }, usePreventRemove: jest.fn(),
+  useRouter: () => ({ dismissTo: mockDismiss }),
+  useFocusEffect: (effect: () => void) => jest.requireActual('react').useEffect(effect, [effect]),
+}));
+jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ bottom: 0 }) }));
+jest.mock('@/component/cheapo-shopping-provider', () => ({ useCheapoShopping: () => ({
+  owner: { origin: 'https://shopping.example', householdId: 'owner-home', shopperId: 'owner-phone' },
+  readPending: mockReadPending, retry: mockRetry, confirmPriceShop: mockConfirmShop, subscribeSync: mockSubscribe,
+}) }));
+jest.mock('@/hooks/use-saved-shops', () => ({ useSavedShops: () => ({
+  shops: { shops: [{ id: 'shop-42', name: 'Example Market', nickname: 'Weekly shop' }],
+    currentShop: { id: 'different-shop', name: 'Default store' } },
+}) }));
+
+beforeEach(() => {
+  jest.resetAllMocks();
+  mockConfirmShop.mockResolvedValue(undefined);
+  mockSubscribe.mockReturnValue(() => {});
+  mockReadPending.mockResolvedValue([held]);
+  mockRetry.mockResolvedValue({ state: 'complete', items: [] });
+});
+
+it('updates the visible queue when an automatic sync finishes', async () => {
+  mockReadPending.mockResolvedValue([{ id: 'price:rice', sourceId: 'rice', title: 'Brown rice', state: 'waiting' }]);
+  await render(<PendingSyncRoute />);
+  expect(await screen.findByText('Saved on this phone · Waiting to sync')).toBeOnTheScreen();
+  await act(() => mockSubscribe.mock.calls[0][0]({ state: 'complete', items: [] }));
+  expect(screen.getByText('No changes waiting to sync.')).toBeOnTheScreen();
+  expect(mockRetry).not.toHaveBeenCalled();
+});
+
+it('confirms the exact held price and branch locally before requesting sync', async () => {
+  let release = () => {};
+  mockConfirmShop.mockReturnValue(new Promise<void>(resolve => { release = resolve; }));
+  mockReadPending.mockResolvedValueOnce([held]).mockResolvedValue([]);
+  await render(<PendingSyncRoute />);
+  await fireEvent.press(await screen.findByRole('button', { name: 'Choose shop for Brown rice' }));
+  expect(screen.getByRole('header', { name: 'Choose shop for saved price' })).toBeOnTheScreen();
+  expect(screen.queryByText('Current shop')).toBeNull();
+  await fireEvent.press(screen.getByRole('button', { name: 'Weekly shop Example Market' }));
+  expect(mockConfirmShop).toHaveBeenCalledWith('rice', { id: 'shop-42', displayName: 'Weekly shop' });
+  expect(mockRetry).not.toHaveBeenCalled();
+  await act(async () => { release(); });
+  expect(await screen.findByText('No changes waiting to sync.')).toBeOnTheScreen();
+  expect(mockRetry).toHaveBeenCalledTimes(1);
+});
+
+it('retries actual actionable work and keeps recovery visible without offering to resend it', async () => {
+  const recovery = { id: 'recovery:example', sourceId: 'example', title: 'Saved soup', state: 'recovery' };
+  mockReadPending.mockResolvedValue([{ id: 'photo:rice', sourceId: 'rice', title: 'Brown rice', state: 'photo-failed' }, recovery]);
+  mockRetry.mockResolvedValue({ state: 'pending', items: [recovery] });
+  await render(<PendingSyncRoute />);
+  expect(await screen.findByText('Price synced · Could not sync the photo')).toBeOnTheScreen();
+  await fireEvent.press(screen.getByRole('button', { name: 'Retry sync' }));
+  expect(mockRetry).toHaveBeenCalledTimes(1);
+  expect(await screen.findByText('Held for recovery · Included in protected shopping data')).toBeOnTheScreen();
+  expect(screen.queryByText('Brown rice')).toBeNull();
+  expect(screen.getByRole('button', { name: 'Retry sync' })).toBeDisabled();
+});
+
+it('leaves a failed shop confirmation selectable and keeps the original held price', async () => {
+  mockConfirmShop.mockRejectedValue(Error('Publication interrupted'));
+  await render(<PendingSyncRoute />);
+  await fireEvent.press(await screen.findByRole('button', { name: 'Choose shop for Brown rice' }));
+  await fireEvent.press(screen.getByRole('button', { name: 'Weekly shop Example Market' }));
+  expect(await screen.findByRole('alert')).toHaveTextContent('Could not confirm this shop. The price is still on this phone.');
+  expect(mockRetry).not.toHaveBeenCalled();
+  await fireEvent.press(screen.getByRole('button', { name: 'Cancel' }));
+  expect(screen.getByRole('button', { name: 'Choose shop for Brown rice' })).toBeOnTheScreen();
+});

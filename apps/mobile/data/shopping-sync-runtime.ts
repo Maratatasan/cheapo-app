@@ -3,6 +3,7 @@ import { packagePriceBases } from '@cheapo/domain/package-measures';
 import { z } from 'zod';
 
 import { CheapoAccessError, type CheapoAccess } from '../lib/cheapo-access/client';
+import type { DraftShop } from './local-photo';
 import { readPendingPrices, type PendingPriceItem } from './pending-price-sync';
 import { openPriceAppendQueue, sameShoppingOwner, type PriceAppendQueue } from './price-append-queue';
 import { createPriceAppendSync } from './price-append-sync';
@@ -171,6 +172,7 @@ export function createShoppingSync(access: SyncAccess, priceQueue: PriceAppendQu
 
   let active: Promise<SyncSnapshot> | undefined;
   let requested = false;
+  const listeners = new Set<(snapshot: SyncSnapshot) => void>();
   return {
     assertOwner,
     async commitMutation(intent: ShoppingMutationInput) {
@@ -178,22 +180,32 @@ export function createShoppingSync(access: SyncAccess, priceQueue: PriceAppendQu
       await mutationQueue.enqueue(intent);
       await assertOwner();
     },
+    async confirmPriceShop(sourceId: string, shop: DraftShop) {
+      await assertOwner();
+      await priceQueue.confirmShop(sourceId, shop);
+      await assertOwner();
+    },
     readPending,
     loadPriceChanges,
+    subscribeSync(listener: (snapshot: SyncSnapshot) => void) {
+      listeners.add(listener);
+      return () => { listeners.delete(listener); };
+    },
     retry() {
       requested = true;
       if (!active) {
         active = Promise.resolve().then(async () => {
+          let snapshot: SyncSnapshot = { state: 'pending', items: [] };
           try {
-            let snapshot: SyncSnapshot = { state: 'pending', items: [] };
             while (requested) {
               requested = false;
               snapshot = await synchronize();
             }
-            return snapshot;
           } finally {
             active = undefined;
           }
+          listeners.forEach(listener => listener(snapshot));
+          return snapshot;
         });
       }
       return active;
