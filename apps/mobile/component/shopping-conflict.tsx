@@ -11,15 +11,16 @@ type Props = {
   bottomInset?: number;
   onKeepPhone(): void;
   onKeepCloud(laterIds: string[]): void;
+  onReuseProduct?(): void;
   onClose(): void;
 };
 
-export function ShoppingConflictReview({ conflict, busy = false, error, bottomInset = 0, onKeepPhone, onKeepCloud, onClose }: Props) {
+export function ShoppingConflictReview({ conflict, busy = false, error, bottomInset = 0, onKeepPhone, onKeepCloud, onReuseProduct, onClose }: Props) {
   const [confirmCloud, setConfirmCloud] = useState(false);
-  const { title, phone, cloud, laterEdits } = conflict;
+  const { title, phone, cloud, laterEdits, matchingProduct } = conflict;
   return <View style={ui.page}>
     <ScrollView style={ui.page} contentContainerStyle={[ui.content, styles.content]}>
-      <Text accessibilityRole="header" style={ui.title}>{confirmCloud ? 'Keep the cloud version?' : 'Conflicting changes'}</Text>
+      <Text accessibilityRole="header" style={ui.title}>{matchingProduct ? 'Product already exists' : confirmCloud ? 'Keep the cloud version?' : 'Conflicting changes'}</Text>
       <Text style={styles.record}>{title}</Text>
       {confirmCloud ? <View style={[ui.card, styles.content]}>
         <Text accessibilityLiveRegion="polite" style={ui.body}>The phone version will be kept for recovery.</Text>
@@ -28,16 +29,19 @@ export function ShoppingConflictReview({ conflict, busy = false, error, bottomIn
           {laterEdits.map(edit => <Text key={edit.id} style={ui.body}>{edit.title}</Text>)}
         </> : null}
       </View> : <>
-        <Text style={ui.body}>Choose which version to keep for this record.</Text>
+        <Text style={ui.body}>{matchingProduct ? 'Reuse the matching product to sync your saved price and photos.' : 'Choose which version to keep for this record.'}</Text>
         <View style={styles.versions}>
           <Version title="On this phone" values={phone} />
-          <Version title="In the cloud" values={cloud} />
+          <Version title={matchingProduct ? 'Existing product' : 'In the cloud'} values={cloud} />
         </View>
       </>}
       {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
     </ScrollView>
     <View style={[styles.footer, { paddingBottom: spacing.md + bottomInset }]}>
-      {confirmCloud ? <>
+      {matchingProduct ? <>
+        {onReuseProduct ? <Choice label="Reuse product" onPress={onReuseProduct} busy={busy} /> : null}
+        <Choice label="Back to Pending sync" secondary onPress={onClose} busy={busy} />
+      </> : confirmCloud ? <>
         <Choice label="Confirm keep cloud" onPress={() => onKeepCloud(laterEdits.map(({ id }) => id))} busy={busy} />
         <Choice label="Back to versions" secondary onPress={() => setConfirmCloud(false)} busy={busy} />
       </> : <>

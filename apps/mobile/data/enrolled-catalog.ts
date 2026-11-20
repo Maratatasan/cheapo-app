@@ -21,9 +21,11 @@ type Dependencies = {
 
 function catalogEntries(entries: QueuedShoppingMutation[]) {
   const latest = new Map<string, CatalogEntry>();
+  const rejected = new Set(entries.flatMap(({ intent: { action }, outcome }) =>
+    action.kind === 'create-product' && outcome?.kind === 'product-match' ? [action.product.id] : []));
   for (const entry of entries) {
     const { action, operationId } = entry.intent;
-    if (entry.superseded || (action.kind !== 'create-product' && action.kind !== 'edit-product')) continue;
+    if (entry.superseded || (action.kind !== 'create-product' && action.kind !== 'edit-product') || rejected.has(action.product.id)) continue;
     const { outcome, resolution } = entry;
     if (resolution) {
       if (resolution.kind === 'keep-cloud' && outcome?.kind === 'conflict' && typeof outcome.currentVersion === 'number') {

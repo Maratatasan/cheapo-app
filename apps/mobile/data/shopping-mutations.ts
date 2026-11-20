@@ -69,6 +69,17 @@ export type ShoppingMutation = z.infer<typeof shoppingMutation>;
 export type ShoppingMutationInput = z.input<typeof shoppingMutation>;
 type MutationAction = ShoppingMutation['action'];
 
+export const existingBarcodeProduct = productSchema.omit({ photoIds: true }).extend({
+  id,
+  barcode: z.string().refine(code => canonicalProductBarcode(code) === code),
+});
+
+export function matchesCompetingBarcode(
+  action: MutationAction, product: z.infer<typeof existingBarcodeProduct>,
+) {
+  return action.kind === 'create-product' && action.product.id !== product.id && action.product.barcode === product.barcode;
+}
+
 export type MutationRequest = { path: string; method: 'PUT' | 'PATCH' | 'DELETE'; body?: string };
 export const mutationVersion = z.union([numberVersion, savedShopVersion]);
 export const mutationReceipt = z.strictObject({

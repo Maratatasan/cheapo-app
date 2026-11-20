@@ -511,6 +511,55 @@ it('holds a price behind its shop and product, then applies its offline edit usi
   expect(openShoppingWriteSession).toHaveBeenCalledTimes(2);
 });
 
+it('holds the reviewed price and photos until the shopper chooses the matching existing product', async () => {
+  const { photo } = await photoEvidence();
+  const barcode = '00036000291452';
+  const proposed = { id: record.productId, name: 'Newer phone details', productType: 'Rice', barcode };
+  const winner = { id: 'existing-rice', name: 'Existing shared rice', productType: 'Rice', barcode };
+  const posted: string[] = [];
+  const corrections: unknown[] = [];
+  const request = jest.fn(async (path: string, init: RequestInit) => {
+    if (path === `/v1/products/${record.productId}`) return Response.json({ error: 'product_conflict', product: winner }, { status: 409 });
+    if (path === '/v1/me/price-observations' && typeof init.body === 'string') {
+      posted.push(init.body);
+      return posted.length === 1 ? new Response(null, { status: 503 }) : Response.json(receipt, { status: 201 });
+    }
+    if (path === `/v1/me/price-observations/${receipt.id}` && typeof init.body === 'string') {
+      corrections.push(JSON.parse(init.body));
+      return Response.json({ observation: { id: receipt.id, version: 2 } });
+    }
+    return new Response(null, { status: 503 });
+  });
+  const access = { lastVerifiedOwner: async () => owner,
+    openShoppingWriteSession: async () => ({ owner, assertCurrent() {}, request }) };
+  const phone = (await openCheapoShopping(access))!;
+  await phone.priceQueue.save(photo);
+  await phone.commitMutation({ operationId: 'raced-product', title: proposed.name, createdAt: operationTime,
+    action: { kind: 'create-product', product: proposed } });
+  await phone.commitMutation({ operationId: 'linked-correction', title: 'Correct the held price', createdAt: operationTime,
+    waitFor: ['raced-product'], action: { kind: 'price', priceKey: record.id, base: { kind: 'append', sourceId: record.id },
+      change: { action: 'correct', productId: proposed.id, review: { productName: record.review.productName, price: '1.40', currency: 'GBP' } } } });
+
+  expect((await phone.retry()).items).toContainEqual(expect.objectContaining({ operationId: 'raced-product', state: 'needs-product-review' }));
+  expect(posted).toEqual([]);
+  const reopened = (await openCheapoShopping(access))!;
+  await expect(reopened.useExistingProduct('raced-product', 'another-product')).rejects.toThrow();
+  expect((await reopened.retry()).items).toContainEqual(expect.objectContaining({ operationId: 'raced-product', state: 'needs-product-review' }));
+  expect(posted).toEqual([]);
+  await reopened.useExistingProduct('raced-product', winner.id);
+  await reopened.retry();
+  await (await openCheapoShopping(access))!.retry();
+
+  expect(posted).toHaveLength(2);
+  expect(posted[0]).toBe(posted[1]);
+  expect(JSON.parse(posted[0])).toMatchObject({ sourceId: record.id, productId: winner.id, review: { price: '1.20' }, shopId: shop.id });
+  expect(request.mock.calls.filter(([path]) => path.startsWith('/v1/products/'))).toHaveLength(1);
+  expect(corrections).toMatchObject([{ operationId: 'linked-correction', productId: winner.id, review: { price: '1.40' } }]);
+  expect((await phone.priceQueue.read()).entries[0]).toMatchObject({ record: photo, receipt });
+  expect(mockFiles.get(photo.original.uri)).toBe('synthetic original');
+  expect(mockFiles.get(photo.selected.uri)).toBe('synthetic crop');
+});
+
 it('coalesces full passes and checks that a queued read still belongs to the selected shopper', async () => {
   let remembered = owner;
   let release!: (response: Response) => void;

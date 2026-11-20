@@ -7,11 +7,14 @@ type SyncResult = 'complete' | 'blocked' | 'failed';
 const appendPath = '/v1/me/price-observations';
 
 export function createPriceAppendSync(
-  queue: PriceAppendQueue, openSession: OpenSession, canSend: (body: string) => boolean = () => true,
+  queue: PriceAppendQueue, openSession: OpenSession, prepareBody: (body: string) => string | undefined = body => body,
 ) {
   async function synchronize(): Promise<SyncResult> {
     const { entries, recovery } = await queue.read();
-    const pending = entries.flatMap(({ record, body, receipt }) => body && !receipt && canSend(body) ? [{ sourceId: record.id, body }] : []);
+    const pending = entries.flatMap(({ record, body, receipt }) => {
+      const prepared = body && !receipt ? prepareBody(body) : undefined;
+      return prepared ? [{ sourceId: record.id, body: prepared }] : [];
+    });
     if (!pending.length) return recovery.length ? 'failed' : 'complete';
 
     const { owner, request, assertCurrent } = await openSession();

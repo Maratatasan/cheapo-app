@@ -4,7 +4,13 @@ import { productSchema, type Product } from '@cheapo/domain';
 import type { QueuedShoppingMutation } from './shopping-mutation-queue';
 
 export type ConflictValues = { label: string; value: string }[];
-export type ShoppingConflict = { title: string; phone: ConflictValues; cloud: ConflictValues; laterEdits: { id: string; title: string }[] };
+export type ShoppingConflict = {
+  title: string;
+  phone: ConflictValues;
+  cloud: ConflictValues;
+  laterEdits: { id: string; title: string }[];
+  matchingProduct?: { id: string; barcode: string };
+};
 
 type Field = [label: string, value: unknown];
 const ready = 'Blank';
@@ -45,8 +51,14 @@ function priceFields(checked: Record<string, unknown>, extras?: {
 }
 
 export function shoppingConflictPreview(entry: QueuedShoppingMutation, laterEdits: ShoppingConflict['laterEdits']): ShoppingConflict | null {
-  if (entry.outcome?.kind !== 'conflict' || entry.resolution || entry.superseded) return null;
+  if (entry.resolution || entry.superseded) return null;
   const { title, action } = entry.intent;
+  if (entry.outcome?.kind === 'product-match' && action.kind === 'create-product') {
+    const { product } = entry.outcome;
+    return { title, phone: productFields(action.product), cloud: productFields(product), laterEdits,
+      matchingProduct: { id: product.id, barcode: product.barcode } };
+  }
+  if (entry.outcome?.kind !== 'conflict') return null;
   const current = object(entry.outcome.current);
   if (action.kind === 'price') {
     const checked = priceHistoryDetail.safeParse({ observation: current });

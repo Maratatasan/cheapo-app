@@ -8,6 +8,7 @@ import { useCheapoShopping } from '@/component/cheapo-shopping-provider';
 import { DisplayState } from '@/component/results/display-state';
 import { ui } from '@/component/results/theme';
 import { ShoppingConflictReview } from '@/component/shopping-conflict';
+import { createOwnerShoppingReads } from '@/data/cheapo-shopping-read-device';
 import { shoppingConflictPreview, type ShoppingConflict } from '@/data/shopping-conflict';
 import { mutationOperationId } from '@/data/shopping-mutations';
 import type { CheapoShoppingRuntime } from '@/data/shopping-sync-runtime';
@@ -53,19 +54,19 @@ function ConflictRoute({ shopping, operationId }: { shopping: CheapoShoppingRunt
     return () => { controller.abort(); active.current = null; };
   }, [load]));
 
-  async function keep(choice: Parameters<CheapoShoppingRuntime['resolveConflict']>[1]) {
+  async function choose(commit: (signal: AbortSignal) => Promise<void>, failure: string) {
     const signal = active.current?.signal;
     if (!signal || !preview || committing.current) return;
     committing.current = true;
     setSaving(true);
     setError(undefined);
     try {
-      await shopping.resolveConflict(operationId, choice);
+      await commit(signal);
       void shopping.retry().catch(() => { /* The chosen version and pending edits are still protected. */ });
       if (!signal.aborted) close();
     } catch {
       if (!signal.aborted) {
-        setError('Could not keep this version. Review any later edits and try again.');
+        setError(failure);
         await load(signal);
       }
     } finally {
@@ -74,14 +75,31 @@ function ConflictRoute({ shopping, operationId }: { shopping: CheapoShoppingRunt
     }
   }
 
+  function keep(choice: Parameters<CheapoShoppingRuntime['resolveConflict']>[1]) {
+    return choose(() => shopping.resolveConflict(operationId, choice), 'Could not keep this version. Review any later edits and try again.');
+  }
+
+  function reuseProduct() {
+    const match = preview?.matchingProduct;
+    if (!match) return;
+    return choose(async signal => {
+      const reads = createOwnerShoppingReads(shopping.owner);
+      const checked = await reads.findEditableProductByBarcode(match.barcode, signal);
+      if (signal.aborted) throw Error('The product review closed.');
+      if (checked.status !== 'fresh' || checked.value.product?.id !== match.id) throw Error('The current barcode match could not be verified.');
+      await shopping.useExistingProduct(operationId, match.id);
+    }, 'Could not verify the barcode match. Your saved price and photos are still here. Try again.');
+  }
+
   return <>
-    <Stack.Screen options={{ title: 'Review conflict' }} />
+    <Stack.Screen options={{ title: preview?.matchingProduct ? 'Review product match' : 'Review conflict' }} />
     {preview ? <ShoppingConflictReview conflict={preview} busy={saving} error={error} bottomInset={bottom}
       onKeepPhone={() => {
         const replacement = phoneReplacement.current ??= { replacementId: randomUUID(), createdAt: new Date().toISOString() };
         void keep({ kind: 'keep-phone', ...replacement });
       }}
-      onKeepCloud={laterIds => { void keep({ kind: 'keep-cloud', laterIds }); }} onClose={close} />
+      onKeepCloud={laterIds => { void keep({ kind: 'keep-cloud', laterIds }); }}
+      onReuseProduct={() => { void reuseProduct(); }} onClose={close} />
       : <View style={ui.content}>
         {preview === undefined ? <DisplayState kind="loading" title="Reading the conflict" description="Loading both saved versions." />
           : <DisplayState kind="empty" title="Conflict unavailable" description="Return to Pending sync to check this record."
