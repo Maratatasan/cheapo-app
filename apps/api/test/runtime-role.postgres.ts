@@ -173,3 +173,22 @@ test('a restricted login can only change versioned price fields and append its a
   await assert.rejects(runtime.query('UPDATE cheapo.price_observation_revision SET version = version'), { code: '42501' });
   await assert.rejects(runtime.query('DELETE FROM cheapo.price_observation_revision'), { code: '42501' });
 });
+
+test('a restricted login corrects canonical fields without rewriting product revisions or source photos', async () => {
+  const path = '/v1/products/runtime-fixture-product-edit';
+  assert.equal((await request(path, 'A', 'PUT', { name: 'Initial product' })).status, 200);
+  const edit = { operationId: 'runtime-edit-product', expectedVersion: 1, product: { name: 'Reviewed product' } };
+  const revision = await request(path, 'A', 'PATCH', edit);
+  assert.equal(revision.status, 200);
+  assert.equal(revision.headers.get('ETag'), '"2"');
+  assert.equal((await request(path, 'A', 'PATCH', edit)).status, 200);
+  assert.equal((await request(path, 'E', 'PATCH', edit)).status, 401);
+  for (const sql of [
+    'UPDATE cheapo.product SET source_photo_ids = NULL',
+    'SELECT before_state FROM cheapo.product_revision',
+    "UPDATE cheapo.product_revision SET after_state = '{}'::jsonb",
+    'DELETE FROM cheapo.product_revision',
+  ]) {
+    await assert.rejects(runtime.query(sql), { code: '42501' });
+  }
+});
