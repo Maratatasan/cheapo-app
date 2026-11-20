@@ -46,16 +46,16 @@ export function createPriceAppendSync(queue: PriceAppendQueue, openSession: Open
         const { status, receipt } = await sendAppend(request, entry.body);
         assertCurrent();
         if (status === 401 || status === 403) return 'blocked';
-        if (!receipt) {
-          failed = true;
+        if (receipt) {
+          await queue.acknowledge(entry.sourceId, receipt);
           continue;
         }
-        await queue.acknowledge(entry.sourceId, receipt);
       } catch (error) {
         if (error instanceof CheapoAccessError) return 'blocked';
-        // A lost reply or interrupted acknowledgement leaves the original intent.
-        failed = true;
       }
+      // A lost reply or interrupted acknowledgement leaves the original intent.
+      failed = true;
+      await queue.markFailed(entry.sourceId, 'price').catch(() => {});
     }
     if (failed || (recovery.length && (await queue.read()).recovery.length)) return 'failed';
     return 'complete';
