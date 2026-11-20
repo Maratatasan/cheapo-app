@@ -28,6 +28,7 @@ type PriceHistoryRead = PriceHistoryPage | { kind: 'detail'; id: string };
 export type PriceObservation = {
   id: string;
   sourceId: string;
+  ownedByCurrentShopper: boolean;
   version: number;
   capturedAt: string;
   productId: string | null;

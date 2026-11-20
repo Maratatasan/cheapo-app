@@ -84,7 +84,7 @@ test('shares complete household prices with exact legacy evidence and keeps each
   assert(restored);
   assert.match(restored.id, /^[a-f0-9-]{36}$/);
   assert.deepEqual(restored, {
-    id: restored.id, version: 1, sourceId: 'same-source-id', capturedAt,
+    id: restored.id, version: 1, sourceId: 'same-source-id', capturedAt, ownedByCurrentShopper: true,
     productId: null, sourceProductId: 'archived-product', productName: 'Original oats',
     shopId: null, sourceShopId: 'archived-shop', shopDisplayName: 'Old branch name',
     priceAmount: '2.0900', currency: 'GBP',
@@ -92,7 +92,11 @@ test('shares complete household prices with exact legacy evidence and keeps each
     unitPrice: { amount: 0.418, unit: '100g' },
     photos: [{ role: 'original', width: 23, height: 17 }],
   });
-  assert.deepEqual(await (await request('I')).json(), result);
+  assert.deepEqual(await (await request('I')).json(), {
+    ...result,
+    observations: result.observations.map(observation => ({ ...observation, ownedByCurrentShopper: !observation.ownedByCurrentShopper })),
+  });
+  for (const privateId of [household, shopper, otherShopper]) assert(!JSON.stringify(result).includes(privateId));
   const other = await (await request('J')).json() as HistoryBody;
   assert.deepEqual(other.observations.map(observation => observation.sourceId), ['outside-household']);
   assert.equal((await request('K')).status, 403);
@@ -108,7 +112,8 @@ test('pages a tie in capture time without repeating or dropping an observation',
   assert.equal(second.observations.length, 1);
   assert.notEqual(first.observations[0].id, second.observations[0].id);
   const unpaged = await (await request('H')).json() as HistoryBody;
-  assert.deepEqual([...first.observations, ...second.observations], unpaged.observations);
+  const remaining = second.observations.map(observation => ({ ...observation, ownedByCurrentShopper: !observation.ownedByCurrentShopper }));
+  assert.deepEqual([...first.observations, ...remaining], unpaged.observations);
 });
 
 test('rejects unbounded, malformed, and caller-scoped page requests', async () => {
@@ -221,7 +226,7 @@ test('reopens one household observation with its selected crop and keeps other h
   const response = await request('I', `/${legacy.id}`);
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), {
-    observation: { ...legacy, cropBox, selectedPhotoRole: 'crop' },
+    observation: { ...legacy, cropBox, selectedPhotoRole: 'crop', ownedByCurrentShopper: false },
   });
   assert.deepEqual(legacy.photos, [{ role: 'original', width: 23, height: 17 }, { role: 'crop', width: 8, height: 10 }]);
   assert.equal((await request('J', `/${legacy.id}`)).status, 404);
@@ -285,7 +290,7 @@ test('keeps both versions and evidence when a second shopper corrects a price', 
 
   const stale = await request('H', route, 'PATCH', { ...edit, operationId: 'stale-price-edit' });
   assert.equal(stale.status, 409);
-  assert.deepEqual(await stale.json(), { error: 'version_conflict', currentVersion: 2, current: applied.observation });
+  assert.deepEqual(await stale.json(), { error: 'version_conflict', currentVersion: 2, current: { ...applied.observation, ownedByCurrentShopper: true } });
   const reuse = await request('I', route, 'PATCH', { ...edit, review: { ...edit.review, price: '2.66' } });
   assert.equal(reuse.status, 409);
   assert.deepEqual(await reuse.json(), { error: 'operation_conflict' });
@@ -310,8 +315,9 @@ test('keeps both versions and evidence when a second shopper corrects a price', 
 
 test('records an error with a reason, preserves direct evidence, and allows a versioned undo', async () => {
   const history = await (await request('H')).json() as HistoryBody;
-  const source = history.observations.find(observation => observation.priceAmount === '2.39');
+  const source = history.observations.find(observation => observation.sourceProductId === 'archived-product');
   assert(source);
+  assert.equal(source.priceAmount, '2.39');
   const route = `/${source.id}`;
   const mark = { operationId: 'mark-slip', action: 'record_in_error', expectedVersion: source.version, reason: 'Wrong shelf label' };
   assert.equal((await request('H', route, 'PATCH', { ...mark, reason: '  ' })).status, 400);
@@ -330,7 +336,9 @@ test('records an error with a reason, preserves direct evidence, and allows a ve
   const recovery = await (await request('I', '?includeRecordedInError=true')).json() as HistoryBody;
   assert.equal(recovery.observations.find(observation => observation.id === source.id)?.recordedInErrorReason, mark.reason);
   assert.equal((await request('I', '?productType=oats&includeRecordedInError=true')).status, 400);
-  assert.deepEqual(await (await request('I', route)).json(), markedBody);
+  assert.deepEqual(await (await request('I', route)).json(), {
+    observation: { ...markedBody.observation, ownedByCurrentShopper: false },
+  });
 
   const undo = { operationId: 'undo-corrected-label', action: 'undo_recorded_in_error', expectedVersion: 3 };
   assert.equal((await request('I', route, 'PATCH', { ...undo, expectedVersion: 2 })).status, 409);
@@ -341,7 +349,9 @@ test('records an error with a reason, preserves direct evidence, and allows a ve
   assert.equal(restoredBody.observation.recordedInErrorReason, undefined);
   assert.deepEqual(restoredBody.observation.photos, source.photos);
   assert.deepEqual(await (await request('H', route, 'PATCH', mark)).json(), markedBody);
-  assert.deepEqual(await (await request('H', route)).json(), restoredBody);
+  assert.deepEqual(await (await request('H', route)).json(), {
+    observation: { ...restoredBody.observation, ownedByCurrentShopper: true },
+  });
 
   await pool.query('UPDATE cheapo.shopper_credential SET revoked_at = statement_timestamp() WHERE token_digest = $1',
     [createHash('sha256').update(token('I')).digest('hex')]);

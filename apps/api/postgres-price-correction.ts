@@ -36,15 +36,21 @@ export function postgresPriceCorrection(transaction: ShoppingTransaction): Execu
     const home = member.household_id;
 
     // Serialize correction operations within the authenticated household. Look up a replay before checking the current version.
-    const { rows: [replay] } = await query<{ matches: boolean; observation: PriceObservationDetail }>(`
-      SELECT resource_id = $4::uuid AND operation_request = $5::jsonb AS matches,
-        after_state AS observation
-      FROM cheapo.price_observation_revision
-      WHERE household_id = $1::uuid AND actor_shopper_id = $2::uuid AND operation_id = $3
+    const { rows: [replay] } = await query<{
+      matches: boolean; observation: PriceObservationDetail; ownedByCurrentShopper: boolean;
+    }>(`
+      SELECT revision.resource_id = $4::uuid AND revision.operation_request = $5::jsonb AS matches,
+        revision.after_state AS observation, observation.shopper_id = $2::uuid AS "ownedByCurrentShopper"
+      FROM cheapo.price_observation_revision AS revision
+      JOIN cheapo.price_observation AS observation
+        ON observation.resource_id = revision.resource_id AND observation.household_id = revision.household_id
+      WHERE revision.household_id = $1::uuid AND revision.actor_shopper_id = $2::uuid AND revision.operation_id = $3
     `, [home, member.shopper_id, action.operationId, id, action]);
-    if (replay) return replay.matches ? { status: 'ok', observation: replay.observation } : { status: 'operation_conflict' };
+    if (replay) return replay.matches
+      ? { status: 'ok', observation: { ...replay.observation, ownedByCurrentShopper: replay.ownedByCurrentShopper } }
+      : { status: 'operation_conflict' };
 
-    const before = await readObservationDetail(query, home, id, true);
+    const before = await readObservationDetail(query, member, id, true);
     if (!before) return { status: 'not_found' };
     if (before.version !== action.expectedVersion) return { status: 'version_conflict', current: before };
 
@@ -59,7 +65,7 @@ export function postgresPriceCorrection(transaction: ShoppingTransaction): Execu
       `, [home, id, reason]);
     }
 
-    const after = await readObservationDetail(query, home, id);
+    const after = await readObservationDetail(query, member, id);
     if (!after) throw new Error('Could not read the committed observation revision.');
     await query(`
       INSERT INTO cheapo.price_observation_revision

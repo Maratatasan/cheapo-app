@@ -170,6 +170,10 @@ their original review and product links.
 
 ## Price observation history
 
+List items and detail include `ownedByCurrentShopper`. It indicates whether
+the enrolled shopper originally saved the observation. It distinguishes reused
+source IDs within a household without exposing the original shopper's ID.
+
 Call `GET /v1/me/price-observations` with a Cheapo bearer credential to list
 completed observations eligible for the shopper's household history. The
 response includes `observations` and `nextCursor`. Pages default to 30 entries.
