@@ -47,7 +47,7 @@ const priceChange = z.discriminatedUnion('action', [
 const action = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('save-shop'), shop: savedShop }),
   z.strictObject({ kind: z.literal('edit-shop'), shopId: id, details: shopDetails, base: expectedBranch }),
-  z.strictObject({ kind: z.literal('unlink-shop'), shopId: id }),
+  z.strictObject({ kind: z.literal('unlink-shop'), shopId: id, base: expectedBranch }),
   z.strictObject({ kind: z.literal('select-shop'), shopId: id }),
   z.strictObject({ kind: z.literal('create-product'), product: catalogProduct }),
   z.strictObject({ kind: z.literal('edit-product'), product: catalogProduct, base: expectedProduct }),
@@ -102,17 +102,19 @@ export function requestForMutation(
   switch (action.kind) {
     case 'save-shop': {
       const { id, ...details } = action.shop;
-      return send(shopPath(id), 'PUT', details);
+      return send(shopPath(id), 'PUT', { operationId, shop: details });
     }
-    case 'unlink-shop': return send(shopPath(action.shopId), 'DELETE');
-    case 'select-shop': return send('/v1/me/current-shop', 'PUT', { shopId: action.shopId });
+    case 'unlink-shop':
+      if (typeof version === 'string') return send(shopPath(action.shopId), 'DELETE', { operationId, expectedVersion: version });
+      return;
+    case 'select-shop': return send('/v1/me/current-shop', 'PUT', { operationId, shopId: action.shopId });
     case 'edit-shop':
       if (typeof version === 'string') return send(shopPath(action.shopId), 'PATCH',
         { operationId, expectedVersion: version, details: action.details });
       return;
     case 'create-product': {
       const { id, ...product } = action.product;
-      return send(productPath(id), 'PUT', product);
+      return send(productPath(id), 'PUT', { operationId, product });
     }
     case 'edit-product': {
       const { id, ...product } = action.product;
@@ -130,6 +132,46 @@ export function requestForMutation(
       if (typeof version === 'number' && version > 0 && z.uuid().safeParse(resourceId).success) {
         return send(`/v1/me/price-observations/${resourceId}`, 'PATCH',
           { operationId, expectedVersion: version, ...action.change });
+      }
+      return;
+    }
+  }
+}
+
+export function decodeMutationAcknowledgement(
+  { action }: ShoppingMutation, request: MutationRequest, value: unknown,
+): z.infer<typeof mutationReceipt> | undefined {
+  switch (action.kind) {
+    case 'create-product':
+    case 'edit-product': {
+      const reply = z.object({ product: z.object({ id }), version: recordedVersion }).safeParse(value);
+      if (reply.success && reply.data.product.id === action.product.id) {
+        return { id: reply.data.product.id, version: reply.data.version };
+      }
+      return;
+    }
+    case 'save-shop':
+    case 'edit-shop': {
+      const reply = z.object({ shop: z.object({ id }), version: branchVersion }).safeParse(value);
+      const shopId = action.kind === 'save-shop' ? action.shop.id : action.shopId;
+      if (reply.success && reply.data.shop.id === shopId) return { id: shopId, version: reply.data.version };
+      return;
+    }
+    case 'select-shop':
+    case 'unlink-shop': {
+      const reply = z.object({ shopId: id }).safeParse(value);
+      if (reply.success && reply.data.shopId === action.shopId) return { id: action.shopId };
+      return;
+    }
+    case 'preference': {
+      const reply = z.object({ basis: z.literal(action.basis), version: recordedVersion }).safeParse(value);
+      if (reply.success) return { version: reply.data.version };
+      return;
+    }
+    case 'price': {
+      const reply = z.object({ observation: z.object({ id: z.uuid(), version: recordedVersion }) }).safeParse(value);
+      if (reply.success && request.path === `/v1/me/price-observations/${reply.data.observation.id}`) {
+        return reply.data.observation;
       }
       return;
     }

@@ -1,5 +1,5 @@
 import { openShoppingMutationQueue } from '../data/shopping-mutation-queue';
-import type { ShoppingMutationInput } from '../data/shopping-mutations';
+import { decodeMutationAcknowledgement, shoppingMutation, type ShoppingMutationInput } from '../data/shopping-mutations';
 
 const mockFiles = new Map<string, string>();
 let mockSequence = 0;
@@ -74,7 +74,7 @@ it('stores a single intended edit in protected owner storage across restarts', a
   value.action.product.name = 'A later screen change';
   await write;
   expect(await queue.freeze(createProduct.operationId)).toEqual({
-    method: 'PUT', path: '/v1/products/rice-01', body: JSON.stringify({ name: 'Rice', productType: 'Dry rice' }),
+    method: 'PUT', path: '/v1/products/rice-01', body: JSON.stringify({ operationId: createProduct.operationId, product: { name: 'Rice', productType: 'Dry rice' } }),
   });
   const restarted = await openShoppingMutationQueue({ ...owner, origin: owner.origin + '/' });
   await restarted.enqueue(createProduct);
@@ -165,7 +165,7 @@ it('surfaces an interrupted publication and preserves unrelated scheduled orderi
   await restarted.freeze(createProduct.operationId);
   await restarted.settle(createProduct.operationId, { kind: 'applied', receipt: { id: product.id, version: 1 } });
   expect(await restarted.freeze('select-shop')).toEqual({
-    path: '/v1/me/current-shop', method: 'PUT', body: JSON.stringify({ shopId: 'market' }),
+    path: '/v1/me/current-shop', method: 'PUT', body: JSON.stringify({ operationId: 'select-shop', shopId: 'market' }),
   });
 });
 
@@ -295,4 +295,45 @@ it('does not expose or send a replacement choice until the resolution is durably
   await reopened.resolve(editPrice.operationId, choice);
   expect((await reopened.read()).recovery).toEqual([]);
   expect(JSON.parse((await reopened.freeze(choice.replacementId))?.body ?? '{}')).toMatchObject({ expectedVersion: 2 });
+});
+
+it('pins a removal to the accepted shop link version and preserves exact saved-link and selection requests', async () => {
+  const queue = await openShoppingMutationQueue(owner);
+  const shop = { id: 'intended-market', name: 'Market Road', nickname: 'Our Market' };
+  const create = { operationId: 'save-market', createdAt, title: 'Save market', action: { kind: 'save-shop' as const, shop } };
+  const unlink = {
+    operationId: 'remove-market', createdAt, title: 'Remove market',
+    action: { kind: 'unlink-shop' as const, shopId: shop.id, base: { kind: 'operation' as const, operationId: create.operationId } },
+  };
+  await queue.enqueue(create);
+  await queue.enqueue(unlink);
+  expect(await queue.freeze(create.operationId)).toEqual({
+    method: 'PUT', path: '/v1/me/saved-shops/intended-market',
+    body: JSON.stringify({ operationId: create.operationId, shop: { name: shop.name, nickname: shop.nickname } }),
+  });
+  expect(await queue.freeze(unlink.operationId)).toBeUndefined();
+
+  const version = '1:fa91641f-d265-4a3b-9695-4ff553ab5138';
+  const createIntent = shoppingMutation.parse(create);
+  const savedRequest = await queue.freeze(create.operationId);
+  expect(savedRequest).toBeDefined();
+  if (!savedRequest) throw Error('Missing saved-shop request.');
+  expect(decodeMutationAcknowledgement(createIntent, savedRequest, { shop })).toBeUndefined();
+  expect(decodeMutationAcknowledgement(createIntent, savedRequest,
+    { shop: { id: 'different-market' }, version })).toBeUndefined();
+  const receipt = decodeMutationAcknowledgement(createIntent, savedRequest, { shop, version });
+  expect(receipt).toEqual({ id: shop.id, version });
+  if (!receipt) throw Error('Missing saved-shop acknowledgement.');
+  await queue.settle(create.operationId, { kind: 'applied', receipt });
+  const expected = {
+    method: 'DELETE', path: '/v1/me/saved-shops/intended-market',
+    body: JSON.stringify({ operationId: unlink.operationId, expectedVersion: version }),
+  };
+  expect(await queue.freeze(unlink.operationId)).toEqual(expected);
+  expect(await (await openShoppingMutationQueue(owner)).freeze(unlink.operationId)).toEqual(expected);
+  const unlinkIntent = shoppingMutation.parse(unlink);
+  expect(decodeMutationAcknowledgement(unlinkIntent, { ...expected, method: 'DELETE' },
+    { shopId: 'different-market' })).toBeUndefined();
+  expect(decodeMutationAcknowledgement(unlinkIntent, { ...expected, method: 'DELETE' },
+    { shopId: shop.id })).toEqual({ id: shop.id });
 });
