@@ -18,7 +18,10 @@ type NativePhotoText = { read(uri: string): Promise<PhotoTextEvidence> };
 /** One still photo or selected crop. The caller aborts when that selection changes. */
 export async function readPhotoText(uri: string, signal?: AbortSignal): Promise<PhotoTextResult> {
   if (signal?.aborted) return { status: 'aborted' };
-  if (Platform.OS !== 'android' || !/^(file:\/\/\/[^\s]|content:\/\/[^/\s])/.test(uri)) {
+  const localFile = /^file:\/\/\/[^\s]/.test(uri);
+  const supported = Platform.OS === 'ios' ? localFile
+    : Platform.OS === 'android' && (localFile || /^content:\/\/[^/\s]/.test(uri));
+  if (!supported) {
     return { status: 'unavailable' };
   }
 

@@ -1,4 +1,16 @@
 {
-  "platforms": ["android"],
-  "android": { "modules": ["expo.modules.cheapophototext.CheapoPhotoTextModule"] }
+  "platforms": [
+    "android",
+    "apple"
+  ],
+  "android": {
+    "modules": [
+      "expo.modules.cheapophototext.CheapoPhotoTextModule"
+    ]
+  },
+  "apple": {
+    "modules": [
+      "CheapoPhotoTextModule"
+    ]
+  }
 }

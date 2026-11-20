@@ -50,8 +50,19 @@ test.each(['https://example.test/image.jpg', 'file://remote.example/photo.jpg', 
   },
 );
 
-test.each(['ios', 'web'] as const)('reports unavailable on %s without loading Android code', async platform => {
-  jest.replaceProperty(Platform, 'OS', platform);
+test('reads the same upright evidence from an iPhone local file', async () => {
+  jest.replaceProperty(Platform, 'OS', 'ios');
+  await expect(readPhotoText(uri)).resolves.toEqual({ status: 'found', evidence });
+  expect(loadModule).toHaveBeenCalledWith('CheapoPhotoText');
+  expect(read).toHaveBeenCalledTimes(1);
+  await expect(readPhotoText('content://photos.example/crop')).resolves.toEqual({ status: 'unavailable' });
+  expect(read).toHaveBeenCalledTimes(1);
+  loadModule.mockReturnValue(null);
+  await expect(readPhotoText(uri)).resolves.toEqual({ status: 'unavailable' });
+});
+
+test('reports unavailable on web without loading native code', async () => {
+  jest.replaceProperty(Platform, 'OS', 'web');
   await expect(readPhotoText(uri)).resolves.toEqual({ status: 'unavailable' });
   expect(loadModule).not.toHaveBeenCalled();
 });
