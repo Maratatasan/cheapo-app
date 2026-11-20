@@ -1,7 +1,7 @@
 import { createContext, useContext, useMemo, type ReactNode } from 'react';
 import type { ShopRepository } from '@/data/shop-repository';
 import { createEnrolledSavedShops } from '@/data/enrolled-saved-shops';
-import { cheapoShoppingReads } from '@/data/cheapo-shopping-read-device';
+import { createOwnerShoppingReads } from '@/data/cheapo-shopping-read-device';
 import { sameShoppingOwner } from '@/data/price-append-queue';
 import { CheapoAccessError } from '@/lib/cheapo-access/client';
 import { cheapoAccess } from '@/lib/cheapo-access/device';
@@ -13,8 +13,8 @@ export function ShopRepositoryProvider({ repository, children }: { repository: S
   const runtime = useCheapoShopping();
   const selected = useMemo(() => {
     const access = cheapoAccess;
-    const readings = cheapoShoppingReads;
-    if (!runtime || !access || !readings) return repository;
+    if (!runtime || !access) return repository;
+    const readings = createOwnerShoppingReads(runtime.owner);
     return createEnrolledSavedShops({
       queue: runtime.mutationQueue,
       loadHosted: observed => readings.loadEditableSavedShops(undefined, observed),

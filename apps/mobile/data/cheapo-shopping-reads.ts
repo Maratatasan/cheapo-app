@@ -1,4 +1,4 @@
-import { productSchema, shopSchema, type Product, type Shop } from "@cheapo/domain";
+import { packagePriceBases, productSchema, shopSchema, type PackagePriceBasis, type Product, type Shop } from "@cheapo/domain";
 import { canonicalProductBarcode } from "@cheapo/domain/product-barcode";
 import type { PriceHistoryQuery, PriceObservationDetail } from "@cheapo/domain/price-history";
 import { CheapoAccessError, type CheapoReadSession } from "../lib/cheapo-access/client";
@@ -20,7 +20,7 @@ type SavedShop = Shop & { testShop?: boolean };
 type SavedShopRead = { shops: SavedShop[]; currentShop?: SavedShop };
 export type EditableSavedShopRead = SavedShopRead & { versions: { shopId: string; version: string }[] };
 type ShopCandidate = Pick<Shop, "id" | "name" | "address" | "location">;
-type Decoder<T> = (raw: unknown) => T;
+type Decoder<T> = (raw: unknown, etag?: string | null) => T;
 const readDeadlineMs = 35_000;
 
 function malformed(): never {
@@ -87,14 +87,52 @@ function decodeProduct(value: unknown): { product: Product | null } {
   return { product: result.data };
 }
 
+export type EditableProductRead = { product: Product; version: number } | { product: null };
+export type ComparisonPreferenceRead = { basis: PackagePriceBasis | null; version: number };
+
+function numericVersion(raw: unknown, etag?: string | null): number {
+  const parsed = etag === undefined ? object(raw).version : /^"(0|[1-9][0-9]{0,9})"$/.exec(etag ?? '')?.[1];
+  const version = typeof parsed === 'string' && etag !== undefined ? Number(parsed) : parsed;
+  if (typeof version !== 'number' || !Number.isInteger(version) || version < 0 || version > 2_147_483_647) return malformed();
+  return version;
+}
+
+function decodeEditableProduct(value: unknown, etag?: string | null): EditableProductRead {
+  const { product } = decodeProduct(value);
+  if (!product) return { product: null };
+  const version = numericVersion(value, etag);
+  return version > 0 ? { product, version } : malformed();
+}
+
+function decodeComparisonPreference(value: unknown, etag?: string | null): ComparisonPreferenceRead {
+  const version = numericVersion(value, etag);
+  const requested = object(value).basis;
+  const basis = requested === null ? null : packagePriceBases.find(item => item === requested);
+  if (basis === undefined || (version === 0 && basis !== null)) return malformed();
+  return { basis, version };
+}
+
+function productPath(id: string) {
+  if (!productSchema.shape.id.safeParse(id).success || id === '.' || id === '..' || id.includes('\0')) throw Error('Invalid product ID.');
+  return `/v1/products/${encodeURIComponent(id)}`;
+}
+
+function barcodePath(barcode: string) {
+  const gtin = canonicalProductBarcode(barcode);
+  if (!gtin) throw Error('Enter a valid product barcode.');
+  return `/v1/products?gtin=${gtin}`;
+}
+
 export function createCheapoShoppingReads(openSession: () => Promise<CheapoReadSession>, cache: ReadCache) {
   async function read<T>(
     path: string, decode: Decoder<T>, cacheable: ((value: T) => boolean) | undefined, signal?: AbortSignal,
-    notFound?: () => T, observedOperations?: readonly string[],
+    notFound?: () => T, { observedOperations, cacheVersioned }: {
+      observedOperations?: readonly string[]; cacheVersioned?: boolean;
+    } = {},
   ): Promise<ShoppingRead<T>> {
     if (signal?.aborted) throw requestInterrupted();
     const session = await openSession();
-    const key = `${session.cacheScope}\0${path}`;
+    const key = `${session.cacheScope}\0${path}${cacheVersioned ? '\0versioned' : ''}`;
 
     function assertCurrent() {
       if (signal?.aborted) throw requestInterrupted();
@@ -125,12 +163,13 @@ export function createCheapoShoppingReads(openSession: () => Promise<CheapoReadS
       return result;
     }
 
-    let response: { ok: boolean; status: number; body: unknown };
+    let response: { ok: boolean; status: number; body: unknown; etag: string | null };
     try {
       response = await withCheapoDeadline(signal, readDeadlineMs, async stageSignal => {
         const checked = await session.get(path, stageSignal);
         if (stageSignal.aborted) throw requestInterrupted();
-        return { status: checked.status, ok: checked.ok, body: checked.ok ? await checked.json() : undefined };
+        return { status: checked.status, ok: checked.ok, body: checked.ok ? await checked.json() : undefined,
+          etag: checked.headers.get('ETag') };
       });
     } catch (error) {
       if (error instanceof CheapoAccessError || error instanceof SyntaxError || signal?.aborted) throw error;
@@ -138,7 +177,7 @@ export function createCheapoShoppingReads(openSession: () => Promise<CheapoReadS
     }
     if (response.status === 429 || response.status >= 500) return fromCache();
     if (!response.ok && (response.status !== 404 || !notFound)) throw Error("Could not read shopping data from Cheapo.");
-    const value = response.status === 404 && notFound ? notFound() : decode(response.body);
+    const value = response.status === 404 && notFound ? notFound() : decode(response.body, response.etag);
     assertCurrent();
     const lastSyncedAt = new Date().toISOString();
     const metadata = observedOperations ? { observedOperationIds: [...observedOperations] } : {};
@@ -157,18 +196,24 @@ export function createCheapoShoppingReads(openSession: () => Promise<CheapoReadS
   return {
     loadSavedShops: (signal?: AbortSignal) => read("/v1/me/saved-shops", decodeSavedShops, () => true, signal),
     loadEditableSavedShops: (signal?: AbortSignal, observedOperations?: readonly string[]) =>
-      read("/v1/me/saved-shops?includeVersions=true", decodeEditableSavedShops, () => true, signal, undefined, observedOperations),
+      read("/v1/me/saved-shops?includeVersions=true", decodeEditableSavedShops, () => true, signal, undefined, { observedOperations }),
     searchShopCandidates(query: string, signal?: AbortSignal) {
       return read(`/v1/shops?${new URLSearchParams({ query })}`, decodeCandidates, undefined, signal);
     },
-    findProductByBarcode(barcode: string, signal?: AbortSignal) {
-      const gtin = canonicalProductBarcode(barcode);
-      if (!gtin) throw Error("Enter a valid product barcode.");
-      return read(`/v1/products?gtin=${gtin}`, decodeProduct, value => value.product !== null, signal);
-    },
-    findProductById(id: string, signal?: AbortSignal) {
-      if (!productSchema.shape.id.safeParse(id).success || id === "." || id === ".." || id.includes("\0")) throw Error("Invalid product ID.");
-      return read(`/v1/products/${encodeURIComponent(id)}`, decodeProduct, value => value.product !== null, signal);
+    findProductByBarcode: (barcode: string, signal?: AbortSignal) =>
+      read(barcodePath(barcode), decodeProduct, value => value.product !== null, signal),
+    findProductById: (id: string, signal?: AbortSignal) =>
+      read(productPath(id), decodeProduct, value => value.product !== null, signal),
+    findEditableProductByBarcode: (barcode: string, signal?: AbortSignal) =>
+      read(barcodePath(barcode), decodeEditableProduct, value => value.product !== null, signal, undefined, { cacheVersioned: true }),
+    findEditableProductById: (id: string, signal?: AbortSignal) =>
+      read(productPath(id), decodeEditableProduct, value => value.product !== null, signal, undefined, { cacheVersioned: true }),
+    loadComparisonPreference(groupId: string, signal?: AbortSignal) {
+      if (!groupId.length || groupId.length > 128 || groupId !== groupId.trim()
+        || groupId === '.' || groupId === '..' || /[\p{Cc}/]/u.test(groupId)) {
+        throw Error('Invalid comparison group.');
+      }
+      return read(`/v1/me/comparison-preferences/${encodeURIComponent(groupId)}`, decodeComparisonPreference, () => true, signal);
     },
     loadPriceHistory(query: PriceHistoryQuery = {}, signal?: AbortSignal) {
       return read(historyPagePath(query), decodeHistoryPage, () => true, signal);

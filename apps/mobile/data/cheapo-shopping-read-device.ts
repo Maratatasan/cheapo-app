@@ -13,7 +13,7 @@ export const cheapoPricePhotoRead = cheapoAccess
   ? createCheapoPricePhotoRead(cheapoAccess.openReadSession, cheapoPricePhotoCache)
   : null;
 
-export async function openCheapoSavedPriceReads(owner: PriceQueueOwner) {
+async function openOwnerReadSession(owner: PriceQueueOwner) {
   if (!cheapoAccess) throw new CheapoAccessError("Cheapo shopping access is unavailable.");
   const session = await cheapoAccess.openReadSession();
   const verified = await cheapoAccess.lastVerifiedOwner();
@@ -21,6 +21,15 @@ export async function openCheapoSavedPriceReads(owner: PriceQueueOwner) {
   if (!verified || verified.origin !== owner.origin || verified.householdId !== owner.householdId || verified.shopperId !== owner.shopperId) {
     throw new CheapoAccessError("Cheapo access changed. Try again.");
   }
+  return session;
+}
+
+export function createOwnerShoppingReads(owner: PriceQueueOwner) {
+  return createCheapoShoppingReads(() => openOwnerReadSession(owner), cheapoShoppingReadCache);
+}
+
+export async function openCheapoSavedPriceReads(owner: PriceQueueOwner) {
+  const session = await openOwnerReadSession(owner);
   const openBound = async () => {
     session.assertCurrent();
     return session;

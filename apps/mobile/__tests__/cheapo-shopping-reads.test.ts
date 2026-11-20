@@ -272,3 +272,35 @@ test("rejects missing, repeated, mismatched and malformed saved-shop versions", 
   }
   expect(cache.size).toBe(0);
 });
+
+test("keeps the checked catalog version with an exact offline hit without changing legacy lookup", async () => {
+  const { download, cache, start } = setup();
+  const reads = start();
+  const product = { id: "oats", name: "Oats", barcode: "00012345678905" };
+  download.mockResolvedValueOnce(Response.json({ product }, { headers: { ETag: '"2"' } }));
+  const loaded = await reads.findEditableProductByBarcode(product.barcode);
+  expect(loaded).toMatchObject({ status: "fresh", value: { product, version: 2 } });
+  expect([...cache.keys()]).toEqual(["fixture-scope-one\0/v1/products?gtin=00012345678905\0versioned"]);
+  download.mockRejectedValueOnce(Error("Offline"));
+  expect(await reads.findEditableProductByBarcode(product.barcode)).toEqual({ ...loaded, status: "cached" });
+  download.mockRejectedValueOnce(Error("Offline"));
+  expect(await reads.findProductByBarcode(product.barcode)).toEqual({ status: "unavailable" });
+  download.mockResolvedValueOnce(Response.json({ product, version: 3 }));
+  await expect(reads.findEditableProductById(product.id)).rejects.toThrow("unreadable");
+  download.mockResolvedValueOnce(Response.json({ product: null }));
+  expect(await reads.findEditableProductByBarcode(product.barcode)).toMatchObject({ status: "fresh", value: { product: null } });
+  expect(cache.size).toBe(0);
+});
+
+test("preserves a cleared comparison preference and its version in the enrolled cache", async () => {
+  const { download, start } = setup();
+  const reads = start();
+  download.mockResolvedValueOnce(Response.json({ basis: null }, { headers: { ETag: '"3"' } }));
+  const checked = await reads.loadComparisonPreference("dry rice");
+  expect(checked).toMatchObject({ status: "fresh", value: { basis: null, version: 3 } });
+  expect(download.mock.calls[0][0]).toBe(origin + "/v1/me/comparison-preferences/dry%20rice");
+  download.mockRejectedValueOnce(Error("Offline"));
+  expect(await reads.loadComparisonPreference("dry rice")).toEqual({ ...checked, status: "cached" });
+  download.mockResolvedValueOnce(Response.json({ basis: "kg" }, { headers: { ETag: '"0"' } }));
+  await expect(reads.loadComparisonPreference("dry rice")).rejects.toThrow("unreadable");
+});
