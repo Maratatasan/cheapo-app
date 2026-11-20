@@ -3,9 +3,9 @@ import { CryptoDigestAlgorithm, digestStringAsync } from "expo-crypto";
 import * as SecureStore from "expo-secure-store";
 
 import { createCheapoAccess } from "./client";
-import { fieldCheapoApiOrigin } from "./config";
+import { configuredCheapoApiOrigin } from "./config";
 
-const origin = fieldCheapoApiOrigin();
+const origin = configuredCheapoApiOrigin();
 export const cheapoAccess = origin ? createCheapoAccess(origin, {
   getItem: SecureStore.getItemAsync,
   setItem: SecureStore.setItemAsync,

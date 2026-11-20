@@ -1,8 +1,9 @@
 import configure from '../app.config';
 import type { ConfigContext } from 'expo/config';
-const config={name:'Cheapo',slug:'cheapo-app',scheme:'myapp',plugins:['expo-router'],extra:{existing:true},android:{package:'com.example.cheapo'}};
+const config={name:'Cheapo',slug:'cheapo-app',scheme:'myapp',plugins:['expo-router'],extra:{existing:true},
+  android:{package:'com.example.cheapo'},ios:{bundleIdentifier:'com.example.cheapo',buildNumber:'5'}};
 const context:ConfigContext={config,projectRoot:'/test',staticConfigPath:null,packageJsonPath:'/test/package.json'};
-afterEach(()=>{delete process.env.CHEAPO_AUTH_TEST;delete process.env.CHEAPO_FIELD_TEST;delete process.env.CHEAPO_API_ORIGIN;});
+afterEach(()=>{delete process.env.CHEAPO_AUTH_TEST;delete process.env.CHEAPO_FIELD_TEST;delete process.env.CHEAPO_IOS_SHARED;delete process.env.CHEAPO_API_ORIGIN;});
 it('preserves the normal app configuration unless explicitly opted in',()=>{
   expect(configure(context)).toEqual(config);
 });
@@ -28,4 +29,28 @@ it('sets only a plain HTTPS origin for field enrollment', () => {
   expect(configure(context).extra?.cheapoApiOrigin).toBe('https://cheapo.example');
   process.env.CHEAPO_API_ORIGIN = 'https://cheapo.example/?credential=synthetic';
   expect(() => configure(context)).toThrow('CHEAPO_API_ORIGIN must be a plain HTTPS origin.');
+});
+
+it('opts the existing iPhone app into shared shopping while retaining its app identity', () => {
+  process.env.CHEAPO_IOS_SHARED = '1';
+  process.env.CHEAPO_API_ORIGIN = 'https://cheapo.example/';
+  expect(configure(context)).toEqual({
+    ...config,
+    plugins: ['expo-router', 'expo-secure-store'],
+    extra: { ...config.extra, iosSharedShopping: true, cheapoApiOrigin: 'https://cheapo.example' },
+  });
+});
+
+it.each([undefined, 'http://cheapo.example', 'https://cheapo.example/private', 'https://user@cheapo.example'])(
+  'rejects an absent or unsafe iPhone origin (%s)', origin => {
+    process.env.CHEAPO_IOS_SHARED = '1';
+    if (origin) process.env.CHEAPO_API_ORIGIN = origin;
+    expect(() => configure(context)).toThrow('CHEAPO_API_ORIGIN must be a plain HTTPS origin for iPhone shared shopping.');
+  },
+);
+
+it.each(['CHEAPO_FIELD_TEST', 'CHEAPO_AUTH_TEST'])('keeps %s separate from iPhone shared access', flag => {
+  process.env.CHEAPO_IOS_SHARED = '1';
+  process.env[flag] = '1';
+  expect(() => configure(context)).toThrow('Choose one');
 });

@@ -5,7 +5,19 @@ import { parseCheapoApiOrigin } from './lib/cheapo-access/origin.js';
 export default function configure({ config }: ConfigContext): ExpoConfig {
   const authTest = process.env.CHEAPO_AUTH_TEST === '1';
   const fieldTest = process.env.CHEAPO_FIELD_TEST === '1';
-  if (authTest && fieldTest) throw new Error('Choose one Cheapo test app per build.');
+  const iosShared = process.env.CHEAPO_IOS_SHARED === '1';
+  if ((authTest && fieldTest) || (iosShared && (authTest || fieldTest))) {
+    throw new Error('Choose one Cheapo build mode.');
+  }
+  if (iosShared) {
+    const cheapoApiOrigin = parseCheapoApiOrigin(process.env.CHEAPO_API_ORIGIN);
+    if (!cheapoApiOrigin) throw new Error('CHEAPO_API_ORIGIN must be a plain HTTPS origin for iPhone shared shopping.');
+    return {
+      ...(config as ExpoConfig),
+      plugins: [...(config.plugins ?? []), 'expo-secure-store'],
+      extra: { ...config.extra, iosSharedShopping: true, cheapoApiOrigin },
+    };
+  }
   if (fieldTest) {
     const configuredOrigin = process.env.CHEAPO_API_ORIGIN;
     const cheapoApiOrigin = parseCheapoApiOrigin(configuredOrigin);

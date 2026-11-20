@@ -3,9 +3,9 @@ import { Platform } from "react-native";
 
 import { parseCheapoApiOrigin } from "./origin";
 
-export function fieldCheapoApiOrigin() {
+export function configuredCheapoApiOrigin() {
   const extra = Constants.expoConfig?.extra;
-  return Platform.OS === "android" && extra?.fieldTest === true
-    ? parseCheapoApiOrigin(extra.cheapoApiOrigin)
-    : null;
+  if (Platform.OS === "android" && extra?.fieldTest === true) return parseCheapoApiOrigin(extra.cheapoApiOrigin);
+  if (Platform.OS === "ios" && extra?.iosSharedShopping === true) return parseCheapoApiOrigin(extra.cheapoApiOrigin);
+  return null;
 }
