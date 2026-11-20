@@ -153,6 +153,28 @@ test('replays a concurrent price save and refuses to replace the original observ
   assert.deepEqual(saved[0].unitPrice, input.unitPrice);
 });
 
+
+test('replays a lost acknowledgement after a later correction while leaving that correction intact', async () => {
+  const input = { ...appendInput, sourceId: 'lost-save-acknowledgement', productId: null };
+  const initial = await request('H', '', 'POST', input);
+  assert.equal(initial.status, 201);
+  const identity = await initial.json() as { id: string; sourceId: string; version: number };
+  await pool.query(`UPDATE cheapo.price_observation
+    SET record_version = 2, price_amount = 4.50, review = jsonb_set(review, '{price}', '"4.50"')
+    WHERE resource_id = $1::uuid`, [identity.id]);
+
+  const retried = await request('H', '', 'POST', input);
+  assert.equal(retried.status, 200);
+  assert.deepEqual(await retried.json(), identity);
+  const changed = await request('H', '', 'POST', { ...input, review: { ...input.review, price: '4.50' } });
+  assert.equal(changed.status, 409);
+  const history = await (await request('I')).json() as HistoryBody;
+  const corrected = history.observations.find(observation => observation.id === identity.id);
+  assert(corrected);
+  assert.equal(corrected.priceAmount, '4.50');
+  assert.equal(corrected.version, 2);
+});
+
 test('validates reviewed amounts and links and resolves every save to the enrolled household', async () => {
   const candidate = { ...appendInput, sourceId: 'second-dated-price' };
   for (const invalid of [

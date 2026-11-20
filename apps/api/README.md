@@ -191,7 +191,8 @@ with `amount` and `unit` when the reviewed observation has a unit price.
 The reviewed unit-price pair must match this object when supplied.
 
 The first save returns `201` with `id`, `sourceId`, and `version`. An
-identical replay returns the same identity with `200`. A changed observation
+identical replay returns the original receipt with `200`, including when a later
+edit changed the observation. A changed observation
 using an existing source ID returns `409 source_conflict`. A missing product
 or unauthorized saved-shop link returns `422 invalid_reference`.
 
