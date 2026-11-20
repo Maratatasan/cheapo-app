@@ -7,6 +7,7 @@ import { loadSavedPriceRecords, saveManualPrice, type LocalPhotoDraft, type Manu
 
 const mockPush = jest.fn();
 const mockUseCheapoShopping = jest.fn();
+const mockCatalog = jest.fn();
 const mockCameraProps = jest.fn<unknown, [Parameters<typeof CameraComponent>[0]]>();
 jest.mock('expo-router', () => ({
   useRouter: () => ({ push: mockPush }),
@@ -22,6 +23,7 @@ jest.mock('expo-camera', () => ({
 jest.mock('@/data/local-products', () => ({ addLocalProduct: jest.fn(), findLocalProductByBarcode: jest.fn(), replaceLocalProductBarcode: jest.fn() }));
 jest.mock('@/data/local-photo', () => ({ loadSavedPriceRecords: jest.fn(), saveManualPrice: jest.fn() }));
 jest.mock('@/component/cheapo-shopping-provider', () => ({ useCheapoShopping: () => mockUseCheapoShopping() }));
+jest.mock('@/hooks/use-enrolled-catalog', () => ({ useEnrolledCatalog: () => mockCatalog() }));
 jest.mock('@/component/camera', () => ({ CameraComponent: (props: Parameters<typeof CameraComponent>[0]) => {
   const { Button } = require('react-native');
   mockCameraProps(props);
@@ -41,6 +43,7 @@ const row = (id: string, shop: string, variety: string, brand: string, price: st
 beforeEach(() => {
   jest.resetAllMocks();
   mockUseCheapoShopping.mockReturnValue(null);
+  mockCatalog.mockReturnValue(null);
 });
 
 async function scan(data = '012345678905') {
@@ -330,4 +333,49 @@ test('opens a price photo with the unknown scan and keeps Add product fields whe
   expect(screen.getByLabelText('Product name')).toHaveDisplayValue('Entered name');
   expect(addLocalProduct).not.toHaveBeenCalled();
   expect(saveManualPrice).not.toHaveBeenCalled();
+});
+
+test('checks the enrolled catalog and commits a barcode correction against the displayed product', async () => {
+  const displayed = { ...product, barcode: '00012345678905', catalogBase: { kind: 'version', version: 7 } };
+  const corrected = { ...displayed, barcode: '04006381333931' };
+  const findByBarcode = jest.fn(async () => displayed);
+  const replaceBarcode = jest.fn(async () => corrected);
+  mockCatalog.mockReturnValue({ findByBarcode, replaceBarcode });
+  jest.mocked(loadSavedPriceRecords).mockResolvedValue([]);
+  await render(<BarcodeScan currentShop={currentShop} onScanLabel={jest.fn()} />);
+  await scan();
+  await fireEvent.press(screen.getByRole('button', { name: 'Edit barcode' }));
+  await fireEvent.press(screen.getByRole('button', { name: 'Enter manually' }));
+  await fireEvent.changeText(screen.getByLabelText('Proposed barcode'), '4006381333931');
+  await fireEvent.press(screen.getByRole('button', { name: 'Save barcode' }));
+  expect(findByBarcode).toHaveBeenCalledWith(displayed.barcode, expect.anything());
+  expect(replaceBarcode).toHaveBeenCalledWith(displayed, corrected.barcode);
+  expect(replaceLocalProductBarcode).not.toHaveBeenCalled();
+  expect(findLocalProductByBarcode).not.toHaveBeenCalled();
+  expect(screen.getByText(`Barcode ${corrected.barcode}`)).toBeOnTheScreen();
+});
+
+test('queues a new enrolled product after a checked barcode miss', async () => {
+  const save = jest.fn(async () => product);
+  mockCatalog.mockReturnValue({ findByBarcode: jest.fn(async () => undefined), save });
+  await render(<BarcodeScan currentShop={currentShop} onScanLabel={jest.fn()} />);
+  await scan();
+  await fireEvent.press(screen.getByRole('button', { name: 'Add product' }));
+  await fireEvent.changeText(screen.getByLabelText('Product name'), product.name);
+  await fireEvent.changeText(screen.getByLabelText('Product type'), product.productType);
+  await fireEvent.press(screen.getByRole('button', { name: 'Save product' }));
+  expect(save).toHaveBeenCalledWith(expect.objectContaining({ name: product.name, barcode: '00012345678905' }));
+  expect(addLocalProduct).not.toHaveBeenCalled();
+});
+
+test('explains why an enrolled offline barcode could not be checked without offering to create it', async () => {
+  const response = Promise.withResolvers<typeof product>();
+  mockCatalog.mockReturnValue({ findByBarcode: () => response.promise });
+  await render(<BarcodeScan currentShop={currentShop} onScanLabel={jest.fn()} />);
+  await scan();
+  expect(screen.getByText('Checking the shared catalog.')).toBeOnTheScreen();
+  await act(() => { response.reject(Error('Could not check this product offline. Try again when you’re connected.')); });
+  expect(screen.getByText(/Could not check this product offline/)).toBeOnTheScreen();
+  expect(screen.queryByRole('button', { name: 'Add product' })).not.toBeOnTheScreen();
+  expect(findLocalProductByBarcode).not.toHaveBeenCalled();
 });
