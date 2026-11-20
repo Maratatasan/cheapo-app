@@ -1,15 +1,21 @@
 import { scanFromURLAsync, type BarcodeScanningResult } from 'expo-camera';
+import { requireOptionalNativeModule } from 'expo';
 import { Platform } from 'react-native';
 
 import { decodePhotoBarcodes } from '@/data/photo-barcode';
 
 jest.mock('expo-camera', () => ({ scanFromURLAsync: jest.fn() }));
+jest.mock('expo', () => ({ requireOptionalNativeModule: jest.fn() }));
 jest.mock('react-native', () => ({ Platform: { OS: 'android' } }));
 
 const original = 'file:///photos/original.jpg';
 const scan = jest.mocked(scanFromURLAsync);
+const native = jest.mocked(requireOptionalNativeModule);
 
-beforeEach(() => scan.mockReset());
+beforeEach(() => {
+  scan.mockReset();
+  native.mockReset().mockReturnValue(null);
+});
 
 function detected(data: string, raw?: string): BarcodeScanningResult {
   return {
@@ -59,11 +65,28 @@ test('returns a recoverable outcome when the native decoder fails', async () => 
   await expect(decodePhotoBarcodes(original)).resolves.toEqual({ status: 'error' });
 });
 
-test.each(['ios', 'web'] as const)('does not run the still-photo retail decoder on %s', async os => {
+test.each(['ios', 'web'] as const)('uses manual fallback on %s when no retail module is available', async os => {
   const platform = jest.replaceProperty(Platform, 'OS', os);
   try {
     await expect(decodePhotoBarcodes(original)).resolves.toEqual({ status: 'unavailable' });
     expect(scan).not.toHaveBeenCalled();
+  } finally {
+    platform.restore();
+  }
+});
+
+test('reads multiple iPhone retail codes locally and runs the shared GTIN validation', async () => {
+  const platform = jest.replaceProperty(Platform, 'OS', 'ios');
+  try {
+    const readRetailBarcodes = jest.fn().mockResolvedValue(['0036000291452', '036000291452', '96385074', '4006381333932']);
+    native.mockReturnValue({ readRetailBarcodes });
+    await expect(decodePhotoBarcodes(original)).resolves.toEqual({ status: 'found', codes: ['0036000291452', '96385074'] });
+    expect(readRetailBarcodes).toHaveBeenCalledWith(original);
+    expect(scan).not.toHaveBeenCalled();
+    await expect(decodePhotoBarcodes('https://example.test/original.jpg')).resolves.toEqual({ status: 'unavailable' });
+    expect(readRetailBarcodes).toHaveBeenCalledTimes(1);
+    native.mockReturnValue({ read: jest.fn() });
+    await expect(decodePhotoBarcodes(original)).resolves.toEqual({ status: 'unavailable' });
   } finally {
     platform.restore();
   }

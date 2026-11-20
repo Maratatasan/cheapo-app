@@ -29,7 +29,7 @@ enum PhotoTextVisionTests {
       do {
         _ = try CheapoPhotoTextVision.read(unsupported)
         preconditionFailure("Invalid photo was accepted.")
-      } catch CheapoPhotoTextFailure.unsupportedPhoto {
+      } catch CheapoVisionPhotoFailure.unsupportedPhoto {
         continue
       }
     }

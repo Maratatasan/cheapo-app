@@ -14,5 +14,14 @@ public final class CheapoPhotoTextModule: Module {
           userInfo: [NSLocalizedDescriptionKey: "Could not read text from this photo."])
       }
     }.runOnQueue(recognitionQueue)
+
+    AsyncFunction("readRetailBarcodes") { (uri: String) throws -> [String] in
+      do {
+        return try CheapoRetailBarcodeVision.read(uri)
+      } catch {
+        throw NSError(domain: "CheapoPhotoText", code: 2,
+          userInfo: [NSLocalizedDescriptionKey: "Could not read barcodes from this photo."])
+      }
+    }.runOnQueue(recognitionQueue)
   }
 }
