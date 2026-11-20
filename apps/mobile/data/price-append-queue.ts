@@ -7,7 +7,7 @@ import { Directory, File, Paths } from 'expo-file-system';
 import { parseCheapoApiOrigin } from '../lib/cheapo-access/origin';
 import { type DraftShop, type LocalPhotoDraft, type PhotoAsset, type SavedPriceRecord, isSavedPriceRecord, savedPhotoDirectory } from './local-photo';
 import { readQueueBackupFiles } from './queue-backup-files';
-import { reviewComplete, reviewUnitPrice } from './photo-review';
+import { reviewComplete, reviewUnitPrice, type ManualReview } from './photo-review';
 import { createPriceEvidenceStore } from './price-evidence-queue';
 import { mutationOperationId } from './shopping-mutations';
 
@@ -21,10 +21,13 @@ export type ProductPriceDraft = {
   catalogOperationId: string;
   createdAt: string;
   barcode?: string;
+  revision?: number;
 };
+export type ProductPriceDraftUpdate = { review: ManualReview; barcode: string | null; expectedRevision?: number };
 export type ProductPriceChoice = { kind: 'add' } | { kind: 'reuse'; productId: string };
-const backupFileName = /^[A-Za-z0-9_-]{1,128}\.(?:(?:price|receipt|needs-shop|product-price-draft|product-price-choice|evidence|(?:original|crop)\.evidence-available)\.json|(?:price|photo)\.sync-failed)(?:\.[\w-]+\.pending)?$/;
+const backupFileName = /^[A-Za-z0-9_-]{1,128}\.(?:(?:price|receipt|needs-shop|product-price-draft(?:\.r[1-9]\d*)?|product-price-choice|evidence|(?:original|crop)\.evidence-available)\.json|(?:price|photo)\.sync-failed)(?:\.[\w-]+\.pending)?$/;
 const productPriceDraftName = /^([A-Za-z0-9_-]{1,128})\.product-price-draft\.json$/;
+const productPriceRevisionName = /^([A-Za-z0-9_-]{1,128})\.product-price-draft\.r([1-9]\d*)\.json$/;
 const productPriceChoiceName = /^([A-Za-z0-9_-]{1,128})\.product-price-choice\.json$/;
 const localId = /^[A-Za-z0-9_-]{1,128}$/;
 const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
@@ -105,13 +108,16 @@ function requireProductPriceDraft(value: unknown): ProductPriceDraft {
   const parsedDate = typeof createdAt === 'string' ? Date.parse(createdAt) : NaN;
   const operation = mutationOperationId.safeParse(value.catalogOperationId);
   const barcode = 'barcode' in value && typeof value.barcode === 'string' ? canonicalProductBarcode(value.barcode) : undefined;
+  const revision = 'revision' in value ? value.revision : undefined;
   const record = requirePriceRecord(value.record);
   if (!record.productId || !operation.success || typeof createdAt !== 'string' || !Number.isFinite(parsedDate)
-    || new Date(parsedDate).toISOString() !== createdAt || ('barcode' in value && value.barcode !== undefined && !barcode)) {
+    || new Date(parsedDate).toISOString() !== createdAt || ('barcode' in value && value.barcode !== undefined && !barcode)
+    || (revision !== undefined && (typeof revision !== 'number' || !Number.isSafeInteger(revision) || revision < 2))) {
     throw Error('This product draft is unreadable.');
   }
   encodePriceAppend(record);
-  return { record, catalogOperationId: operation.data, createdAt, ...(barcode ? { barcode } : {}) };
+  return { record, catalogOperationId: operation.data, createdAt, ...(barcode ? { barcode } : {}),
+    ...(revision !== undefined ? { revision } : {}) };
 }
 
 function requireProductChoice(value: unknown): ProductPriceChoice {
@@ -156,9 +162,9 @@ export async function openPriceAppendQueue(input: PriceQueueOwner) {
     return new File(directory, `${id}.needs-shop.json`);
   }
 
-  function productPriceDraftFile(id: string) {
+  function productPriceDraftFile(id: string, revision?: number) {
     if (!localId.test(id)) throw Error('Invalid product draft ID.');
-    return new File(directory, `${id}.product-price-draft.json`);
+    return new File(directory, `${id}.product-price-draft${revision === undefined ? '' : `.r${revision}`}.json`);
   }
 
   function productPriceChoiceFile(id: string) {
@@ -169,7 +175,7 @@ export async function openPriceAppendQueue(input: PriceQueueOwner) {
   function hasProductPriceDraft(id: string) {
     const file = productPriceDraftFile(id);
     return file.exists || (directory.exists && directory.list().some(entry =>
-      entry.name.startsWith(`${file.name}.`) && entry.name.endsWith('.pending')));
+      entry.name.startsWith(`${id}.product-price-draft.`)));
   }
 
   async function publish(file: File, text: string) {
@@ -214,7 +220,27 @@ export async function openPriceAppendQueue(input: PriceQueueOwner) {
       || !('format' in value) || value.format !== 1 || !('draft' in value)) throw Error('The product draft owner or format is invalid.');
     const draft = requireProductPriceDraft(value.draft);
     if (draft.record.id !== sourceId) throw Error('The product draft ID does not match.');
+    const filename = file.name.replace(/\.[\w-]+\.pending$/, '');
+    const revisionSuffix = productPriceRevisionName.exec(filename)?.[2];
+    if (draft.revision !== (revisionSuffix === undefined ? undefined : Number(revisionSuffix))) {
+      throw Error('The product draft revision does not match.');
+    }
     return draft;
+  }
+
+  async function readCurrentProductPriceDraft(sourceId: string) {
+    const first = productPriceDraftFile(sourceId);
+    if (!first.exists) throw Error('The product draft could not be found.');
+    let latest = first;
+    let revision = 1;
+    for (const file of directory.list()) {
+      const match = productPriceRevisionName.exec(file.name);
+      if (match?.[1] !== sourceId || Number(match[2]) <= revision) continue;
+      if (!(file instanceof File)) throw Error('The product draft revision is unreadable.');
+      latest = file;
+      revision = Number(match[2]);
+    }
+    return readProductPriceDraft(latest, sourceId);
   }
 
   async function readChoiceFile(file: File, sourceId: string) {
@@ -260,8 +286,9 @@ export async function openPriceAppendQueue(input: PriceQueueOwner) {
       const receipt = /^([A-Za-z0-9_-]{1,128})\.receipt\.json$/.exec(file.name);
       const needsShop = /^([A-Za-z0-9_-]{1,128})\.needs-shop\.json$/.exec(file.name);
       const productDraft = productPriceDraftName.exec(file.name);
+      const productRevision = productPriceRevisionName.exec(file.name);
       const productChoice = productPriceChoiceName.exec(file.name);
-      const staged = /^(([A-Za-z0-9_-]{1,128})\.(?:price|receipt|needs-shop|product-price-draft|product-price-choice)\.json)\.[\w-]+\.pending$/.exec(file.name);
+      const staged = /^(([A-Za-z0-9_-]{1,128})\.(?:price|receipt|needs-shop|product-price-draft(?:\.r[1-9]\d*)?|product-price-choice)\.json)\.[\w-]+\.pending$/.exec(file.name);
       if (staged) {
         try {
           const committed = new File(directory, staged[1]);
@@ -298,7 +325,7 @@ export async function openPriceAppendQueue(input: PriceQueueOwner) {
         const sourceId = productDraft[1];
         try {
           if (!(file instanceof File)) throw Error('The product draft is not a file.');
-          const draft = await readProductPriceDraft(file, sourceId);
+          const draft = await readCurrentProductPriceDraft(sourceId);
           productPriceDrafts.push(draft);
           if (!priceFile(sourceId).exists && await restoreProductPriceChoice(sourceId, false)) {
             recovery.push({ sourceId, reason: 'unfinished', confirmedProductTitle: draft.record.review?.productName ?? 'Saved product' });
@@ -306,6 +333,8 @@ export async function openPriceAppendQueue(input: PriceQueueOwner) {
         } catch {
           recovery.push({ sourceId, reason: 'unreadable' });
         }
+      } else if (productRevision && !productPriceDraftFile(productRevision[1]).exists) {
+        recovery.push({ sourceId: productRevision[1], reason: 'unreadable' });
       } else if (productChoice) {
         const sourceId = productChoice[1];
         try {
@@ -373,7 +402,7 @@ export async function openPriceAppendQueue(input: PriceQueueOwner) {
             ids.add(sourceId);
             const envelope = /\.(price|needs-shop)\.json(?:\.[\w-]+\.pending)?$/.exec(file.name);
             if (envelope) await readEnvelope(file, sourceId, envelope[1] === 'needs-shop');
-            if (/\.product-price-draft\.json(?:\.[\w-]+\.pending)?$/.test(file.name)) {
+            if (/\.product-price-draft(?:\.r[1-9]\d*)?\.json(?:\.[\w-]+\.pending)?$/.test(file.name)) {
               await readProductPriceDraft(file, sourceId);
             }
           }
@@ -435,10 +464,11 @@ export async function openPriceAppendQueue(input: PriceQueueOwner) {
     },
     stageProductPrice(input: ProductPriceDraft) {
       const draft = requireProductPriceDraft(input);
+      if (draft.revision !== undefined) throw Error('Update the existing draft before confirming it.');
       return serializePublication(async () => {
         const target = productPriceDraftFile(draft.record.id);
         if (target.exists) {
-          const previous = await readProductPriceDraft(target, draft.record.id);
+          const previous = await readCurrentProductPriceDraft(draft.record.id);
           if (JSON.stringify(previous) !== JSON.stringify(draft)) throw Error('A different product draft already uses this price ID.');
           return previous;
         }
@@ -454,6 +484,27 @@ export async function openPriceAppendQueue(input: PriceQueueOwner) {
         return draft;
       });
     },
+    updateProductPriceDraft(sourceId: string, input: ProductPriceDraftUpdate) {
+      const { barcode, expectedRevision, review } = { ...input, review: { ...input.review } };
+      if (barcode !== null && (typeof barcode !== 'string' || !canonicalProductBarcode(barcode))) {
+        throw Error('Enter a valid product barcode or clear it.');
+      }
+      return serializePublication(async () => {
+        const current = await readCurrentProductPriceDraft(sourceId);
+        if (priceFile(sourceId).exists || needsShopFile(sourceId).exists || receiptFile(sourceId).exists
+          || await restoreProductPriceChoice(sourceId, false)) {
+          throw Error('This product choice is already confirmed.');
+        }
+        if (current.revision !== expectedRevision) throw Error('This draft changed. Reopen it before editing.');
+        const draft = requireProductPriceDraft({ ...current, barcode: barcode ?? undefined,
+          revision: (current.revision ?? 1) + 1,
+          record: { ...current.record, review: { ...review, shop: current.record.review?.shop ?? '' } } });
+        // A replacement move deletes its destination first on iOS. Publish a
+        // new immutable revision so an interrupted edit leaves the prior draft.
+        await publish(productPriceDraftFile(sourceId, draft.revision), JSON.stringify({ format: 1, owner, draft }));
+        return draft;
+      });
+    },
     readProductPriceDrafts() {
       return serializePublication(async () => {
         const { productPriceDrafts, interruptedProductDrafts } = await readEntries();
@@ -465,10 +516,11 @@ export async function openPriceAppendQueue(input: PriceQueueOwner) {
         return productPriceDrafts.filter(draft => !priceFile(draft.record.id).exists);
       });
     },
-    confirmProductPriceChoice(sourceId: string, input: ProductPriceChoice) {
+    confirmProductPriceChoice(sourceId: string, input: ProductPriceChoice, expectedRevision?: number) {
       const choice = requireProductChoice(input);
       return serializePublication(async () => {
-        const draft = await readProductPriceDraft(productPriceDraftFile(sourceId), sourceId);
+        const draft = await readCurrentProductPriceDraft(sourceId);
+        if (draft.revision !== expectedRevision) throw Error('This draft changed. Check the product again before confirming.');
         const stored = await restoreProductPriceChoice(sourceId);
         if (stored && JSON.stringify(stored) !== JSON.stringify(choice)) throw Error('This draft already has a different confirmed product.');
         if (!stored) await writeChoice(productPriceChoiceFile(sourceId), sourceId, choice);
@@ -489,7 +541,7 @@ export async function openPriceAppendQueue(input: PriceQueueOwner) {
     },
     promoteProductPrice(sourceId: string) {
       return serializePublication(async () => {
-        const draft = await readProductPriceDraft(productPriceDraftFile(sourceId), sourceId);
+        const draft = await readCurrentProductPriceDraft(sourceId);
         const choice = await restoreProductPriceChoice(sourceId);
         if (!choice) throw Error('Review the product draft before saving this price.');
         const record = requirePriceRecord({ ...draft.record,

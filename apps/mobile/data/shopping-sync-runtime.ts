@@ -219,7 +219,8 @@ export function createShoppingSync(access: SyncAccess, priceQueue: PriceAppendQu
   const listeners = new Set<(snapshot: SyncSnapshot | undefined, updated: ReadonlySet<ShoppingMutation['action']['kind']>) => void>();
   return {
     assertOwner,
-    productPrices: { stage: productPrices.stage, pendingDrafts: productPrices.pendingDrafts, confirm: productPrices.confirm },
+    productPrices: { stage: productPrices.stage, pendingDrafts: productPrices.pendingDrafts,
+      update: productPrices.update, confirm: productPrices.confirm },
     async commitMutation(intent: ShoppingMutationInput) {
       await assertOwner();
       await mutationQueue.enqueue(intent);
