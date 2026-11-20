@@ -32,6 +32,7 @@ export function createPriceEvidenceSync(
           for (const intent of intents ?? []) pending.push({ ...source, intent });
         } catch {
           failed = true;
+          await queue.markFailed(record.id, 'photo').catch(() => {});
         }
       }
       if (!pending.length) return failed ? 'failed' : 'complete';
@@ -47,12 +48,15 @@ export function createPriceEvidenceSync(
           const result = await transfer(intent, session, signal);
           session.assertCurrent();
           if (result === 'blocked') return 'blocked';
-          if (result === 'available') await queue.evidence.acknowledge(source, intent);
-          else failed = true;
+          if (result === 'available') {
+            await queue.evidence.acknowledge(source, intent);
+            continue;
+          }
         } catch (error) {
           if (error instanceof CheapoAccessError) return 'blocked';
-          failed = true;
         }
+        failed = true;
+        await queue.markFailed(source.record.id, 'photo').catch(() => {});
       }
       return failed ? 'failed' : 'complete';
     } catch (error) {

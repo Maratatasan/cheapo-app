@@ -11,6 +11,7 @@ export type PriceQueueOwner = { origin: string; householdId: string; shopperId: 
 export type PriceAppendReceipt = { id: string; sourceId: string; version: number };
 type PriceQueueEntry = { record: SavedPriceRecord; body?: string; receipt?: PriceAppendReceipt };
 type RecoveryEntry = { sourceId: string; reason: 'unfinished' | 'unreadable' };
+type FailurePhase = 'price' | 'photo';
 const localId = /^[A-Za-z0-9_-]{1,128}$/;
 const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 
@@ -107,6 +108,11 @@ export async function openPriceAppendQueue(input: PriceQueueOwner) {
     await staged.move(file, { overwrite: false });
   }
 
+  function failureFile(sourceId: string, phase: FailurePhase) {
+    if (!localId.test(sourceId)) throw Error('Invalid pending price ID.');
+    return new File(directory, `${sourceId}.${phase}.sync-failed`);
+  }
+
   async function readPrice(file: File, sourceId: string) {
     const value = await readFile(file);
     if (!value || typeof value !== 'object' || !('owner' in value) || !('record' in value)
@@ -127,6 +133,15 @@ export async function openPriceAppendQueue(input: PriceQueueOwner) {
 
   return {
     owner,
+    markFailed(sourceId: string, phase: FailurePhase) {
+      return serializePublication(async () => {
+        const marker = failureFile(sourceId, phase);
+        if (!marker.exists) await publish(marker, 'failed');
+      });
+    },
+    hasFailed(sourceId: string, phase: FailurePhase) {
+      return failureFile(sourceId, phase).exists;
+    },
     evidence: createPriceEvidenceStore(directory, (file, text) => serializePublication(async () => {
       if (!file.exists) await publish(file, text);
       else if (await file.text() !== text) throw Error('Different evidence has already been saved for this price.');

@@ -5,6 +5,7 @@ import { openPriceAppendQueue } from '../data/price-append-queue';
 import { createPriceAppendSync } from '../data/price-append-sync';
 import { createPriceEvidenceSync } from '../data/price-evidence-sync';
 import { createPriceRecords } from '../data/price-records';
+import { readPendingPrices } from '../data/pending-price-sync';
 import type { PricePhotoIntent } from '../data/cheapo-price-photo-transfer';
 
 const mockFiles = new Map<string, string>();
@@ -129,6 +130,7 @@ it('keeps a partial publication visible for recovery and leaves valid work avail
 it('holds a blocked operation across rotation, preserves it across restart and retries a lost acknowledgement once', async () => {
   const original = await openPriceAppendQueue(owner);
   await original.save(record);
+  expect(await readPendingPrices(original)).toEqual([{ id: `price:${record.id}`, sourceId: record.id, title: 'Test rice', state: 'waiting' }]);
   const post = jest.fn(async () => Response.json(receipt));
   await expect(createPriceAppendSync(original, async () => fixtureSession(post, other))()).resolves.toBe('blocked');
   await expect(createPriceAppendSync(original, async () => fixtureSession(post, { ...owner, origin: 'https://staging.example' }))()).resolves.toBe('blocked');
@@ -156,10 +158,12 @@ it('holds a blocked operation across rotation, preserves it across restart and r
   await expect(createPriceAppendSync(original, async () => fixtureSession(append))()).resolves.toBe('failed');
   const restarted = await openPriceAppendQueue({ ...owner });
   expect((await restarted.read()).entries).toEqual([{ record, body: previousBody }]);
+  expect((await readPendingPrices(restarted)).map(({ state }) => state)).toEqual(['failed']);
   await expect(createPriceAppendSync(restarted, async () => fixtureSession(append, { ...owner }))()).resolves.toBe('complete');
   expect(server.size).toBe(1);
   expect(append.mock.calls.map(([sent]) => sent)).toEqual([previousBody, previousBody]);
   expect((await (await openPriceAppendQueue(owner)).read()).entries).toEqual([{ record, body: previousBody, receipt }]);
+  expect(await readPendingPrices(restarted)).toEqual([]);
   const reopen = jest.fn(async () => fixtureSession(post));
   await expect(createPriceAppendSync(restarted, reopen)()).resolves.toBe('complete');
   expect(reopen).not.toHaveBeenCalled();
@@ -288,6 +292,7 @@ it('keeps a committed price readable when its request or acknowledgement needs r
   mockFiles.set(receiptPath, '{damaged');
   const open = jest.fn(async () => fixtureSession(jest.fn()));
   expect(await prices.loadAll({ requireAll: true })).toEqual([record]);
+  expect(await readPendingPrices(queue)).toEqual([{ id: `recovery:${record.id}`, sourceId: record.id, title: 'Test rice', state: 'recovery' }]);
   expect(await createPriceAppendSync(queue, open)()).toBe('failed');
   expect(open).not.toHaveBeenCalled();
   expect(mockFiles.get(receiptPath)).toBe('{damaged');
@@ -314,18 +319,21 @@ it('persists only acknowledged prices’ upload plans and retries only the unver
   expect(describe).not.toHaveBeenCalled();
   expect(open).not.toHaveBeenCalled();
   await queue.acknowledge(record.id, receipt);
+  expect((await readPendingPrices(queue)).map(({ state }) => state)).toEqual(['photo-pending']);
 
   expect(await sync()).toBe('failed');
   expect(describe).toHaveBeenCalledTimes(1);
   expect(transfer.mock.calls.map(([intent]) => intent)).toEqual(intents);
   const reopened = await openPriceAppendQueue({ ...owner });
   expect(await reopened.evidence.load({ record: photo, receipt })).toEqual([intents[1]]);
+  expect((await readPendingPrices(reopened)).map(({ state }) => state)).toEqual(['photo-failed']);
   const retry = jest.fn(async () => 'available' as const);
   expect(await createPriceEvidenceSync(reopened, open, describe, retry)()).toBe('complete');
   expect(describe).toHaveBeenCalledTimes(1);
   expect(retry).toHaveBeenCalledTimes(1);
   expect(retry).toHaveBeenCalledWith(intents[1], expect.any(Object), undefined);
   expect(await reopened.evidence.load({ record: photo, receipt })).toEqual([]);
+  expect(await readPendingPrices(reopened)).toEqual([]);
   expect(await (await openPriceAppendQueue(owner)).evidence.load({ record: photo, receipt })).toEqual([]);
   expect(mockFiles.get(photo.original.uri)).toBe('synthetic original');
   expect(mockFiles.get(photo.selected.uri)).toBe('synthetic crop');
