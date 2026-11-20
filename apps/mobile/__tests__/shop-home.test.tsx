@@ -28,3 +28,10 @@ test("offers current shop selection and scanning before a shop is selected", asy
   await fireEvent.press(screen.getByRole("button", { name: "Select current shop" }));
   expect(onChooseShop).toHaveBeenCalledTimes(1);
 });
+
+test("opens Storage & cache from the Home actions", async () => {
+  const onOpenStorage = jest.fn();
+  await render(<ShopHome onScan={jest.fn()} onOpenStorage={onOpenStorage} />);
+  await fireEvent.press(screen.getByRole("button", { name: "Storage & cache" }));
+  expect(onOpenStorage).toHaveBeenCalledTimes(1);
+});
