@@ -7,12 +7,13 @@ const mockReadPending = jest.fn();
 const mockRetry = jest.fn();
 const mockConfirmShop = jest.fn();
 const mockDismiss = jest.fn();
+const mockPush = jest.fn();
 const mockSubscribe = jest.fn();
 const held: PendingShoppingChange = { id: 'price:rice', sourceId: 'rice', title: 'Brown rice', state: 'needs-shop' };
 
 jest.mock('expo-router', () => ({
   Redirect: () => null, Stack: { Screen: () => null }, usePreventRemove: jest.fn(),
-  useRouter: () => ({ dismissTo: mockDismiss }),
+  useRouter: () => ({ dismissTo: mockDismiss, push: mockPush }),
   useFocusEffect: (effect: () => void) => jest.requireActual('react').useEffect(effect, [effect]),
 }));
 jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ bottom: 0 }) }));
@@ -80,4 +81,16 @@ it('leaves a failed shop confirmation selectable and keeps the original held pri
   expect(mockRetry).not.toHaveBeenCalled();
   await fireEvent.press(screen.getByRole('button', { name: 'Cancel' }));
   expect(screen.getByRole('button', { name: 'Choose shop for Brown rice' })).toBeOnTheScreen();
+});
+
+it('opens a product match as a review instead of automatically retrying the duplicate', async () => {
+  mockReadPending.mockResolvedValue([{ id: 'mutation:product', operationId: 'proposed-product',
+    title: 'Saved brown rice', state: 'needs-product-review' }]);
+  await render(<PendingSyncRoute />);
+
+  expect(await screen.findByText('Product already exists · Needs review')).toBeOnTheScreen();
+  expect(screen.getByRole('button', { name: 'Retry sync' })).toBeDisabled();
+  await fireEvent.press(screen.getByRole('button', { name: 'Review product match for Saved brown rice' }));
+  expect(mockPush).toHaveBeenCalledWith({ pathname: '/shopping-conflict', params: { id: 'proposed-product' } });
+  expect(mockRetry).not.toHaveBeenCalled();
 });

@@ -3,7 +3,7 @@ import { canonicalProductBarcode } from '@cheapo/domain/product-barcode';
 import { randomUUID } from 'expo-crypto';
 
 import type { EditableProductRead, ShoppingRead } from './cheapo-shopping-reads';
-import type { QueuedShoppingMutation, ShoppingMutationQueue } from './shopping-mutation-queue';
+import { rejectedBarcodeProductIds, type QueuedShoppingMutation, type ShoppingMutationQueue } from './shopping-mutation-queue';
 import { shoppingMutation, type ShoppingMutation } from './shopping-mutations';
 
 type CatalogAction = Extract<ShoppingMutation['action'], { kind: 'create-product' | 'edit-product' }>;
@@ -21,9 +21,10 @@ type Dependencies = {
 
 function catalogEntries(entries: QueuedShoppingMutation[]) {
   const latest = new Map<string, CatalogEntry>();
+  const rejected = rejectedBarcodeProductIds(entries);
   for (const entry of entries) {
     const { action, operationId } = entry.intent;
-    if (entry.superseded || (action.kind !== 'create-product' && action.kind !== 'edit-product')) continue;
+    if (entry.superseded || (action.kind !== 'create-product' && action.kind !== 'edit-product') || rejected.has(action.product.id)) continue;
     const { outcome, resolution } = entry;
     if (resolution) {
       if (resolution.kind === 'keep-cloud' && outcome?.kind === 'conflict' && typeof outcome.currentVersion === 'number') {

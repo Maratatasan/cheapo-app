@@ -4,6 +4,7 @@ import { expect, fn } from 'storybook/test';
 import { View } from 'react-native';
 
 import { PendingSync, type PendingSyncItem } from '../component/pending-sync';
+import { ShoppingConflictReview } from '../component/shopping-conflict';
 import { ShopPicker } from '../component/shop/shop-picker';
 import { ShopHome } from '../component/shop/shop-home';
 
@@ -124,5 +125,40 @@ export const FromHome: Story = {
     await expect(canvas.getByRole('heading', { name: 'Pending changes' })).toBeVisible();
     await userEvent.click(canvas.getByRole('button', { name: 'Back to Home' }));
     await expect(canvas.getByRole('button', { name: 'Pending sync' })).toBeVisible();
+  },
+};
+
+const productMatch = {
+  title: 'Brown rice', laterEdits: [],
+  matchingProduct: { id: 'example-brown-rice', barcode: '00036000291452' },
+  phone: [{ label: 'Product', value: 'Brown rice' }, { label: 'Pack size', value: '500 g' }],
+  cloud: [{ label: 'Product', value: 'Example wholegrain brown rice' }, { label: 'Pack size', value: '500 g' }],
+};
+
+function PendingProductMatch({ start = 'pending' }: { start?: 'pending' | 'review' }) {
+  const [view, setView] = useState<'pending' | 'review' | 'complete'>(start);
+  return <View style={{ width: '100%', maxWidth: 428, height: 610 }}>
+    {view === 'review' ? <ShoppingConflictReview conflict={productMatch} onKeepPhone={() => {}} onKeepCloud={() => {}}
+      onReuseProduct={() => setView('complete')} onClose={() => setView('pending')} />
+      : <PendingSync snapshot={{ state: 'ready', items: view === 'complete' ? [] : [
+        { id: 'example-match', title: 'Brown rice', state: 'needs-product-review' },
+      ] }} onRetry={() => {}} onReload={() => {}} onChooseShop={() => {}} onBack={() => {}}
+        onReviewConflict={() => setView('review')} />}
+  </View>;
+}
+
+export const ProductMatchPending: Story = { render: () => <PendingProductMatch /> };
+export const ProductMatchDetails: Story = { render: () => <PendingProductMatch start="review" /> };
+export const ReviewAndReuseProduct: Story = {
+  render: () => <PendingProductMatch />,
+  play: async ({ canvas, userEvent }) => {
+    const review = canvas.getByRole('button', { name: 'Review product match for Brown rice' });
+    await userEvent.click(review);
+    await expect(canvas.getByRole('heading', { name: 'Product already exists' })).toBeVisible();
+    await userEvent.click(canvas.getByRole('button', { name: 'Back to Pending sync' }));
+    await expect(canvas.getByText('Product already exists · Needs review')).toBeVisible();
+    await userEvent.click(canvas.getByRole('button', { name: 'Review product match for Brown rice' }));
+    await userEvent.click(canvas.getByRole('button', { name: 'Reuse product' }));
+    await expect(canvas.getByText('No changes waiting to sync.')).toBeVisible();
   },
 };

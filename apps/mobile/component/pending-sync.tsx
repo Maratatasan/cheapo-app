@@ -5,7 +5,7 @@ import { color, spacing, typography, ui } from './results/theme';
 export type PendingSyncItem = {
   id: string;
   title: string;
-  state: 'waiting' | 'failed' | 'photo-pending' | 'photo-failed' | 'needs-shop' | 'conflict' | 'recovery';
+  state: 'waiting' | 'failed' | 'photo-pending' | 'photo-failed' | 'needs-shop' | 'conflict' | 'needs-product-review' | 'recovery';
 };
 
 type Props = {
@@ -27,6 +27,7 @@ const stateText = {
   'photo-failed': 'Price synced · Could not sync the photo',
   'needs-shop': 'Needs shop',
   conflict: 'Conflicting changes',
+  'needs-product-review': 'Product already exists · Needs review',
   recovery: 'Held for recovery · Included in protected shopping data',
 } satisfies Record<PendingSyncItem['state'], string>;
 
@@ -60,6 +61,9 @@ export function PendingSync({ snapshot, retrying = false, syncProblem, onRetry, 
         ) : null}
         {item.state === 'conflict' && onReviewConflict ? (
           <SyncButton label="Review conflict" accessibleLabel={`Review conflict for ${item.title}`} secondary onPress={() => onReviewConflict(item.id)} />
+        ) : null}
+        {item.state === 'needs-product-review' && onReviewConflict ? (
+          <SyncButton label="Review product match" accessibleLabel={`Review product match for ${item.title}`} secondary onPress={() => onReviewConflict(item.id)} />
         ) : null}
       </View>
     );

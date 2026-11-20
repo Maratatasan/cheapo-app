@@ -124,7 +124,9 @@ function PendingShopping({ shopping }: { shopping: CheapoShoppingRuntime }) {
         }}
         onReviewConflict={id => {
           const item = items?.find(change => change.id === id);
-          if (item?.state === 'conflict') router.push({ pathname: '/shopping-conflict', params: { id: item.operationId } });
+          if (item?.state === 'conflict' || item?.state === 'needs-product-review') {
+            router.push({ pathname: '/shopping-conflict', params: { id: item.operationId } });
+          }
         }}
         onBack={() => router.dismissTo('/')} bottomInset={bottom} />}
   </>;

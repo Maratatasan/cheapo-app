@@ -6,7 +6,7 @@ import { parseCheapoApiOrigin } from '../lib/cheapo-access/origin';
 import type { PriceAppendReceipt, PriceQueueOwner } from './price-append-queue';
 import { readQueueBackupFiles, type QueueBackupFile } from './queue-backup-files';
 import {
-  mutationOperationId, mutationReceipt, mutationResource, mutationVersion, requestForMutation, shoppingMutation,
+  existingBarcodeProduct, matchesCompetingBarcode, mutationOperationId, mutationReceipt, mutationResource, mutationVersion, requestForMutation, shoppingMutation,
   type MutationRequest, type ShoppingMutation, type ShoppingMutationInput,
 } from './shopping-mutations';
 
@@ -20,12 +20,14 @@ const storedRequest = z.strictObject({
 const outcome = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('applied'), receipt: mutationReceipt }),
   z.strictObject({ kind: z.literal('conflict'), currentVersion: mutationVersion, current: z.json() }),
+  z.strictObject({ kind: z.literal('product-match'), product: existingBarcodeProduct }),
 ]);
 const failure = z.enum(['offline', 'access', 'service']);
 const conditionalRequest = z.object({ operationId: mutationOperationId, expectedVersion: mutationVersion });
 const resolution = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('keep-phone'), replacementId: mutationOperationId }),
   z.strictObject({ kind: z.literal('keep-cloud'), laterIds: z.array(mutationOperationId) }),
+  z.strictObject({ kind: z.literal('use-existing-product'), productId: existingBarcodeProduct.shape.id }),
 ]);
 
 type MutationOutcome = z.infer<typeof outcome>;
@@ -41,6 +43,12 @@ export type QueuedShoppingMutation = {
   resolves?: string;
   superseded?: true;
 };
+
+export function rejectedBarcodeProductIds(entries: readonly QueuedShoppingMutation[]) {
+  return new Set(entries.flatMap(({ intent: { action }, outcome }) =>
+    action.kind === 'create-product' && outcome?.kind === 'product-match' ? [action.product.id] : []));
+}
+
 type Recovery = { operationId: string; reason: 'unfinished' | 'unreadable' };
 type AppendReceiptReader = (sourceId: string) => Promise<PriceAppendReceipt | undefined>;
 type Phase = 'intent' | 'request' | 'outcome' | 'failure' | 'resolution';
@@ -101,6 +109,14 @@ function dependentLocalEdits(entries: readonly QueuedShoppingMutation[], conflic
 }
 
 function validateOutcome(intent: ShoppingMutation, request: MutationRequest, result: MutationOutcome) {
+  if (result.kind === 'product-match') {
+    const { action } = intent;
+    if (action.kind !== 'create-product' || request.method !== 'PUT'
+      || request.path !== `/v1/products/${encodeURIComponent(action.product.id)}` || !matchesCompetingBarcode(action, result.product)) {
+      throw Error('The response did not match the queued product barcode.');
+    }
+    return;
+  }
   if (request.method === 'PATCH') {
     const parsed = conditionalRequest.parse(JSON.parse(request.body ?? '{}'));
     const expected = parsed.expectedVersion;
@@ -185,7 +201,9 @@ export async function openShoppingMutationQueue(input: PriceQueueOwner) {
     const chosen = await readPhase(operationId, 'resolution', resolution);
     if ((result || failed) && !request) throw Error('The shopping request is missing.');
     if (result && request) validateOutcome(intent, request, result);
-    if (chosen && result?.kind !== 'conflict') throw Error('The shopping conflict is missing.');
+    if (chosen?.kind === 'use-existing-product') {
+      if (result?.kind !== 'product-match' || chosen.productId !== result.product.id) throw Error('The matching product changed.');
+    } else if (chosen && result?.kind !== 'conflict') throw Error('The shopping conflict is missing.');
     return { intent, ...(request ? { request } : {}), ...(result ? { outcome: result } : failed ? { failure: failed } : {}),
       ...(chosen ? { resolution: chosen } : {}), ...(resolves ? { resolves } : {}) };
   }
@@ -230,7 +248,8 @@ export async function openShoppingMutationQueue(input: PriceQueueOwner) {
     let current = entries.get(operationId);
     while (current && !seen.has(current.intent.operationId)) {
       seen.add(current.intent.operationId);
-      if (superseded.has(current.intent.operationId) || current.resolution?.kind === 'keep-cloud') return 'cloud';
+      if (superseded.has(current.intent.operationId) || current.resolution?.kind === 'keep-cloud'
+        || current.resolution?.kind === 'use-existing-product') return 'cloud';
       if (current.outcome?.kind === 'applied') return current.outcome.receipt;
       if (current.resolution?.kind !== 'keep-phone') break;
       const replacement = entries.get(current.resolution.replacementId);
@@ -340,6 +359,15 @@ export async function openShoppingMutationQueue(input: PriceQueueOwner) {
         await writePhase(operationId, 'resolution', chosen);
       });
     },
+    useExistingProduct(operationId: string, productId: string) {
+      return serializePublication(async () => {
+        const entry = await readEntry(operationId);
+        if (entry.outcome?.kind !== 'product-match' || entry.outcome.product.id !== productId) {
+          throw Error('Open the matching product before confirming it.');
+        }
+        await writePhase(operationId, 'resolution', resolution.parse({ kind: 'use-existing-product', productId }));
+      });
+    },
     freeze(operationId: string, loadAppendReceipt?: AppendReceiptReader) {
       return serializePublication(async () => {
         const entry = await readEntry(operationId);
@@ -369,7 +397,15 @@ export async function openShoppingMutationQueue(input: PriceQueueOwner) {
           if (!receipt || receipt.sourceId !== base.sourceId) return undefined;
           predecessor = mutationReceipt.parse({ id: receipt.id, version: receipt.version });
         }
-        const request = requestForMutation(entry.intent, predecessor);
+        const { action, waitFor } = entry.intent;
+        let intent = entry.intent;
+        if (action.kind === 'price' && action.change.action === 'correct' && action.change.productId) {
+          const productId = action.change.productId;
+          const chosen = waitFor.map(id => index.get(id)).find(dependency => dependency?.intent.action.kind === 'create-product'
+            && dependency.intent.action.product.id === productId && dependency.resolution?.kind === 'use-existing-product')?.resolution;
+          if (chosen?.kind === 'use-existing-product') intent = { ...intent, action: { ...action, change: { ...action.change, productId: chosen.productId } } };
+        }
+        const request = requestForMutation(intent, predecessor);
         if (!request) return undefined;
         await writePhase(operationId, 'request', storedRequest.parse(request));
         return request;
