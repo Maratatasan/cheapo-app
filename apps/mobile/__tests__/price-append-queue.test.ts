@@ -57,6 +57,20 @@ const body = JSON.stringify({
   review: { productName: 'Test rice', price: '1.20', currency: 'GBP' }, unitPrice: null,
 });
 
+function fixtureSession(post: (serialized: string, signal?: AbortSignal) => Promise<Response>, sessionOwner = owner) {
+  return {
+    owner: sessionOwner,
+    assertCurrent() {},
+    request(path: string, init: RequestInit) {
+      expect(path).toBe('/v1/me/price-observations');
+      expect(init.method).toBe('POST');
+      expect(new Headers(init.headers).get('Content-Type')).toBe('application/json');
+      if (typeof init.body !== 'string') throw Error('Missing serialized test request.');
+      return post(init.body, init.signal ?? undefined);
+    },
+  };
+}
+
 beforeEach(() => {
   mockFiles.clear();
   mockFailedPublication = /$a/;
@@ -97,11 +111,11 @@ it('holds a blocked operation across rotation, preserves it across restart and r
   const original = await openPriceAppendQueue(owner);
   await original.save(record);
   const post = jest.fn(async () => Response.json(receipt));
-  await expect(createPriceAppendSync(original, async () => ({ owner: other, post }))()).resolves.toBe('blocked');
-  await expect(createPriceAppendSync(original, async () => ({ owner: { ...owner, origin: 'https://staging.example' }, post }))()).resolves.toBe('blocked');
+  await expect(createPriceAppendSync(original, async () => fixtureSession(post, other))()).resolves.toBe('blocked');
+  await expect(createPriceAppendSync(original, async () => fixtureSession(post, { ...owner, origin: 'https://staging.example' }))()).resolves.toBe('blocked');
   expect(post).not.toHaveBeenCalled();
   expect((await (await openPriceAppendQueue(other)).read()).entries).toEqual([]);
-  await expect(createPriceAppendSync(original, async () => ({ owner, post: async () => new Response(null, { status: 403 }) }))()).resolves.toBe('blocked');
+  await expect(createPriceAppendSync(original, async () => fixtureSession(async () => new Response(null, { status: 403 })))()).resolves.toBe('blocked');
   expect((await original.read()).entries).toEqual([{ record, body }]);
 
   // An older serializer can produce valid JSON with different formatting.
@@ -120,14 +134,14 @@ it('holds a blocked operation across rotation, preserves it across restart and r
     expect(server.get(sourceId)).toBe(pending);
     return Response.json(receipt);
   });
-  await expect(createPriceAppendSync(original, async () => ({ owner, post: append }))()).resolves.toBe('failed');
+  await expect(createPriceAppendSync(original, async () => fixtureSession(append))()).resolves.toBe('failed');
   const restarted = await openPriceAppendQueue({ ...owner });
   expect((await restarted.read()).entries).toEqual([{ record, body: previousBody }]);
-  await expect(createPriceAppendSync(restarted, async () => ({ owner: { ...owner }, post: append }))()).resolves.toBe('complete');
+  await expect(createPriceAppendSync(restarted, async () => fixtureSession(append, { ...owner }))()).resolves.toBe('complete');
   expect(server.size).toBe(1);
   expect(append.mock.calls.map(([sent]) => sent)).toEqual([previousBody, previousBody]);
   expect((await (await openPriceAppendQueue(owner)).read()).entries).toEqual([{ record, body: previousBody, receipt }]);
-  const reopen = jest.fn(async () => ({ owner, post }));
+  const reopen = jest.fn(async () => fixtureSession(post));
   await expect(createPriceAppendSync(restarted, reopen)()).resolves.toBe('complete');
   expect(reopen).not.toHaveBeenCalled();
 });
@@ -154,7 +168,8 @@ it('accepts only existing evidence from the protected price photo directory', as
 it('retries an interrupted acknowledgement and preserves the local price and its source ID', async () => {
   const queue = await openPriceAppendQueue(owner);
   await queue.save(record);
-  const session = { owner, post: jest.fn(async () => Response.json(receipt)) };
+  const post = jest.fn(async () => Response.json(receipt));
+  const session = fixtureSession(post);
   mockFailedPublication = /\.receipt\.json$/;
   await expect(createPriceAppendSync(queue, async () => session)()).resolves.toBe('failed');
   const restarted = await openPriceAppendQueue(owner);
@@ -162,7 +177,7 @@ it('retries an interrupted acknowledgement and preserves the local price and its
   mockFailedPublication = /$a/;
   await expect(createPriceAppendSync(restarted, async () => session)()).resolves.toBe('complete');
   expect(await restarted.read()).toEqual({ entries: [{ record, body, receipt }], recovery: [] });
-  expect(session.post.mock.calls).toEqual([[body, expect.any(AbortSignal)], [body, expect.any(AbortSignal)]]);
+  expect(post.mock.calls).toEqual([[body, expect.any(AbortSignal)], [body, expect.any(AbortSignal)]]);
 });
 
 it('aborts a stalled write and lets the shopper retry the same durable request', async () => {
@@ -178,7 +193,7 @@ it('aborts a stalled write and lets the shopper retry the same durable request',
         return new Promise(() => {});
       })
       .mockImplementation(async () => Response.json(receipt));
-    const sync = createPriceAppendSync(queue, async () => ({ owner, post }));
+    const sync = createPriceAppendSync(queue, async () => fixtureSession(post));
     const stalled = sync();
     const signal = await sending;
     await jest.advanceTimersByTimeAsync(44_999);
@@ -216,7 +231,7 @@ it('runs another pass when a new save asks to sync during an active pass', async
   const post = jest.fn<Promise<Response>, [string]>()
     .mockImplementationOnce(() => new Promise(resolve => { release = resolve; sending(); }))
     .mockImplementation(async () => Response.json({ ...receipt, sourceId: next.id }));
-  const sync = createPriceAppendSync(queue, async () => ({ owner, post }));
+  const sync = createPriceAppendSync(queue, async () => fixtureSession(post));
   const firstPass = sync();
   await started;
   await queue.save(next);
@@ -252,7 +267,7 @@ it('keeps a committed price readable when its request or acknowledgement needs r
   await queue.acknowledge(record.id, receipt);
   const receiptPath = [...mockFiles.keys()].find(key => key.endsWith('.receipt.json'))!;
   mockFiles.set(receiptPath, '{damaged');
-  const open = jest.fn(async () => ({ owner, post: jest.fn() }));
+  const open = jest.fn(async () => fixtureSession(jest.fn()));
   expect(await prices.loadAll({ requireAll: true })).toEqual([record]);
   expect(await createPriceAppendSync(queue, open)()).toBe('failed');
   expect(open).not.toHaveBeenCalled();
