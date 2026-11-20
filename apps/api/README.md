@@ -158,6 +158,21 @@ original source IDs and product or shop names. Photos identify the original
 or crop by role and provide its dimensions. The archive retains drafts and
 test-shop history for private recovery.
 
+Send a reviewed observation to `POST /v1/me/price-observations` as JSON.
+Keep the same `sourceId` on retries. Include the ISO 8601 `capturedAt`, the
+saved `shopId`, the historic `shopDisplayName`, and the `review` object
+with `productName`, decimal `price`, and three-letter `currency`. Send
+`productId` when the observation is linked to an existing catalog record.
+Optional review fields are `packSize`, `productType`, `brand`, `variety`,
+and the raw `unitPrice` and `unit` pair. Use a top-level `unitPrice` object
+with `amount` and `unit` when the reviewed observation has a unit price.
+The reviewed unit-price pair must match this object when supplied.
+
+The first save returns `201` with `id`, `sourceId`, and `version`. An
+identical replay returns the same identity with `200`. A changed observation
+using an existing source ID returns `409 source_conflict`. A missing product
+or unauthorized saved-shop link returns `422 invalid_reference`.
+
 ## Shopping history storage
 
 Migration `002` adds tables for the offline restore in

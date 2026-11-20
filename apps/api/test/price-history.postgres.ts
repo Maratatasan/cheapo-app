@@ -60,11 +60,13 @@ after(async () => {
   await pool.end();
 });
 
-async function request(letter: string, query = '') {
+async function request(letter: string, query = '', method = 'GET', body?: object) {
   const address = server.address();
   assert(address && typeof address !== 'string');
   return fetch(`http://127.0.0.1:${address.port}/v1/me/price-observations${query}`, {
-    headers: { Authorization: `Bearer ${token(letter)}` },
+    method,
+    headers: { Authorization: `Bearer ${token(letter)}`, 'Content-Type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
   });
 }
 
@@ -115,4 +117,71 @@ test('rejects unbounded, malformed, and caller-scoped page requests', async () =
     assert.equal(response.status, 400);
     assert.deepEqual(await response.json(), { error: 'invalid_page' });
   }
+});
+
+const appendInput = {
+  sourceId: 'phone-observation', capturedAt: '2026-11-03T08:03:02.654321+01:00',
+  productId: 'append-oats', shopId: 'append-branch', shopDisplayName: 'Market when captured',
+  review: { productName: 'Original oats', price: '3.45', currency: 'GBP', packSize: '500 g' },
+  unitPrice: { amount: 0.69, unit: '100g' },
+};
+
+test('replays a concurrent price save and refuses to replace the original observation', async () => {
+  await pool.query("INSERT INTO cheapo.shop (id, name) VALUES ('append-branch', 'Current market name')");
+  await pool.query("INSERT INTO cheapo.household_saved_shop (household_id, shop_id) VALUES ($1, 'append-branch')", [household]);
+  await pool.query("INSERT INTO cheapo.product (id, name) VALUES ('append-oats', 'Original oats')");
+  const input = appendInput;
+  const responses = await Promise.all([request('H', '', 'POST', input), request('H', '', 'POST', input)]);
+  assert.deepEqual(responses.map(response => response.status).sort(), [200, 201]);
+  const [first, repeated] = await Promise.all(responses.map(response => response.json() as Promise<{ id: string; sourceId: string; version: number }>));
+  assert.deepEqual(first, repeated);
+  assert.equal(first.sourceId, input.sourceId);
+  assert.equal(first.version, 1);
+  assert.match(first.id, /^[a-f0-9-]{36}$/);
+
+  const conflict = await request('H', '', 'POST', { ...input, review: { ...input.review, price: '3.70' } });
+  assert.equal(conflict.status, 409);
+  assert.deepEqual(await conflict.json(), { error: 'source_conflict' });
+
+  const history = await (await request('I')).json() as HistoryBody;
+  const saved = history.observations.filter(observation => observation.sourceId === input.sourceId);
+  assert.equal(saved.length, 1);
+  assert.equal(saved[0].id, first.id);
+  assert.equal(saved[0].shopDisplayName, 'Market when captured');
+  assert.equal(saved[0].capturedAt, '2026-11-03T07:03:02.654321Z');
+  assert.equal(saved[0].priceAmount, '3.45');
+  assert.deepEqual(saved[0].unitPrice, input.unitPrice);
+});
+
+test('validates reviewed amounts and links and resolves every save to the enrolled household', async () => {
+  const candidate = { ...appendInput, sourceId: 'second-dated-price' };
+  for (const invalid of [
+    { ...candidate, householdId: otherHousehold },
+    { ...candidate, review: { ...candidate.review, currency: '£' } },
+    { ...candidate, review: { ...candidate.review, price: '0' } },
+    { ...candidate, review: { ...candidate.review, unitPrice: '0.82', unit: '100g' } },
+  ]) {
+    const response = await request('H', '', 'POST', invalid);
+    assert.equal(response.status, 400);
+    assert.deepEqual(await response.json(), { error: 'invalid_price' });
+  }
+  assert.equal((await request('H', '', 'POST', { ...candidate, productId: 'missing-product' })).status, 422);
+  assert.equal((await request('J', '', 'POST', candidate)).status, 422);
+  assert.equal((await request('K', '', 'POST', candidate)).status, 403);
+  assert.equal((await request('L', '', 'POST', candidate)).status, 401);
+
+  const newPrice = await request('H', '', 'POST', { ...candidate, productId: null });
+  assert.equal(newPrice.status, 201);
+  const manual = (await (await request('I')).json() as HistoryBody).observations
+    .find(observation => observation.sourceId === candidate.sourceId);
+  assert(manual);
+  assert.equal(manual.productId, null);
+  assert.equal(manual.productName, candidate.review.productName);
+});
+
+test('allows an identical replay after unlinking the branch but requires a saved branch for a fresh price', async () => {
+  await pool.query("DELETE FROM cheapo.household_saved_shop WHERE household_id = $1 AND shop_id = 'append-branch'", [household]);
+  const replay = await request('H', '', 'POST', appendInput);
+  assert.equal(replay.status, 200);
+  assert.equal((await request('H', '', 'POST', { ...appendInput, sourceId: 'after-unlink' })).status, 422);
 });

@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 import { json, unauthorized } from './api-http.ts';
 import { readCredentialDigest } from './credential.ts';
+import { appendPriceObservation, type ExecutePriceAppend } from './price-append.ts';
 
 const collection = '/v1/me/price-observations';
 const cursorFields = z.tuple([z.iso.datetime({ precision: 6 }), z.uuid()]);
@@ -62,11 +63,12 @@ function readPage(params: URLSearchParams): PriceHistoryPage | undefined {
   return { limit, cursor };
 }
 
-export function createPriceHistoryHandler(execute: ExecutePriceHistory) {
+export function createPriceHistoryHandler(execute: ExecutePriceHistory, append: ExecutePriceAppend) {
   return async (request: Request): Promise<Response> => {
     const digest = readCredentialDigest(request.headers.get('Authorization'));
     if (!digest) return unauthorized();
-    if (request.method !== 'GET') return json({ error: 'method_not_allowed' }, 405, { Allow: 'GET' });
+    if (request.method === 'POST') return appendPriceObservation(request, digest, append);
+    if (request.method !== 'GET') return json({ error: 'method_not_allowed' }, 405, { Allow: 'GET, POST' });
 
     const page = readPage(new URL(request.url).searchParams);
     if (!page) return json({ error: 'invalid_page' }, 400);
