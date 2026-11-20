@@ -1,15 +1,16 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { PriceObservationDetail } from '@cheapo/domain/price-history';
 import { randomUUID } from 'expo-crypto';
 import { Stack, useLocalSearchParams, usePreventRemove, useRouter } from 'expo-router';
 import { useCameraPermissions } from 'expo-camera';
-import { Platform, View } from 'react-native';
+import { Platform, Text, View } from 'react-native';
 
 import { useCheapoShopping } from '@/component/cheapo-shopping-provider';
 import { CameraActionButton } from '@/component/camera-actions';
 import { PhotoBarcodeScan } from '@/component/photo-barcode-scan';
 import { SavedPriceBarcode } from '@/component/saved-price-barcode';
 import { PhotoReview } from '@/component/photo-review';
+import { ProductPhotoEditor } from '@/component/product-photo-editor';
 import { RecordedPriceError } from '@/component/recorded-price-error';
 import { DisplayState } from '@/component/results/display-state';
 import { ui } from '@/component/results/theme';
@@ -23,11 +24,13 @@ import {
 import { firstSyncSavedPrice, readOwnEnrolledPriceEdit } from '@/data/edit-enrolled-price-device';
 import { findLocalProductByBarcode, findLocalProductById } from '@/data/local-products';
 import { decodePhotoBarcodes } from '@/data/photo-barcode';
+import { openProductPresentationPhotos } from '@/data/product-presentation-photos-device';
 import { reviewComplete, type ManualReview } from '@/data/photo-review';
 import type { PhotoSavePending } from '@/data/price-records';
 import { keptSharedPrice, projectSharedPrice } from '@/data/saved-price-history';
 import { useEnrolledCatalog } from '@/hooks/use-enrolled-catalog';
 import { usePriceSaveNotice } from '@/hooks/use-price-save-notice';
+import { chooseProductPhoto } from '@/lib/choose-product-photo';
 
 type EditableProduct = PriceEditRecord & { review: ManualReview };
 type EditorData = { product: EditableProduct | null; target?: PriceEditTarget; errorReason?: string;
@@ -43,6 +46,8 @@ export default function EditSavedPrice() {
   const product = current?.product;
   const [review, setReview] = useState<ManualReview>();
   const [busy, setBusy] = useState(false);
+  const [photoSaving, setPhotoSaving] = useState(false);
+  const [canonicalProductId, setCanonicalProductId] = useState<string>();
   const [linkOpen, setLinkOpen] = useState(false);
   const [linkSaving, setLinkSaving] = useState(false);
   const [linkedBarcode, setLinkedBarcode] = useState<{ code: string; saved?: boolean }>();
@@ -54,7 +59,9 @@ export default function EditSavedPrice() {
   const lifecycle = useRef<AbortController | null>(null);
   const photoLifecycle = useRef<AbortController | null>(null);
   const pendingProduct = useRef<{ barcode: string; id: string } | undefined>(undefined);
-  usePreventRemove(linkSaving);
+  usePreventRemove(linkSaving || photoSaving);
+  const presentationPhotos = useMemo(() => shopping && canonicalProductId ? openProductPresentationPhotos(shopping.owner) : null,
+    [canonicalProductId, shopping]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -74,6 +81,7 @@ export default function EditSavedPrice() {
       setLinkOpen(false);
       setLinkSaving(false);
       setLinkedBarcode(undefined);
+      setCanonicalProductId(undefined);
       setLinkProgress(undefined);
       pendingProduct.current = undefined;
       setError(undefined);
@@ -83,7 +91,10 @@ export default function EditSavedPrice() {
 
     async function showExistingBarcode(productId: string | undefined, shared: boolean) {
       if (!productId) return;
-      const linked = await (shared && enrolledCatalog ? enrolledCatalog.findById(productId, signal) : findLocalProductById(productId)).catch(() => undefined);
+      const canonical = await enrolledCatalog?.findById(productId, signal).catch(() => undefined);
+      if (signal.aborted) return;
+      if (canonical?.id === productId && canonical.catalogBase?.kind === 'version') setCanonicalProductId(productId);
+      const linked = canonical ?? (!shared ? await findLocalProductById(productId).catch(() => undefined) : undefined);
       if (!signal.aborted && linked?.barcode) setLinkedBarcode({ code: linked.barcode });
     }
 
@@ -137,14 +148,14 @@ export default function EditSavedPrice() {
   }, [enrolledCatalog, id, shopping, source]);
 
   function leave() {
-    if (linkSaving) return;
+    if (linkSaving || photoSaving) return;
     if (router.canGoBack()) router.back();
     else router.replace('/saved-products');
   }
 
   async function save() {
     const signal = lifecycle.current?.signal;
-    if (!signal || saving.current || linkOpen || !product || !review || product.id !== id || !reviewComplete(review, product.shop?.displayName)) return;
+    if (!signal || saving.current || photoSaving || linkOpen || !product || !review || product.id !== id || !reviewComplete(review, product.shop?.displayName)) return;
     saving.current = true;
     setBusy(true);
     setError(undefined);
@@ -225,6 +236,7 @@ export default function EditSavedPrice() {
       linkProgress = { pending: first.pending };
     }
     if (!signal.aborted) {
+      if (linked.catalogBase?.kind === 'version') setCanonicalProductId(productId);
       setLinkProgress(linkProgress);
       setLoaded(state => state?.data.product ? { ...state, data: { ...state.data,
         product: { ...state.data.product, productId }, target: nextTarget,
@@ -262,8 +274,14 @@ export default function EditSavedPrice() {
       <Stack.Screen options={{ title: 'Edit saved product' }} />
       {product && product.id === id && review ? (
         <PhotoReview photo={product.selected} review={review} selectedShopName={product.shop?.displayName ?? product.review.shop}
-          saved={false} busy={busy || linkSaving} onReviewChange={setReview} onCancel={linkOpen ? () => setLinkOpen(false) : leave} onSave={save} saveError={error}
+          saved={false} busy={busy || linkSaving || photoSaving} onReviewChange={setReview} onCancel={linkOpen ? () => setLinkOpen(false) : leave} onSave={save} saveError={error}
           saveBlocked={linkOpen ? 'Save or cancel the barcode link first.' : undefined}
+          leadContent={presentationPhotos && canonicalProductId && canonicalProductId === product.productId ? (
+            <ProductPhotoEditor key={canonicalProductId} productId={canonicalProductId} photos={presentationPhotos}
+              choose={chooseProductPhoto} subscribeClear={cheapoShoppingReadCache.subscribeClear}
+              onSavingChange={setPhotoSaving} disabled={busy || linkOpen || linkSaving} />
+          ) : shopping ? <Text style={ui.small}>{product.productId
+            ? 'Check the shared product before editing its photo.' : 'Link an exact product before adding its shared photo.'}</Text> : null}
           savedBarcode={linkedBarcode?.code} barcodeLinkSaved={linkedBarcode?.saved} barcodeLinkStatus={barcodeLinkStatus}
           barcodeReview={(linkOpen || canLink && !linkedBarcode) && current?.available !== false ? (
             linkOpen ? <SavedPriceBarcode key={product.id} record={product}
@@ -276,7 +294,7 @@ export default function EditSavedPrice() {
               : <CameraActionButton label="Link barcode" disabled={busy} onPress={() => { void openBarcodeLink(); }} />
           ) : undefined}>
           {shopping && current?.target && !linkOpen ? <RecordedPriceError key={product.id} reason={current.errorReason}
-            busy={busy || linkSaving} onRecord={reason => { void changeErrorStatus(reason); }} onUndo={() => { void changeErrorStatus(null); }} /> : null}
+            busy={busy || linkSaving || photoSaving} onRecord={reason => { void changeErrorStatus(reason); }} onUndo={() => { void changeErrorStatus(null); }} /> : null}
         </PhotoReview>
       ) : (
         <View style={ui.content}>

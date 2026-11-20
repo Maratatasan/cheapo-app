@@ -16,7 +16,7 @@ type Props = {
   selectedShopName?: string;
   onReviewChange: (review: ManualReview, field: keyof ManualReview) => void;
   onSave: () => void; onRetake?: () => void; onCrop?: () => void; onCancel?: () => void;
-  galleryAction?: ReactNode; onOriginal?: () => void; onImageError?: () => void; children?: ReactNode;
+  galleryAction?: ReactNode; onOriginal?: () => void; onImageError?: () => void; children?: ReactNode; leadContent?: ReactNode;
   saveError?: string;
   saveBlocked?: string;
   suggestion?: ReviewSuggestion;
@@ -28,7 +28,7 @@ type Props = {
   savedStatus?: string;
 };
 
-export function PhotoReview({ photo, review, selectedShopName, saved, savedStatus, busy, onReviewChange, onSave, onRetake, onCrop, onCancel, onOriginal, onImageError, galleryAction, children, saveError, saveBlocked, recordingPrice, suggestion, barcodeReview, savedBarcode, barcodeLinkSaved, barcodeLinkStatus }: Props) {
+export function PhotoReview({ photo, review, selectedShopName, saved, savedStatus, busy, onReviewChange, onSave, onRetake, onCrop, onCancel, onOriginal, onImageError, galleryAction, children, leadContent, saveError, saveBlocked, recordingPrice, suggestion, barcodeReview, savedBarcode, barcodeLinkSaved, barcodeLinkStatus }: Props) {
   const container = useRef<ComponentRef<typeof View>>(null);
   const scroll = useRef<ComponentRef<typeof ScrollView>>(null);
   const fieldViews = useRef<Partial<Record<keyof ManualReview, ComponentRef<typeof View> | null>>>({});
@@ -99,6 +99,7 @@ export function PhotoReview({ photo, review, selectedShopName, saved, savedStatu
         keyboardShouldPersistTaps="handled"
         // React Native Web also dismisses on programmatic scrolling in on-drag mode.
         keyboardDismissMode={Platform.OS === 'web' ? 'none' : 'on-drag'}>
+        {leadContent}
         {photo && !keyboardVisible ? <Image source={{ uri: photo.uri }} accessibilityLabel="Price photo preview" style={styles.photo} resizeMode="contain" onError={onImageError} /> : null}
         <Text style={styles.status} accessibilityLiveRegion={savedStatus ? 'polite' : 'none'}>{savedStatus ?? (recordingPrice ? (saved ? 'On this phone' : review.productName) : editing ? 'Review saved details' : saved ? 'On this phone' : 'Review photo · Not saved')}</Text>
         <Text style={styles.note}>{recordingPrice ? (saved ? review.productName : 'Review the current price before saving.') : editing ? 'Use the amount and unit from your saved observation. Enter both unit-price fields or leave both blank.' : complete ? 'Manual details ready' : selectedShopName ? 'Incomplete draft · Add product and price' : 'Incomplete draft · Add product, price and shop'}</Text>
