@@ -2,7 +2,7 @@ import type { CatalogAction, CatalogProduct, CatalogResult, ExecuteCatalog } fro
 import { readShoppingReceipt, saveShoppingReceipt } from './postgres-shopping-receipt.ts';
 import { readShoppingMember, type ShoppingMember, type ShoppingQuery, type ShoppingTransaction } from './postgres-shopping.ts';
 
-type ProductRow = {
+export type ProductRow = {
   id: string;
   gtin: string | null;
   name: string;
@@ -14,10 +14,10 @@ type ProductRow = {
   record_version: number;
 };
 
-const productColumns = 'id, gtin, name, product_type, brand, variety, pack, comparable_group_id';
+export const productColumns = 'id, gtin, name, product_type, brand, variety, pack, comparable_group_id';
 const resultColumns = productColumns + ', record_version';
 
-function productFromRow(row: ProductRow): CatalogProduct {
+export function productFromRow(row: Omit<ProductRow, 'record_version'>): CatalogProduct {
   return {
     id: row.id,
     barcode: row.gtin ?? undefined,
